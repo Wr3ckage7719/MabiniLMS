@@ -6,12 +6,17 @@ A modern Learning Management System built with React, TypeScript, and Express.
 
 ```
 MabiniLMS/
-├── client/          # Vite + React + TypeScript + Tailwind CSS + PWA
-├── server/          # Express + TypeScript API
-├── .editorconfig    # Editor configuration
-├── .eslintrc.json   # Shared ESLint config
-├── .prettierrc.json # Shared Prettier config
-└── package.json     # Workspace root
+├── client/          # React + TypeScript + Tailwind CSS frontend
+├── server/          # Express + TypeScript backend
+└── docs/            # Documentation
+```
+
+📁 **Detailed Structure**: See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)  
+📋 **Quick Reference**: See [FILE_STRUCTURE.md](FILE_STRUCTURE.md)
+
+To create organized folder structure:
+```bash
+python organize-structure.py
 ```
 
 ## Getting Started
@@ -64,9 +69,12 @@ npm run format  # Format with Prettier
 
 Copy `.env.example` to `.env` and configure:
 
-- `DB_URL` - Database connection string
-- `JWT_SECRET` - Secret key for JWT tokens
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_ANON_KEY` - Supabase anonymous key
+- `SUPABASE_SERVICE_KEY` - Supabase service role key (server-side only)
 - `PORT` - Server port (default: 3000)
+
+See **SUPABASE_QUICKSTART.md** for setup instructions.
 
 ## Tech Stack
 
@@ -80,8 +88,8 @@ Copy `.env.example` to `.env` and configure:
 ### Server
 - 🚂 Express
 - 🔷 TypeScript
-- 🔐 JWT authentication (to be implemented)
-- 🗄️ Database (to be configured)
+- 🗄️ Supabase (PostgreSQL + Auth + Storage)
+- 🔐 Built-in authentication
 
 ## Team Collaboration
 
