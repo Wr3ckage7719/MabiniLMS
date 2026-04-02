@@ -1,6 +1,18 @@
-# Documentation
+# Documentation Folder
 
-Project documentation files:
-- Setup guides
-- Architecture documentation
-- Phase implementation guides
+This folder contains additional documentation and setup guides:
+
+## Available Guides
+
+- **GITHUB_SETUP.md** - GitHub repository and collaboration setup
+- **google-architecture.md** - Google OAuth integration architecture
+- **implementation-status.md** - Current implementation status tracking
+- **phase-5-google-oauth-setup.md** - Google OAuth setup guide
+
+## Main Documentation
+
+For the main project documentation, see: **../DOCUMENTATION.md**
+
+## Database Schema
+
+For the complete database schema, see: **../database-schema-complete.sql**

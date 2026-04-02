@@ -17,7 +17,12 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 // Server-side client with service role (bypasses RLS)
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
 
 // Client with anon key (respects RLS)
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;

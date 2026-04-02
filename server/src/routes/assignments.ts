@@ -1,0 +1,112 @@
+import { Router } from 'express';
+import { authenticate, authorize } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { UserRole } from '../types/index.js';
+import {
+  createAssignmentSchema,
+  updateAssignmentSchema,
+  courseAssignmentsParamSchema,
+  assignmentIdParamSchema,
+  listAssignmentsQuerySchema,
+  createSubmissionSchema,
+  assignmentSubmissionsParamSchema,
+  submissionIdParamSchema,
+} from '../types/assignments.js';
+import * as assignmentController from '../controllers/assignments.js';
+
+const router = Router();
+
+/**
+ * @swagger
+ * tags:
+ *   - name: Assignments
+ *     description: Assignment management
+ *   - name: Submissions
+ *     description: Assignment submissions
+ */
+
+// All routes require authentication
+router.use(authenticate);
+
+// ============================================
+// Assignment Routes
+// ============================================
+
+// GET /api/assignments - List assignments (filtered by role)
+router.get(
+  '/',
+  validate({ query: listAssignmentsQuerySchema }),
+  assignmentController.listAssignments
+);
+
+// POST /api/courses/:courseId/assignments - Create assignment (teacher/admin)
+router.post(
+  '/courses/:courseId/assignments',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: courseAssignmentsParamSchema, body: createAssignmentSchema }),
+  assignmentController.createAssignment
+);
+
+// GET /api/assignments/:id - Get assignment by ID
+router.get(
+  '/:id',
+  validate({ params: assignmentIdParamSchema }),
+  assignmentController.getAssignment
+);
+
+// PUT /api/assignments/:id - Update assignment (teacher/admin)
+router.put(
+  '/:id',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentIdParamSchema, body: updateAssignmentSchema }),
+  assignmentController.updateAssignment
+);
+
+// DELETE /api/assignments/:id - Delete assignment (teacher/admin)
+router.delete(
+  '/:id',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentIdParamSchema }),
+  assignmentController.deleteAssignment
+);
+
+// ============================================
+// Submission Routes
+// ============================================
+
+// POST /api/assignments/:assignmentId/submit - Submit assignment (student)
+router.post(
+  '/:assignmentId/submit',
+  authorize(UserRole.STUDENT),
+  validate({ params: assignmentSubmissionsParamSchema, body: createSubmissionSchema }),
+  assignmentController.submitAssignment
+);
+
+// GET /api/assignments/:assignmentId/my-submission - Get my submission (student)
+router.get(
+  '/:assignmentId/my-submission',
+  authorize(UserRole.STUDENT),
+  validate({ params: assignmentSubmissionsParamSchema }),
+  assignmentController.getMySubmission
+);
+
+// GET /api/assignments/:assignmentId/submissions - List submissions (teacher/admin)
+router.get(
+  '/:assignmentId/submissions',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentSubmissionsParamSchema }),
+  assignmentController.listSubmissions
+);
+
+// ============================================
+// Submission Detail Routes
+// ============================================
+
+// GET /api/submissions/:id - Get submission by ID
+router.get(
+  '/submissions/:id',
+  validate({ params: submissionIdParamSchema }),
+  assignmentController.getSubmission
+);
+
+export default router;
