@@ -1,73 +1,298 @@
-import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
-import { ApiError, ErrorCode, ApiResponse } from '../types/index.js';
-import logger from '../utils/logger.js';
+/**
+ * Error Handler Middleware
+ * 
+ * Centralized error handling for Express applications.
+ * Handles both operational errors and unexpected errors.
+ */
 
+import { Request, Response, NextFunction } from 'express'
+import { AppError, isAppError, isOperationalError } from '../errors/AppError.js'
+import { logger, logError, sanitizeLogData } from '../config/logger.js'
+import { ZodError } from 'zod'
+import { ApiError } from '../types/index.js'
+
+// ============================================
+// Types
+// ============================================
+
+interface ErrorResponse {
+  success: false
+  error: {
+    message: string
+    code: string
+    statusCode: number
+    metadata?: Record<string, any>
+    stack?: string
+  }
+  requestId?: string
+}
+
+// ============================================
+// Environment
+// ============================================
+
+const isDevelopment = process.env.NODE_ENV !== 'production'
+
+// ============================================
+// Error Handler
+// ============================================
+
+/**
+ * Main error handling middleware
+ * Must be registered last in middleware chain
+ */
 export const errorHandler = (
-  err: Error,
+  err: Error | AppError,
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ) => {
-  // Log all errors
-  logger.error('Error occurred', {
-    error: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method,
-    correlationId: req.headers['x-correlation-id'],
-  });
-
-  // Handle Zod validation errors
-  if (err instanceof ZodError) {
-    const response: ApiResponse = {
-      success: false,
-      error: {
-        code: ErrorCode.VALIDATION_ERROR,
-        message: 'Invalid input data',
-        details: err.errors.map((e) => ({
-          path: e.path.join('.'),
-          message: e.message,
-        })),
-      },
-    };
-    return res.status(400).json(response);
+  // If response already sent, delegate to default error handler
+  if (res.headersSent) {
+    return next(err)
   }
 
-  // Handle custom API errors
+  // Convert known error types to AppError
+  const error = normalizeError(err)
+
+  // Log the error
+  logErrorWithContext(error, req)
+
+  // Send error response
+  const response = formatErrorResponse(error, req)
+  res.status(error.statusCode).json(response)
+}
+
+// ============================================
+// Error Normalization
+// ============================================
+
+/**
+ * Convert various error types to AppError
+ */
+const normalizeError = (err: any): AppError => {
+  // Already an AppError
+  if (isAppError(err)) {
+    return err
+  }
+
+  // Legacy ApiError (from types/index.ts)
   if (err instanceof ApiError) {
-    const response: ApiResponse = {
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      },
-    };
-    return res.status(err.statusCode).json(response);
+    return new AppError(
+      err.message,
+      err.statusCode,
+      err.code,
+      true,
+      err.details ? { details: err.details } : undefined
+    )
   }
 
-  // Handle unknown errors
-  const response: ApiResponse = {
-    success: false,
-    error: {
-      code: ErrorCode.INTERNAL_ERROR,
-      message: process.env.NODE_ENV === 'production' 
-        ? 'An unexpected error occurred' 
-        : err.message,
-    },
-  };
-  res.status(500).json(response);
-};
+  // Zod validation error
+  if (err instanceof ZodError) {
+    return convertZodError(err)
+  }
 
-// Not found handler
-export const notFoundHandler = (req: Request, res: Response) => {
-  const response: ApiResponse = {
+  // Supabase/PostgreSQL errors
+  if (err.code && typeof err.code === 'string') {
+    const supabaseError = convertSupabaseError(err)
+    if (supabaseError) return supabaseError
+  }
+
+  // Generic Error to AppError
+  return new AppError(
+    err.message || 'Internal server error',
+    500,
+    'INTERNAL_ERROR',
+    false
+  )
+}
+
+/**
+ * Convert Zod validation error to ValidationError
+ */
+const convertZodError = (error: ZodError): AppError => {
+  const fields: Record<string, string[]> = {}
+
+  error.errors.forEach((err) => {
+    const path = err.path.join('.')
+    if (!fields[path]) {
+      fields[path] = []
+    }
+    fields[path].push(err.message)
+  })
+
+  return new AppError(
+    'Validation failed',
+    400,
+    'VALIDATION_ERROR',
+    true,
+    { fields }
+  )
+}
+
+/**
+ * Convert Supabase/PostgreSQL errors to appropriate AppError
+ */
+const convertSupabaseError = (err: any): AppError | null => {
+  const code = err.code
+
+  // Unique constraint violation
+  if (code === '23505') {
+    return new AppError(
+      'Resource already exists',
+      409,
+      'CONFLICT_ERROR',
+      true,
+      { detail: err.detail }
+    )
+  }
+
+  // Foreign key violation
+  if (code === '23503') {
+    return new AppError(
+      'Referenced resource not found',
+      400,
+      'VALIDATION_ERROR',
+      true,
+      { detail: err.detail }
+    )
+  }
+
+  // Not null violation
+  if (code === '23502') {
+    return new AppError(
+      'Required field missing',
+      400,
+      'VALIDATION_ERROR',
+      true,
+      { detail: err.detail }
+    )
+  }
+
+  return null
+}
+
+// ============================================
+// Error Logging
+// ============================================
+
+/**
+ * Log error with request context
+ */
+const logErrorWithContext = (error: AppError, req: Request) => {
+  const context = {
+    requestId: req.id,
+    method: req.method,
+    url: req.originalUrl,
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+    userId: (req as any).user?.id,
+    errorCode: error.errorCode,
+    statusCode: error.statusCode,
+    metadata: error.metadata,
+  }
+
+  // Sanitize request body
+  const sanitizedBody = sanitizeLogData(req.body)
+
+  logError(error, {
+    ...context,
+    body: sanitizedBody,
+  })
+
+  // Log stack trace for non-operational errors
+  if (!isOperationalError(error) && error.stack) {
+    logger.error('Stack trace:', { stack: error.stack })
+  }
+}
+
+// ============================================
+// Response Formatting
+// ============================================
+
+/**
+ * Format error response based on environment
+ */
+const formatErrorResponse = (error: AppError, req: Request): ErrorResponse => {
+  const response: ErrorResponse = {
     success: false,
     error: {
-      code: ErrorCode.NOT_FOUND,
-      message: `Route ${req.method} ${req.path} not found`,
+      message: error.message,
+      code: error.errorCode,
+      statusCode: error.statusCode,
     },
-  };
-  res.status(404).json(response);
-};
+  }
+
+  // Add request ID if available
+  if (req.id) {
+    response.requestId = req.id
+  }
+
+  // Add metadata in development or for operational errors
+  if (isDevelopment || isOperationalError(error)) {
+    if (error.metadata) {
+      response.error.metadata = error.metadata
+    }
+  }
+
+  // Add stack trace in development only
+  if (isDevelopment && error.stack) {
+    response.error.stack = error.stack
+  }
+
+  // For non-operational errors in production, use generic message
+  if (!isDevelopment && !isOperationalError(error)) {
+    response.error.message = 'An unexpected error occurred'
+  }
+
+  return response
+}
+
+// ============================================
+// 404 Handler
+// ============================================
+
+/**
+ * Handle 404 Not Found
+ * Must be registered after all routes
+ */
+export const notFoundHandler = (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  const error = new AppError(
+    `Route ${req.method} ${req.originalUrl} not found`,
+    404,
+    'NOT_FOUND_ERROR',
+    true,
+    {
+      method: req.method,
+      path: req.originalUrl,
+    }
+  )
+
+  next(error)
+}
+
+// ============================================
+// Async Handler Wrapper
+// ============================================
+
+/**
+ * Wrap async route handlers to catch errors
+ * Usage: router.get('/path', asyncHandler(async (req, res) => { ... }))
+ */
+export const asyncHandler = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
+) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next)
+  }
+}
+
+// ============================================
+// Export
+// ============================================
+
+export default errorHandler

@@ -14,6 +14,12 @@ import {
   materialRoutes, 
   enrollmentRoutes,
   googleOAuthRoutes,
+  assignmentRoutes,
+  gradeRoutes,
+  searchRoutes,
+  notificationRoutes,
+  analyticsRoutes,
+  batchRoutes,
 } from './routes/index.js';
 
 dotenv.config();
@@ -155,6 +161,12 @@ app.use('/api/users', userRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
+app.use('/api/assignments', assignmentRoutes);
+app.use('/api/grades', gradeRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/batch', batchRoutes);
 
 // Error handlers (must be last)
 app.use(notFoundHandler);

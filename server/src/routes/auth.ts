@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as authController from '../controllers/auth.js';
+import * as emailVerificationController from '../controllers/email-verification.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
@@ -10,6 +11,12 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
 } from '../types/auth.js';
+import {
+  verifyEmailSchema,
+  resendVerificationSchema,
+  sendPasswordResetSchema,
+  resetPasswordSchema as resetPasswordEmailSchema,
+} from '../types/email.js';
 
 const router = Router();
 
@@ -65,6 +72,33 @@ router.get(
   '/me',
   authenticate,
   authController.getCurrentUser
+);
+
+// Email verification routes
+router.get(
+  '/verify-email',
+  validate({ query: verifyEmailSchema }),
+  emailVerificationController.verifyEmail
+);
+
+router.post(
+  '/resend-verification',
+  authLimiter,
+  validate({ body: resendVerificationSchema }),
+  emailVerificationController.resendVerificationEmail
+);
+
+router.post(
+  '/send-password-reset',
+  authLimiter,
+  validate({ body: sendPasswordResetSchema }),
+  emailVerificationController.forgotPassword
+);
+
+router.post(
+  '/reset-password-token',
+  validate({ body: resetPasswordEmailSchema }),
+  emailVerificationController.resetPassword
 );
 
 export default router;

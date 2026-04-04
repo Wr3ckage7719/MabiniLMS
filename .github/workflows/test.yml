@@ -1,0 +1,96 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'server/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'server/**'
+      - '.github/workflows/test.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'server/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./server
+        run: npm ci
+
+      - name: Lint
+        working-directory: ./server
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Build
+        working-directory: ./server
+        run: npm run build
+
+      - name: Run tests
+        working-directory: ./server
+        run: npm test
+
+      - name: Generate coverage report
+        working-directory: ./server
+        run: npm run test:coverage
+        continue-on-error: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./server/coverage/coverage-final.json
+          flags: unittests
+          fail_ci_if_error: false
+
+  type-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+          cache-dependency-path: 'server/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./server
+        run: npm ci
+
+      - name: Type check
+        working-directory: ./server
+        run: npx tsc --noEmit
+
+  test-report:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test, type-check]
+
+    steps:
+      - name: Check test status
+        run: |
+          if [ "${{ needs.test.result }}" == "failure" ] || [ "${{ needs.type-check.result }}" == "failure" ]; then
+            echo "❌ Tests or type checking failed"
+            exit 1
+          else
+            echo "✅ All checks passed"
+          fi

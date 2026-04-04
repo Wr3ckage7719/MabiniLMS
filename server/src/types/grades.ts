@@ -1,0 +1,228 @@
+/**
+ * Grading Types & Schemas
+ * 
+ * Zod schemas and TypeScript interfaces for the grading system.
+ */
+
+import { z } from 'zod'
+
+// ============================================
+// Zod Schemas
+// ============================================
+
+/**
+ * Schema for creating a new grade
+ */
+export const createGradeSchema = z.object({
+  submission_id: z.string().uuid('Invalid submission ID'),
+  points_earned: z
+    .number()
+    .min(0, 'Points cannot be negative')
+    .max(1000, 'Points cannot exceed 1000'),
+  feedback: z.string().max(5000, 'Feedback too long').optional(),
+})
+
+/**
+ * Schema for updating an existing grade
+ */
+export const updateGradeSchema = z.object({
+  points_earned: z
+    .number()
+    .min(0, 'Points cannot be negative')
+    .max(1000, 'Points cannot exceed 1000')
+    .optional(),
+  feedback: z.string().max(5000, 'Feedback too long').nullable().optional(),
+})
+
+/**
+ * Schema for grade ID parameter
+ */
+export const gradeIdParamSchema = z.object({
+  id: z.string().uuid('Invalid grade ID'),
+})
+
+/**
+ * Schema for submission grade parameter
+ */
+export const submissionGradeParamSchema = z.object({
+  submissionId: z.string().uuid('Invalid submission ID'),
+})
+
+/**
+ * Schema for assignment grades parameter
+ */
+export const assignmentGradesParamSchema = z.object({
+  assignmentId: z.string().uuid('Invalid assignment ID'),
+})
+
+/**
+ * Schema for listing grades with optional filters
+ */
+export const listGradesQuerySchema = z.object({
+  assignment_id: z.string().uuid().optional(),
+  student_id: z.string().uuid().optional(),
+  course_id: z.string().uuid().optional(),
+  include_submission: z.enum(['true', 'false']).default('false'),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+
+/**
+ * Schema for bulk grading (grade multiple submissions)
+ */
+export const bulkGradeSchema = z.object({
+  grades: z.array(
+    z.object({
+      submission_id: z.string().uuid('Invalid submission ID'),
+      points_earned: z.number().min(0).max(1000),
+      feedback: z.string().max(5000).optional(),
+    })
+  ).min(1, 'At least one grade required').max(50, 'Maximum 50 grades per request'),
+})
+
+// ============================================
+// TypeScript Types (inferred from schemas)
+// ============================================
+
+export type CreateGradeInput = z.infer<typeof createGradeSchema>
+export type UpdateGradeInput = z.infer<typeof updateGradeSchema>
+export type ListGradesQuery = z.infer<typeof listGradesQuerySchema>
+export type BulkGradeInput = z.infer<typeof bulkGradeSchema>
+
+// ============================================
+// Database/Response Interfaces
+// ============================================
+
+/**
+ * Base grade from database
+ */
+export interface Grade {
+  id: string
+  submission_id: string
+  points_earned: number
+  feedback: string | null
+  graded_by: string
+  graded_at: string
+}
+
+/**
+ * Grade with grader information
+ */
+export interface GradeWithGrader extends Grade {
+  grader: {
+    id: string
+    email: string
+    first_name: string | null
+    last_name: string | null
+  }
+}
+
+/**
+ * Grade with full submission details
+ */
+export interface GradeWithSubmission extends GradeWithGrader {
+  submission: {
+    id: string
+    assignment_id: string
+    student_id: string
+    drive_file_id: string | null
+    drive_file_name: string | null
+    drive_view_link: string | null
+    submitted_at: string
+    status: string
+  }
+  student: {
+    id: string
+    email: string
+    first_name: string | null
+    last_name: string | null
+  }
+}
+
+/**
+ * Grade with assignment context (for reporting)
+ */
+export interface GradeWithAssignment extends GradeWithSubmission {
+  assignment: {
+    id: string
+    title: string
+    max_points: number
+    due_date: string | null
+    course_id: string
+  }
+}
+
+/**
+ * Grade statistics for an assignment
+ */
+export interface GradeStatistics {
+  assignment_id: string
+  total_submissions: number
+  graded_count: number
+  ungraded_count: number
+  average_points: number | null
+  average_percentage: number | null
+  highest_points: number | null
+  lowest_points: number | null
+  max_points: number
+  grade_distribution: {
+    A: number  // 90-100%
+    B: number  // 80-89%
+    C: number  // 70-79%
+    D: number  // 60-69%
+    F: number  // <60%
+  }
+}
+
+/**
+ * Student grade summary for a course
+ */
+export interface StudentGradeSummary {
+  student_id: string
+  student_name: string
+  student_email: string
+  total_assignments: number
+  graded_assignments: number
+  total_points_earned: number
+  total_possible_points: number
+  overall_percentage: number
+  letter_grade: string
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Calculate percentage from points
+ */
+export const calculatePercentage = (
+  pointsEarned: number,
+  maxPoints: number
+): number => {
+  if (maxPoints === 0) return 0
+  return Math.round((pointsEarned / maxPoints) * 10000) / 100 // 2 decimal places
+}
+
+/**
+ * Calculate letter grade from percentage
+ */
+export const calculateLetterGrade = (percentage: number): string => {
+  if (percentage >= 90) return 'A'
+  if (percentage >= 80) return 'B'
+  if (percentage >= 70) return 'C'
+  if (percentage >= 60) return 'D'
+  return 'F'
+}
+
+/**
+ * Format grade display (e.g., "85/100 (85%) - B")
+ */
+export const formatGradeDisplay = (
+  pointsEarned: number,
+  maxPoints: number
+): string => {
+  const percentage = calculatePercentage(pointsEarned, maxPoints)
+  const letterGrade = calculateLetterGrade(percentage)
+  return `${pointsEarned}/${maxPoints} (${percentage}%) - ${letterGrade}`
+}

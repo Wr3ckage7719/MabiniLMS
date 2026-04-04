@@ -9,6 +9,7 @@ import {
   AuthSession,
 } from '../types/auth.js';
 import logger from '../utils/logger.js';
+import * as emailVerificationService from './email-verification.js';
 
 /**
  * Sign up a new user with email and password
@@ -20,7 +21,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
-    email_confirm: true, // Auto-confirm for development
+    email_confirm: false, // Require email verification
     user_metadata: {
       first_name,
       last_name,
@@ -63,6 +64,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       first_name,
       last_name,
       role: role || UserRole.STUDENT,
+      email_verified: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -73,6 +75,19 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       error: profileError.message 
     });
     // Don't fail the signup, profile trigger should handle this
+  }
+
+  // Send email verification
+  const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173'
+  try {
+    await emailVerificationService.sendEmailVerificationToken(authData.user.id, email, baseUrl)
+    logger.info('Verification email sent', { userId: authData.user.id, email })
+  } catch (emailError) {
+    logger.error('Failed to send verification email', { 
+      userId: authData.user.id, 
+      error: emailError instanceof Error ? emailError.message : 'Unknown error'
+    })
+    // Don't fail signup if email fails to send
   }
 
   // Generate magic link (not used, but validates the user exists)
@@ -152,6 +167,17 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
 
   // Fetch user profile
   const profile = await getUserProfile(data.user.id);
+
+  // Check if email is verified (optional enforcement - can be enabled later)
+  if (!profile.email_verified) {
+    logger.warn('Login attempt with unverified email', { userId: data.user.id, email })
+    // For now, just log a warning. To enforce verification, uncomment:
+    // throw new ApiError(
+    //   ErrorCode.FORBIDDEN,
+    //   'Please verify your email before logging in. Check your inbox for the verification link.',
+    //   403
+    // );
+  }
 
   return {
     user: profile,
@@ -258,7 +284,7 @@ export const resetPassword = async (
 export const getUserProfile = async (userId: string): Promise<UserProfile> => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role, avatar_url, created_at, updated_at')
+    .select('id, email, first_name, last_name, role, avatar_url, email_verified, email_verified_at, created_at, updated_at')
     .eq('id', userId)
     .single();
 
