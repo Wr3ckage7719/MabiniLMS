@@ -1,0 +1,174 @@
+import { ClassItem, Assignment, Student, LearningMaterial, Announcement } from '@/lib/data';
+
+// Backend types (simplified - adjust based on actual backend responses)
+interface BackendCourse {
+  id: string;
+  title: string;
+  description?: string;
+  section?: string;
+  room?: string;
+  schedule?: string;
+  cover_image?: string;
+  created_by?: string;
+  teacher_name?: string;
+  enrollment_count?: number;
+  pending_assignments_count?: number;
+  archived?: boolean;
+}
+
+interface BackendAssignment {
+  id: string;
+  course_id: string;
+  title: string;
+  description?: string;
+  due_date: string;
+  max_points: number;
+  assignment_type?: string;
+  status?: string;
+  submission_status?: string;
+  attachments_count?: number;
+}
+
+interface BackendUser {
+  id: string;
+  full_name: string;
+  email: string;
+  role?: string;
+  avatar_url?: string;
+  grade?: string;
+}
+
+interface BackendMaterial {
+  id: string;
+  course_id: string;
+  title: string;
+  description?: string;
+  file_type: string;
+  file_size?: number;
+  file_url?: string;
+  uploaded_by?: string;
+  created_at: string;
+  download_count?: number;
+}
+
+// Color mapping for courses
+const COURSE_COLORS: ('blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green')[] = [
+  'blue', 'teal', 'purple', 'orange', 'pink', 'green'
+];
+
+function getCourseColor(index: number): 'blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green' {
+  return COURSE_COLORS[index % COURSE_COLORS.length];
+}
+
+export function transformCourseToClassItem(course: BackendCourse, index: number = 0): ClassItem {
+  return {
+    id: course.id,
+    name: course.title,
+    section: course.section || 'Section A',
+    teacher: course.teacher_name || 'Teacher',
+    color: getCourseColor(index),
+    students: course.enrollment_count || 0,
+    pendingAssignments: course.pending_assignments_count || 0,
+    room: course.room || 'Room TBA',
+    schedule: course.schedule || 'Schedule TBA',
+    coverImage: course.cover_image,
+    archived: course.archived || false,
+  };
+}
+
+export function transformAssignment(assignment: BackendAssignment): Assignment {
+  const statusMap: Record<string, Assignment['status']> = {
+    'pending': 'assigned',
+    'submitted': 'submitted',
+    'graded': 'graded',
+    'late': 'late',
+  };
+
+  const typeMap: Record<string, Assignment['type']> = {
+    'homework': 'assignment',
+    'quiz': 'quiz',
+    'project': 'project',
+    'discussion': 'discussion',
+  };
+
+  return {
+    id: assignment.id,
+    classId: assignment.course_id,
+    title: assignment.title,
+    description: assignment.description || '',
+    dueDate: assignment.due_date,
+    points: assignment.max_points,
+    status: statusMap[assignment.submission_status || 'pending'] || 'assigned',
+    type: typeMap[assignment.assignment_type || 'homework'] || 'assignment',
+    attachments: assignment.attachments_count,
+  };
+}
+
+export function transformUserToStudent(user: BackendUser): Student {
+  return {
+    id: user.id,
+    name: user.full_name,
+    email: user.email,
+    avatar: user.avatar_url || user.full_name.charAt(0).toUpperCase(),
+    grade: user.grade,
+  };
+}
+
+export function transformMaterial(material: BackendMaterial): LearningMaterial {
+  const fileTypeMap: Record<string, LearningMaterial['fileType']> = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'doc',
+    'image/jpeg': 'image',
+    'image/png': 'image',
+    'image/gif': 'image',
+    'video/mp4': 'video',
+    'video/webm': 'video',
+    'application/vnd.ms-powerpoint': 'presentation',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'presentation',
+    'application/vnd.ms-excel': 'spreadsheet',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'spreadsheet',
+    'application/zip': 'archive',
+    'application/x-zip-compressed': 'archive',
+  };
+
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes) return 'Unknown';
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1) {
+      const kb = bytes / 1024;
+      return `${kb.toFixed(1)} KB`;
+    }
+    return `${mb.toFixed(1)} MB`;
+  };
+
+  return {
+    id: material.id,
+    classId: material.course_id,
+    title: material.title,
+    description: material.description || '',
+    fileType: fileTypeMap[material.file_type] || 'pdf',
+    fileSize: formatFileSize(material.file_size),
+    uploadedBy: material.uploaded_by || 'Unknown',
+    uploadedDate: material.created_at,
+    downloads: material.download_count || 0,
+    url: material.file_url,
+  };
+}
+
+// Batch transformers
+export function transformCourses(courses: BackendCourse[]): ClassItem[] {
+  return courses.map((course, index) => transformCourseToClassItem(course, index));
+}
+
+export function transformAssignments(assignments: BackendAssignment[]): Assignment[] {
+  return assignments.map(transformAssignment);
+}
+
+export function transformUsers(users: BackendUser[]): Student[] {
+  return users.map(transformUserToStudent);
+}
+
+export function transformMaterials(materials: BackendMaterial[]): LearningMaterial[] {
+  return materials.map(transformMaterial);
+}
