@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { supabase } from './lib/supabase.js';
@@ -33,14 +33,14 @@ const allowedOrigins = [
   process.env.CORS_ORIGIN,
   'http://localhost:8080',
   'http://localhost:3000',
-].filter(Boolean);
+].filter(Boolean) as string[];
 
 app.use(cors({
-  origin: (origin, callback) => {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed as string))) {
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
       callback(null, true);
     } else {
       callback(null, true); // Allow all in development, restrict in production if needed
@@ -91,7 +91,7 @@ setupSwagger(app);
  *                       type: string
  *                       format: date-time
  */
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ 
     success: true,
     data: {
@@ -138,7 +138,7 @@ app.get('/api/health', (_req, res) => {
  *       500:
  *         description: Database connection failed
  */
-app.get('/api/db-test', async (_req, res) => {
+app.get('/api/db-test', async (_req: Request, res: Response) => {
   try {
     const { error } = await supabase
       .from('profiles')
