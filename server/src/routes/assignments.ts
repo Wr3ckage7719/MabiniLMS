@@ -54,8 +54,8 @@ router.get(
   assignmentController.getAssignment
 );
 
-// PUT /api/assignments/:id - Update assignment (teacher/admin)
-router.put(
+// PATCH /api/assignments/:id - Update assignment (teacher/admin)
+router.patch(
   '/:id',
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: assignmentIdParamSchema, body: updateAssignmentSchema }),

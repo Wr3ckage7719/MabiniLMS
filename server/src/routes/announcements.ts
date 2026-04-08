@@ -59,8 +59,8 @@ router.get(
   announcementController.getAnnouncement
 );
 
-// PUT /api/announcements/:id - Update announcement
-router.put(
+// PATCH /api/announcements/:id - Update announcement
+router.patch(
   '/announcements/:id',
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: announcementIdParamSchema, body: updateAnnouncementSchema }),

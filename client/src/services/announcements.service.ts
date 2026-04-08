@@ -44,7 +44,7 @@ export const announcementsService = {
   },
 
   async updateAnnouncement(announcementId: string, data: Partial<AnnouncementData>) {
-    return apiClient.put<Announcement>(`/announcements/${announcementId}`, data);
+    return apiClient.patch<Announcement>(`/announcements/${announcementId}`, data);
   },
 
   async deleteAnnouncement(announcementId: string) {

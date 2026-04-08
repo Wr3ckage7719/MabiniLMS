@@ -56,7 +56,7 @@ router.get(
 );
 
 // Update course
-router.put(
+router.patch(
   '/:id',
   authenticate,
   authorize(UserRole.ADMIN, UserRole.TEACHER),

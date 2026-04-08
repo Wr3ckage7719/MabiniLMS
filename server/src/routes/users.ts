@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as userController from '../controllers/users.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { avatarUpload } from '../middleware/upload.js';
 import { UserRole } from '../types/index.js';
 import {
   updateProfileSchema,
@@ -26,11 +27,28 @@ router.get(
   userController.getMyProfile
 );
 
-router.put(
+router.patch(
   '/me',
   authenticate,
   validate({ body: updateProfileSchema }),
   userController.updateMyProfile
+);
+
+/**
+ * @openapi
+ * /api/users/me/avatar:
+ *   post:
+ *     summary: Upload user avatar
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  '/me/avatar',
+  authenticate,
+  avatarUpload.single('avatar'),
+  userController.uploadAvatar
 );
 
 // Admin routes - list all users

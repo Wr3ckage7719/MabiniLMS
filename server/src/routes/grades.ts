@@ -67,9 +67,9 @@ router.get(
 )
 
 /**
- * PUT /api/grades/:id - Update grade (teacher/admin)
+ * PATCH /api/grades/:id - Update grade (teacher/admin)
  */
-router.put(
+router.patch(
   '/:id',
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: gradeIdParamSchema, body: updateGradeSchema }),

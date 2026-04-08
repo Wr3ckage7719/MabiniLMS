@@ -211,3 +211,74 @@ export const userExistsByEmail = async (email: string): Promise<boolean> => {
 
   return !!data;
 };
+
+/**
+ * Upload avatar to Supabase Storage and update user profile
+ */
+export const uploadAvatar = async (
+  userId: string,
+  file: {
+    buffer: Buffer;
+    mimetype: string;
+    originalname: string;
+  }
+): Promise<string> => {
+  // Generate unique filename with user ID and timestamp
+  const fileExtension = file.originalname.split('.').pop() || 'jpg';
+  const fileName = `${userId}/${Date.now()}.${fileExtension}`;
+
+  // Delete any existing avatars for this user (cleanup old files)
+  const { data: existingFiles } = await supabaseAdmin.storage
+    .from('avatars')
+    .list(userId);
+
+  if (existingFiles && existingFiles.length > 0) {
+    const filesToDelete = existingFiles.map(f => `${userId}/${f.name}`);
+    await supabaseAdmin.storage.from('avatars').remove(filesToDelete);
+  }
+
+  // Upload new avatar
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('avatars')
+    .upload(fileName, file.buffer, {
+      contentType: file.mimetype,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    logger.error('Failed to upload avatar', { userId, error: uploadError.message });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to upload avatar',
+      500
+    );
+  }
+
+  // Get public URL for the uploaded file
+  const { data: urlData } = supabaseAdmin.storage
+    .from('avatars')
+    .getPublicUrl(fileName);
+
+  const avatarUrl = urlData.publicUrl;
+
+  // Update user profile with new avatar URL
+  const { error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update({
+      avatar_url: avatarUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+
+  if (updateError) {
+    logger.error('Failed to update profile avatar URL', { userId, error: updateError.message });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to update profile with avatar URL',
+      500
+    );
+  }
+
+  logger.info('Avatar uploaded successfully', { userId, avatarUrl });
+  return avatarUrl;
+};

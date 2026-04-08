@@ -9,6 +9,11 @@ import {
 } from '../types/auth.js';
 import * as userService from '../services/users.js';
 
+// Type for request with file from multer
+interface AuthRequestWithFile extends AuthRequest {
+  file?: Express.Multer.File;
+}
+
 /**
  * @openapi
  * /api/users/me:
@@ -322,6 +327,83 @@ export const deleteUser = async (
     const response: ApiResponse = {
       success: true,
       data: { message: 'User deleted successfully' },
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @openapi
+ * /api/users/me/avatar:
+ *   post:
+ *     summary: Upload user avatar
+ *     description: Upload a new avatar image for the authenticated user
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - avatar
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: Avatar image file (JPEG, PNG, GIF, or WebP, max 5MB)
+ *     responses:
+ *       200:
+ *         description: Avatar uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     avatar_url:
+ *                       type: string
+ *                       format: uri
+ *       400:
+ *         description: Invalid file type or size
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+export const uploadAvatar = async (
+  req: AuthRequestWithFile,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = req.user!.id;
+    const file = req.file;
+
+    if (!file) {
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        'No avatar file provided',
+        400
+      );
+    }
+
+    const avatarUrl = await userService.uploadAvatar(userId, {
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      originalname: file.originalname,
+    });
+
+    const response: ApiResponse<{ avatar_url: string }> = {
+      success: true,
+      data: { avatar_url: avatarUrl },
     };
     res.json(response);
   } catch (error) {
