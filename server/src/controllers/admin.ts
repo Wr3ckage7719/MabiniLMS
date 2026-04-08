@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest, ApiResponse, ApiError, ErrorCode } from '../types/index.js'
 import * as adminService from '../services/admin.js'
-import logger from '../utils/logger.js'
 
 /**
  * Admin Controller
@@ -27,7 +26,7 @@ import logger from '../utils/logger.js'
  *         $ref: '#/components/responses/ForbiddenError'
  */
 export const listPendingTeachers = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -86,7 +85,7 @@ export const approveTeacher = async (
 
     const response: ApiResponse = {
       success: true,
-      message: 'Teacher approved successfully'
+      data: { message: 'Teacher approved successfully' }
     }
     res.json(response)
   } catch (error) {
@@ -146,7 +145,7 @@ export const rejectTeacher = async (
 
     const response: ApiResponse = {
       success: true,
-      message: 'Teacher rejected successfully'
+      data: { message: 'Teacher rejected successfully' }
     }
     res.json(response)
   } catch (error) {
@@ -189,7 +188,7 @@ export const rejectTeacher = async (
  *         $ref: '#/components/responses/ForbiddenError'
  */
 export const listStudents = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -198,7 +197,7 @@ export const listStudents = async (
     // Will be implemented via users service
     const response: ApiResponse = {
       success: true,
-      message: 'Use /api/users endpoint with role=student filter'
+      data: { message: 'Use /api/users endpoint with role=student filter' }
     }
     res.json(response)
   } catch (error) {
@@ -266,8 +265,8 @@ export const createStudent = async (
 
     const response: ApiResponse = {
       success: true,
-      message: 'Student account created successfully',
       data: {
+        message: 'Student account created successfully',
         student: result.student,
         temporary_password: result.temporaryPassword
       }
@@ -334,12 +333,11 @@ export const bulkCreateStudents = async (
     const { students } = req.body
 
     if (!Array.isArray(students) || students.length === 0) {
-      const error: ApiError = {
-        code: ErrorCode.VALIDATION_ERROR,
-        message: 'Students array is required and must not be empty',
-        statusCode: 400
-      }
-      throw error
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        'Students array is required and must not be empty',
+        400
+      )
     }
 
     const adminId = req.user!.id
@@ -355,8 +353,10 @@ export const bulkCreateStudents = async (
 
     const response: ApiResponse = {
       success: true,
-      message: `Bulk creation completed: ${result.created} created, ${result.failed} failed`,
-      data: result
+      data: {
+        message: `Bulk creation completed: ${result.created} created, ${result.failed} failed`,
+        ...result
+      }
     }
     res.json(response)
   } catch (error) {
@@ -383,7 +383,7 @@ export const bulkCreateStudents = async (
  *         $ref: '#/components/responses/ForbiddenError'
  */
 export const getSettings = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -446,7 +446,7 @@ export const updateSettings = async (
 
     const response: ApiResponse = {
       success: true,
-      message: 'Settings updated successfully'
+      data: { message: 'Settings updated successfully' }
     }
     res.json(response)
   } catch (error) {
@@ -561,7 +561,7 @@ export const getAuditLogs = async (
  *         $ref: '#/components/responses/ForbiddenError'
  */
 export const getDashboardStats = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {

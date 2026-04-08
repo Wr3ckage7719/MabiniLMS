@@ -8,10 +8,6 @@ import { AuthRequest, ApiResponse } from '../types/index';
 // Validation Schemas
 // ==========================================
 
-const setupSchema = z.object({
-  // No body params - uses authenticated user
-});
-
 const verifySchema = z.object({
   token: z.string().length(6).regex(/^\d{6}$/),
 });

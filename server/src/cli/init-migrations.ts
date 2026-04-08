@@ -33,7 +33,7 @@ const initMigrationSystem = async () => {
     console.log('  📝 Creating schema_migrations table...')
     
     // Use raw SQL execution via Supabase Admin
-    const { data, error } = await supabaseAdmin.rpc('exec_sql', {
+    const { error } = await supabaseAdmin.rpc('exec_sql', {
       sql_query: upSql
     })
     

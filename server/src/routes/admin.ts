@@ -33,33 +33,29 @@ router.get(
 /**
  * Approve a teacher
  */
-const approveTeacherSchema = z.object({
-  params: z.object({
-    id: z.string().uuid('Invalid teacher ID')
-  })
-})
-
 router.post(
   '/teachers/:id/approve',
-  validate(approveTeacherSchema),
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid teacher ID')
+    })
+  }),
   adminController.approveTeacher
 )
 
 /**
  * Reject a teacher
  */
-const rejectTeacherSchema = z.object({
-  params: z.object({
-    id: z.string().uuid('Invalid teacher ID')
-  }),
-  body: z.object({
-    reason: z.string().optional()
-  })
-})
-
 router.post(
   '/teachers/:id/reject',
-  validate(rejectTeacherSchema),
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid teacher ID')
+    }),
+    body: z.object({
+      reason: z.string().optional()
+    })
+  }),
   adminController.rejectTeacher
 )
 
@@ -78,40 +74,36 @@ router.get(
 /**
  * Create a single student account
  */
-const createStudentSchema = z.object({
-  body: z.object({
-    email: z.string().email('Invalid email address'),
-    first_name: z.string().min(1, 'First name is required'),
-    last_name: z.string().min(1, 'Last name is required'),
-    student_id: z.string().optional()
-  })
-})
-
 router.post(
   '/students',
-  validate(createStudentSchema),
+  validate({
+    body: z.object({
+      email: z.string().email('Invalid email address'),
+      first_name: z.string().min(1, 'First name is required'),
+      last_name: z.string().min(1, 'Last name is required'),
+      student_id: z.string().optional()
+    })
+  }),
   adminController.createStudent
 )
 
 /**
  * Bulk create student accounts
  */
-const bulkCreateStudentsSchema = z.object({
-  body: z.object({
-    students: z.array(
-      z.object({
-        email: z.string().email('Invalid email address'),
-        first_name: z.string().min(1, 'First name is required'),
-        last_name: z.string().min(1, 'Last name is required'),
-        student_id: z.string().optional()
-      })
-    ).min(1, 'At least one student is required')
-  })
-})
-
 router.post(
   '/students/bulk',
-  validate(bulkCreateStudentsSchema),
+  validate({
+    body: z.object({
+      students: z.array(
+        z.object({
+          email: z.string().email('Invalid email address'),
+          first_name: z.string().min(1, 'First name is required'),
+          last_name: z.string().min(1, 'Last name is required'),
+          student_id: z.string().optional()
+        })
+      ).min(1, 'At least one student is required')
+    })
+  }),
   adminController.bulkCreateStudents
 )
 
@@ -130,16 +122,14 @@ router.get(
 /**
  * Update system settings
  */
-const updateSettingsSchema = z.object({
-  body: z.record(z.any()).refine(
-    (data) => Object.keys(data).length > 0,
-    { message: 'At least one setting is required' }
-  )
-})
-
 router.put(
   '/settings',
-  validate(updateSettingsSchema),
+  validate({
+    body: z.record(z.any()).refine(
+      (data) => Object.keys(data).length > 0,
+      { message: 'At least one setting is required' }
+    )
+  }),
   adminController.updateSettings
 )
 
@@ -150,20 +140,18 @@ router.put(
 /**
  * Get audit logs
  */
-const auditLogsQuerySchema = z.object({
-  query: z.object({
-    admin_id: z.string().uuid().optional(),
-    action_type: z.string().optional(),
-    start_date: z.string().optional(),
-    end_date: z.string().optional(),
-    limit: z.string().regex(/^\d+$/).optional(),
-    offset: z.string().regex(/^\d+$/).optional()
-  })
-})
-
 router.get(
   '/audit-logs',
-  validate(auditLogsQuerySchema),
+  validate({
+    query: z.object({
+      admin_id: z.string().uuid().optional(),
+      action_type: z.string().optional(),
+      start_date: z.string().optional(),
+      end_date: z.string().optional(),
+      limit: z.string().regex(/^\d+$/).optional(),
+      offset: z.string().regex(/^\d+$/).optional()
+    })
+  }),
   adminController.getAuditLogs
 )
 
