@@ -104,6 +104,48 @@ router.post(
 );
 
 // ============================================
+// Course Archive/Unarchive Routes
+// ============================================
+
+// Archive course
+router.patch(
+  '/:id/archive',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: courseIdParamSchema }),
+  courseController.archiveCourse
+);
+
+// Unarchive course
+router.patch(
+  '/:id/unarchive',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: courseIdParamSchema }),
+  courseController.unarchiveCourse
+);
+
+// ============================================
+// Course Participants Routes
+// ============================================
+
+// Get course students (enrolled students)
+router.get(
+  '/:courseId/students',
+  authenticate,
+  validate({ params: courseMaterialsParamSchema }),
+  courseController.getCourseStudents
+);
+
+// Get course teacher(s)
+router.get(
+  '/:courseId/teachers',
+  authenticate,
+  validate({ params: courseMaterialsParamSchema }),
+  courseController.getCourseTeachers
+);
+
+// ============================================
 // Course Roster Route (for enrollments)
 // ============================================
 

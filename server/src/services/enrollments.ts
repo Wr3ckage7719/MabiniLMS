@@ -363,3 +363,33 @@ export const isStudentEnrolled = async (
 
   return !!data;
 };
+
+/**
+ * Get enrollment status for a user in a course
+ */
+export const getEnrollmentStatusForUser = async (
+  courseId: string,
+  userId: string
+): Promise<{ enrolled: boolean; status: string | null; enrollment_id: string | null }> => {
+  const { data, error } = await supabaseAdmin
+    .from('enrollments')
+    .select('id, status')
+    .eq('course_id', courseId)
+    .eq('student_id', userId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    logger.error('Failed to check enrollment status', { courseId, userId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to check enrollment status', 500);
+  }
+
+  if (!data) {
+    return { enrolled: false, status: null, enrollment_id: null };
+  }
+
+  return {
+    enrolled: data.status === EnrollmentStatus.ACTIVE,
+    status: data.status,
+    enrollment_id: data.id,
+  };
+};

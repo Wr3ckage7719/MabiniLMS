@@ -357,3 +357,45 @@ export const unenroll = async (
     next(error);
   }
 };
+
+/**
+ * @swagger
+ * /api/enrollments/course/{courseId}/status:
+ *   get:
+ *     summary: Check enrollment status for a course
+ *     tags: [Enrollments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Enrollment status
+ *       401:
+ *         description: Unauthorized
+ */
+export const getEnrollmentStatus = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params;
+    const status = await enrollmentService.getEnrollmentStatusForUser(
+      courseId,
+      req.user!.id
+    );
+
+    res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

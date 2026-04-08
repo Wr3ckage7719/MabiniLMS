@@ -31,6 +31,19 @@ const router = Router()
 router.use(authenticate)
 
 // ============================================
+// Student Grade Routes
+// ============================================
+
+/**
+ * GET /api/grades/my-grades - Get all grades for current student
+ */
+router.get(
+  '/my-grades',
+  authorize(UserRole.STUDENT),
+  gradeController.getMyGrades
+)
+
+// ============================================
 // Grade CRUD Routes
 // ============================================
 

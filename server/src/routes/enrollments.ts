@@ -56,4 +56,10 @@ router.delete(
   enrollmentController.unenroll
 );
 
+// GET /api/enrollments/course/:courseId/status - Check enrollment status for a course
+router.get(
+  '/course/:courseId/status',
+  enrollmentController.getEnrollmentStatus
+);
+
 export default router;

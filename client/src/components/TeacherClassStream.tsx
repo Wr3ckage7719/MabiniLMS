@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Bell,
   Copy,
@@ -15,7 +15,6 @@ import {
   BookOpen,
   Upload,
 } from 'lucide-react';
-import { mockAnnouncements } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -38,6 +37,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { announcementsService, Announcement } from '@/services/announcements.service';
+import { useToast } from '@/hooks/use-toast';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -56,11 +57,12 @@ export function TeacherClassStream({
   room,
   schedule,
 }: TeacherClassStreamProps) {
+  const { toast } = useToast();
   const [announcementText, setAnnouncementText] = useState('');
-  const [announcements, setAnnouncements] = useState(
-    mockAnnouncements.filter((a) => a.classId === classId)
-  );
-  const [classCode] = useState('ABC123');
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(true);
+  const [isPostingAnnouncement, setIsPostingAnnouncement] = useState(false);
+  const [classCode] = useState(classId.slice(0, 8).toUpperCase());
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState(classColor);
   const [copied, setCopied] = useState(false);
@@ -117,6 +119,36 @@ export function TeacherClassStream({
     },
   ]);
 
+  // Load announcements from API
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      setIsLoadingAnnouncements(true);
+      const response = await announcementsService.getAnnouncements(classId);
+      const apiAnnouncements = response.data?.map((a: Announcement) => ({
+        id: a.id,
+        classId: a.course_id,
+        author: a.author ? `${a.author.first_name} ${a.author.last_name}` : 'Unknown',
+        avatar: a.author?.first_name?.[0] || 'T',
+        content: a.content,
+        title: a.title,
+        timestamp: new Date(a.created_at).toLocaleDateString(),
+        comments: 0,
+        pinned: a.pinned,
+      })) || [];
+      setAnnouncements(apiAnnouncements);
+    } catch (error) {
+      console.error('Failed to load announcements:', error);
+      // Fallback to empty array on error
+      setAnnouncements([]);
+    } finally {
+      setIsLoadingAnnouncements(false);
+    }
+  }, [classId]);
+
+  useEffect(() => {
+    loadAnnouncements();
+  }, [loadAnnouncements]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -134,19 +166,32 @@ export function TeacherClassStream({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePostAnnouncement = () => {
-    if (announcementText.trim()) {
-      const newAnnouncement = {
-        id: `new-${Date.now()}`,
-        classId,
-        author: 'You',
-        avatar: 'T',
+  const handlePostAnnouncement = async () => {
+    if (!announcementText.trim()) return;
+    
+    setIsPostingAnnouncement(true);
+    try {
+      await announcementsService.createAnnouncement(classId, {
+        title: announcementText.slice(0, 100), // Use first 100 chars as title
         content: announcementText,
-        timestamp: 'just now',
-        comments: 0,
-      };
-      setAnnouncements([newAnnouncement, ...announcements]);
+      });
+      
+      toast({
+        title: 'Success',
+        description: 'Announcement posted successfully',
+      });
+      
       setAnnouncementText('');
+      // Reload announcements to get the new one with proper data
+      await loadAnnouncements();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to post announcement',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPostingAnnouncement(false);
     }
   };
 

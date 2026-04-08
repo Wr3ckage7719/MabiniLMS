@@ -1,7 +1,7 @@
 // filepath: d:\MabiniLMS\server\src\controllers\twoFactor.ts
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
-import * as twoFactorService from '../services/twoFactor';
+import * as twoFactorService from '../services/twoFactor.js';
 import { AuthRequest, ApiResponse } from '../types/index';
 
 // ==========================================

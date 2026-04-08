@@ -9,6 +9,44 @@ import { AuthRequest, UserRole } from '../types/index.js'
 import * as gradeService from '../services/grades.js'
 
 // ============================================
+// Student Grade Controllers
+// ============================================
+
+/**
+ * @swagger
+ * /api/grades/my-grades:
+ *   get:
+ *     summary: Get all grades for current student
+ *     tags: [Grades]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of all student grades across courses
+ *       401:
+ *         description: Unauthorized
+ */
+export const getMyGrades = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const grades = await gradeService.getStudentGrades(req.user!.id)
+
+    res.json({
+      success: true,
+      data: grades,
+      meta: {
+        total: grades.length,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// ============================================
 // Grade CRUD Controllers
 // ============================================
 

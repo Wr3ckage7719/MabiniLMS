@@ -1,12 +1,12 @@
 import { apiClient } from './api-client';
 
 export const enrollmentsService = {
-  async enrollInCourse(courseCode: string) {
-    return apiClient.post('/enrollments', { course_code: courseCode });
+  async enrollInCourse(courseId: string) {
+    return apiClient.post('/enrollments', { course_id: courseId });
   },
 
-  async unenrollFromCourse(courseId: string) {
-    return apiClient.delete(`/enrollments/${courseId}`);
+  async unenrollFromCourse(enrollmentId: string) {
+    return apiClient.delete(`/enrollments/${enrollmentId}`);
   },
 
   async getEnrollments(params?: { course_id?: string; user_id?: string }) {
@@ -21,6 +21,10 @@ export const enrollmentsService = {
   },
 
   async getEnrollmentStatus(courseId: string) {
-    return apiClient.get(`/enrollments/${courseId}/status`);
+    return apiClient.get(`/enrollments/course/${courseId}/status`);
+  },
+
+  async getMyCourses() {
+    return apiClient.get('/enrollments/my-courses');
   },
 };

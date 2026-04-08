@@ -4,10 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sparkles, Plus } from 'lucide-react';
+import { coursesService } from '@/services/courses.service';
+import { useToast } from '@/hooks/use-toast';
 
 interface TeacherCreateClassDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
 const colorOptions = [
@@ -55,7 +58,7 @@ const levels = [
   'Expert',
 ];
 
-export function TeacherCreateClassDialog({ open, onOpenChange }: TeacherCreateClassDialogProps) {
+export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: TeacherCreateClassDialogProps) {
   const [className, setClassName] = useState('');
   const [section, setSection] = useState('');
   const [schedule, setSchedule] = useState('');
@@ -66,26 +69,52 @@ export function TeacherCreateClassDialog({ open, onOpenChange }: TeacherCreateCl
   const [isCreating, setIsCreating] = useState(false);
   const [showCustomColor, setShowCustomColor] = useState(false);
   const [customColor, setCustomColor] = useState('#3b82f6');
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleCreateClass = async () => {
+    if (!className.trim()) {
+      setError('Please enter a class name');
+      return;
+    }
+
     setIsCreating(true);
-    // TODO: Implement actual class creation logic
-    console.log({
-      className,
-      section,
-      schedule,
-      level,
-      subject,
-      room,
-      color: showCustomColor && selectedColor === 'custom' ? customColor : selectedColor,
-    });
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    resetForm();
-    setIsCreating(false);
-    onOpenChange(false);
+    setError(null);
+
+    try {
+      const color = showCustomColor && selectedColor === 'custom' ? customColor : selectedColor;
+      
+      // Build description from subject and level
+      const description = [subject, level].filter(Boolean).join(' - ');
+      
+      await coursesService.createCourse({
+        title: className.trim(),
+        section: section.trim() || undefined,
+        description: description || undefined,
+        room: room.trim() || undefined,
+        schedule: schedule.trim() || undefined,
+        cover_image: color,
+      });
+
+      toast({
+        title: 'Success!',
+        description: 'Class created successfully.',
+      });
+      
+      resetForm();
+      onOpenChange(false);
+      onSuccess?.();
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Failed to create class';
+      setError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const resetForm = () => {
@@ -98,6 +127,12 @@ export function TeacherCreateClassDialog({ open, onOpenChange }: TeacherCreateCl
     setSelectedColor('blue');
     setShowCustomColor(false);
     setCustomColor('#3b82f6');
+    setError(null);
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onOpenChange(false);
   };
 
   const isComplete = className && section && schedule && level && subject && room;
@@ -271,12 +306,13 @@ export function TeacherCreateClassDialog({ open, onOpenChange }: TeacherCreateCl
         </div>
 
         <div className="border-t bg-secondary/20 px-6 py-4 flex flex-col-reverse sm:flex-row gap-3 sm:justify-end">
+          {error && (
+            <p className="text-sm text-destructive self-center mr-auto">{error}</p>
+          )}
           <Button 
             variant="outline" 
-            onClick={() => {
-              resetForm();
-              onOpenChange(false);
-            }}
+            onClick={handleClose}
+            disabled={isCreating}
             className="rounded-lg h-10 font-medium hover:bg-secondary transition-all"
           >
             Cancel

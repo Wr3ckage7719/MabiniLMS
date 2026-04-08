@@ -572,3 +572,86 @@ export const bulkGrade = async (
 
   return results
 }
+
+// ============================================
+// Student Grade Operations
+// ============================================
+
+/**
+ * Get all grades for a student across all courses
+ */
+export const getStudentGrades = async (studentId: string): Promise<any[]> => {
+  const { data, error } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id,
+      submitted_at,
+      status,
+      assignment:assignments(
+        id,
+        title,
+        max_points,
+        due_date,
+        assignment_type,
+        course:courses(
+          id,
+          title
+        )
+      ),
+      grade:grades(
+        id,
+        points_earned,
+        feedback,
+        graded_at
+      )
+    `)
+    .eq('student_id', studentId)
+    .order('submitted_at', { ascending: false })
+
+  if (error) {
+    logger.error('Failed to get student grades', { studentId, error: error.message })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get grades', 500)
+  }
+
+  // Transform data to flatten the structure
+  return (data || []).map((submission: any) => {
+    const assignment = Array.isArray(submission.assignment) 
+      ? submission.assignment[0] 
+      : submission.assignment
+    const course = assignment?.course
+      ? (Array.isArray(assignment.course) ? assignment.course[0] : assignment.course)
+      : null
+    const grade = Array.isArray(submission.grade) 
+      ? submission.grade[0] 
+      : submission.grade
+
+    return {
+      submission_id: submission.id,
+      submitted_at: submission.submitted_at,
+      submission_status: submission.status,
+      assignment: {
+        id: assignment?.id,
+        title: assignment?.title,
+        max_points: assignment?.max_points,
+        due_date: assignment?.due_date,
+        assignment_type: assignment?.assignment_type,
+      },
+      course: {
+        id: course?.id,
+        title: course?.title,
+      },
+      grade: grade ? {
+        id: grade.id,
+        points_earned: grade.points_earned,
+        percentage: assignment?.max_points 
+          ? calculatePercentage(grade.points_earned, assignment.max_points) 
+          : null,
+        letter_grade: assignment?.max_points 
+          ? calculateLetterGrade(calculatePercentage(grade.points_earned, assignment.max_points))
+          : null,
+        feedback: grade.feedback,
+        graded_at: grade.graded_at,
+      } : null,
+    }
+  })
+}

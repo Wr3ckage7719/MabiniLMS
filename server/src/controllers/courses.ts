@@ -652,3 +652,197 @@ export const deleteMaterial = async (
     next(error);
   }
 };
+
+// ============================================
+// Course Archive/Unarchive Controllers
+// ============================================
+
+/**
+ * @openapi
+ * /api/courses/{id}/archive:
+ *   patch:
+ *     summary: Archive a course
+ *     description: Archive a course (Teacher/Admin only)
+ *     tags:
+ *       - Courses
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Course archived successfully
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+export const archiveCourse = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const course = await courseService.archiveCourse(id, userId, userRole);
+
+    const response: ApiResponse<Course> = {
+      success: true,
+      data: course,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @openapi
+ * /api/courses/{id}/unarchive:
+ *   patch:
+ *     summary: Unarchive a course
+ *     description: Unarchive a course (Teacher/Admin only)
+ *     tags:
+ *       - Courses
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Course unarchived successfully
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+export const unarchiveCourse = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const course = await courseService.unarchiveCourse(id, userId, userRole);
+
+    const response: ApiResponse<Course> = {
+      success: true,
+      data: course,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// Course Participants Controllers
+// ============================================
+
+/**
+ * @openapi
+ * /api/courses/{courseId}/students:
+ *   get:
+ *     summary: Get course students
+ *     description: Get all enrolled students in a course
+ *     tags:
+ *       - Courses
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: courseId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: List of enrolled students
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+export const getCourseStudents = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { courseId } = req.params;
+    const students = await courseService.getCourseStudents(courseId);
+
+    const response: ApiResponse = {
+      success: true,
+      data: students,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @openapi
+ * /api/courses/{courseId}/teachers:
+ *   get:
+ *     summary: Get course teacher(s)
+ *     description: Get teacher(s) for a course
+ *     tags:
+ *       - Courses
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: courseId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: List of course teachers
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+export const getCourseTeachers = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { courseId } = req.params;
+    const teachers = await courseService.getCourseTeachers(courseId);
+
+    const response: ApiResponse = {
+      success: true,
+      data: teachers,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};

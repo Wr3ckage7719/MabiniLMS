@@ -539,3 +539,170 @@ export const deleteMaterial = async (
     );
   }
 };
+
+// ============================================
+// Course Archive/Unarchive Operations
+// ============================================
+
+/**
+ * Archive a course
+ */
+export const archiveCourse = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<Course> => {
+  const course = await getCourseById(courseId);
+
+  if (userRole !== UserRole.ADMIN && course.teacher_id !== userId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only archive your own courses',
+      403
+    );
+  }
+
+  if (course.status === CourseStatus.ARCHIVED) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Course is already archived',
+      400
+    );
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('courses')
+    .update({
+      status: CourseStatus.ARCHIVED,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', courseId)
+    .select(`
+      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
+      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
+    `)
+    .single();
+
+  if (error) {
+    logger.error('Failed to archive course', { courseId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to archive course', 500);
+  }
+
+  return fixTeacherJoin(data);
+};
+
+/**
+ * Unarchive a course
+ */
+export const unarchiveCourse = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<Course> => {
+  const course = await getCourseById(courseId);
+
+  if (userRole !== UserRole.ADMIN && course.teacher_id !== userId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only unarchive your own courses',
+      403
+    );
+  }
+
+  if (course.status !== CourseStatus.ARCHIVED) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Course is not archived',
+      400
+    );
+  }
+
+  // Unarchive returns to published status
+  const { data, error } = await supabaseAdmin
+    .from('courses')
+    .update({
+      status: CourseStatus.PUBLISHED,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', courseId)
+    .select(`
+      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
+      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
+    `)
+    .single();
+
+  if (error) {
+    logger.error('Failed to unarchive course', { courseId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to unarchive course', 500);
+  }
+
+  return fixTeacherJoin(data);
+};
+
+// ============================================
+// Course Participants Operations
+// ============================================
+
+/**
+ * Get enrolled students in a course
+ */
+export const getCourseStudents = async (courseId: string): Promise<any[]> => {
+  // Verify course exists
+  await getCourseById(courseId);
+
+  const { data, error } = await supabaseAdmin
+    .from('enrollments')
+    .select(`
+      id,
+      enrolled_at,
+      status,
+      student:profiles!enrollments_student_id_fkey(
+        id, email, first_name, last_name, avatar_url
+      )
+    `)
+    .eq('course_id', courseId)
+    .eq('status', 'active')
+    .order('enrolled_at', { ascending: true });
+
+  if (error) {
+    logger.error('Failed to get course students', { courseId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get course students', 500);
+  }
+
+  // Transform to flatten student data
+  return (data || []).map((enrollment: any) => {
+    const student = Array.isArray(enrollment.student) 
+      ? enrollment.student[0] 
+      : enrollment.student;
+    return {
+      id: student?.id,
+      email: student?.email,
+      first_name: student?.first_name,
+      last_name: student?.last_name,
+      avatar_url: student?.avatar_url,
+      enrolled_at: enrollment.enrolled_at,
+      enrollment_status: enrollment.status,
+    };
+  });
+};
+
+/**
+ * Get teacher(s) for a course
+ */
+export const getCourseTeachers = async (courseId: string): Promise<any[]> => {
+  const course = await getCourseById(courseId);
+
+  // Currently courses have a single teacher, but return as array for future extensibility
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, first_name, last_name, avatar_url')
+    .eq('id', course.teacher_id)
+    .single();
+
+  if (error) {
+    logger.error('Failed to get course teachers', { courseId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get course teachers', 500);
+  }
+
+  return data ? [data] : [];
+};
