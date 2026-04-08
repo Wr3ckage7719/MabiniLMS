@@ -2,7 +2,7 @@
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as twoFactorService from '../services/twoFactor.js';
-import { AuthRequest, ApiResponse } from '../types/index';
+import { AuthRequest, ApiResponse } from '../types/index.js';
 
 // ==========================================
 // Validation Schemas

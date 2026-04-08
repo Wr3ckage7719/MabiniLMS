@@ -2,8 +2,8 @@
 import speakeasy from 'speakeasy';
 import qrcode from 'qrcode';
 import crypto from 'crypto';
-import { supabase } from '../lib/supabase';
-import { ApiError, ErrorCode } from '../types/index';
+import { supabase } from '../lib/supabase.js';
+import { ApiError, ErrorCode } from '../types/index.js';
 
 const APP_NAME = 'MabiniLMS';
 
