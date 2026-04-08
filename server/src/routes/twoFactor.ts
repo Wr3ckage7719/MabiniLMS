@@ -1,7 +1,7 @@
 // filepath: d:\MabiniLMS\server\src\routes\twoFactor.ts
 import express from 'express';
-import * as twoFactorController from '../controllers/twoFactor';
-import { authenticate } from '../middleware/auth';
+import * as twoFactorController from '../controllers/twoFactor.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
