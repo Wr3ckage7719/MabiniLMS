@@ -1,8 +1,9 @@
-import { Home, BookOpen, Calendar, BarChart3, Archive, Settings, ChevronLeft } from 'lucide-react';
+import { Home, BookOpen, Calendar, BarChart3, Archive, Settings, ChevronLeft, GraduationCap } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { mockClasses, CLASS_COLORS } from '@/lib/data';
+import { CLASS_COLORS } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useClasses } from '@/hooks-api/useClasses';
 
 interface SidebarProps {
   open: boolean;
@@ -17,6 +18,8 @@ const navItems = [
 ];
 
 export function AppSidebar({ open, onClose }: SidebarProps) {
+  const { data: classes = [], isLoading } = useClasses();
+
   return (
     <>
       {open && (
@@ -63,24 +66,36 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
             <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Your Classes
             </p>
-            {mockClasses.map((cls) => (
-              <NavLink
-                key={cls.id}
-                to={`/class/${cls.id}`}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all',
-                    isActive
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                  )
-                }
-                onClick={onClose}
-              >
-                <div className={`w-3 h-3 rounded-full ${CLASS_COLORS[cls.color]}`} />
-                <span className="truncate">{cls.name}</span>
-              </NavLink>
-            ))}
+            {isLoading ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">Loading courses...</div>
+            ) : classes.length === 0 ? (
+              <div className="px-3 py-4 text-center">
+                <div className="inline-flex p-2 rounded-full bg-secondary/50 mb-2">
+                  <GraduationCap className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="text-xs text-muted-foreground">No enrolled courses</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Enroll in a course to get started</p>
+              </div>
+            ) : (
+              classes.map((cls) => (
+                <NavLink
+                  key={cls.id}
+                  to={`/class/${cls.id}`}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all',
+                      isActive
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    )
+                  }
+                  onClick={onClose}
+                >
+                  <div className={`w-3 h-3 rounded-full ${CLASS_COLORS[cls.color]}`} />
+                  <span className="truncate">{cls.name}</span>
+                </NavLink>
+              ))
+            )}
           </div>
         </nav>
       </aside>

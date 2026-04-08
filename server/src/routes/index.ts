@@ -1,6 +1,7 @@
 // Export all routes for easy importing
 export { default as authRoutes } from './auth.js';
 export { default as userRoutes } from './users.js';
+export { default as adminRoutes } from './admin.js';
 export { default as courseRoutes } from './courses.js';
 export { default as materialRoutes } from './materials.js';
 export { default as enrollmentRoutes } from './enrollments.js';
@@ -11,3 +12,4 @@ export { default as searchRoutes } from './search.js';
 export { default as notificationRoutes } from './notifications.js';
 export { default as analyticsRoutes } from './analytics.js';
 export { default as batchRoutes } from './batch.js';
+export { default as twoFactorRoutes } from './twoFactor.js';

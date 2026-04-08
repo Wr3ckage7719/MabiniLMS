@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { mockClasses, mockAnnouncements, mockStudents, CLASS_COLORS } from '@/lib/data';
+import { CLASS_COLORS } from '@/lib/data';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useMaterials } from '@/hooks-api/useMaterials';
+import { useClasses } from '@/hooks-api/useClasses';
 import { useRole } from '@/contexts/RoleContext';
-import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, File, Music, Image as ImageIcon, Archive, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, File, Music, Image as ImageIcon, Archive, Loader2, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -54,19 +55,44 @@ export default function ClassDetail() {
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
 
   // Fetch real data from API
+  const { data: classes = [], isLoading: classesLoading } = useClasses();
   const { data: assignments = [], isLoading: assignmentsLoading } = useAssignments(id);
   const { data: materials = [], isLoading: materialsLoading } = useMaterials(id);
   const [selectedAssignment, setSelectedAssignment] = useState<typeof assignments[0] | null>(null);
 
-  const cls = mockClasses.find((c) => c.id === id);
-  if (!cls) return <div className="p-8">Class not found.</div>;
+  const cls = classes.find((c) => c.id === id);
+  
+  if (classesLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Loading course...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const announcements = mockAnnouncements.filter((a) => a.classId === id);
+  if (!cls) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
+        <div className="p-4 rounded-full bg-secondary/50 mb-4">
+          <GraduationCap className="h-12 w-12 text-muted-foreground" />
+        </div>
+        <h2 className="text-2xl font-bold mb-2">Course not found</h2>
+        <p className="text-muted-foreground mb-4">The course you're looking for doesn't exist or you don't have access.</p>
+        <Button onClick={() => navigate('/dashboard')}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Dashboard
+        </Button>
+      </div>
+    );
+  }
+
+  // TODO: Fetch announcements from API when endpoint is ready
+  const announcements: any[] = []; // Empty for now until API is ready
   
   const isLoading = assignmentsLoading || materialsLoading;
-
-  // For student view, simulate their own grade
-  const currentStudentGrade = mockStudents[0];
 
   const handleArchive = () => {
     navigate('/');

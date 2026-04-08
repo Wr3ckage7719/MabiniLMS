@@ -12,6 +12,8 @@ import {
   SubmissionStatus,
 } from '../types/assignments.js';
 import * as driveService from './google-drive.js';
+import * as auditService from './audit.js';
+import { AuditEventType } from './audit.js';
 import logger from '../utils/logger.js';
 
 // ============================================
@@ -345,6 +347,18 @@ export const submitAssignment = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update submission', 500);
     }
 
+    // Log resubmission audit event
+    await auditService.logAssignmentEvent(
+      userId,
+      AuditEventType.ASSIGNMENT_RESUBMITTED,
+      assignmentId,
+      {
+        submission_id: data.id,
+        assignment_title: assignment.title,
+        is_late: isLate,
+      }
+    );
+
     return data as Submission;
   }
 
@@ -368,6 +382,18 @@ export const submitAssignment = async (
     logger.error('Failed to create submission', { error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to submit assignment', 500);
   }
+
+  // Log submission audit event
+  await auditService.logAssignmentEvent(
+    userId,
+    AuditEventType.ASSIGNMENT_SUBMITTED,
+    assignmentId,
+    {
+      submission_id: data.id,
+      assignment_title: assignment.title,
+      is_late: isLate,
+    }
+  );
 
   return data as Submission;
 };

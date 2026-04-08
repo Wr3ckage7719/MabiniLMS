@@ -1,11 +1,15 @@
 import { BookOpen, FileText, CheckCircle2, Clock } from 'lucide-react';
-import { mockClasses, mockAssignments } from '@/lib/data';
+import { useClasses } from '@/hooks-api/useClasses';
+import { useAssignments } from '@/hooks-api/useAssignments';
 
 export function StatsBar() {
-  const totalClasses = mockClasses.length;
-  const pending = mockAssignments.filter(a => a.status === 'assigned').length;
-  const submitted = mockAssignments.filter(a => a.status === 'submitted').length;
-  const late = mockAssignments.filter(a => a.status === 'late').length;
+  const { data: classes = [] } = useClasses();
+  const { data: assignments = [] } = useAssignments();
+
+  const totalClasses = classes.length;
+  const pending = assignments.filter(a => a.status === 'assigned').length;
+  const submitted = assignments.filter(a => a.status === 'submitted' || a.status === 'graded').length;
+  const late = assignments.filter(a => a.status === 'late').length;
 
   const stats = [
     { label: 'Classes', value: totalClasses, icon: BookOpen, color: 'text-primary bg-primary/10' },

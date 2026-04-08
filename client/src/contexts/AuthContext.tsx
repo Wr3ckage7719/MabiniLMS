@@ -6,6 +6,8 @@ interface User {
   name: string;
   email: string;
   avatar: string;
+  role?: string;
+  pending_approval?: boolean;
 }
 
 interface AuthContextType {
@@ -67,11 +69,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const avatar = profile?.user_metadata?.avatar_url || 
                      fullName.charAt(0).toUpperCase();
 
+      // Fetch user profile data including role and pending_approval
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('role, pending_approval')
+        .eq('id', id)
+        .single();
+
       return {
         id,
         name: fullName,
         email,
         avatar,
+        role: profileData?.role,
+        pending_approval: profileData?.pending_approval || false,
       };
     } catch (error) {
       console.error('Failed to load user data:', error);

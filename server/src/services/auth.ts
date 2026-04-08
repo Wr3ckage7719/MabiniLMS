@@ -10,12 +10,58 @@ import {
 } from '../types/auth.js';
 import logger from '../utils/logger.js';
 import * as emailVerificationService from './email-verification.js';
+import * as auditService from './audit.js';
+import { AuditEventType } from './audit.js';
+import * as twoFactorService from './twoFactor.js';
 
 /**
  * Sign up a new user with email and password
  */
 export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   const { email, password, first_name, last_name, role } = input;
+
+  // Check institutional email domain for students
+  if (role === UserRole.STUDENT) {
+    const { data: settingsData } = await supabaseAdmin
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'institutional_email_domains')
+      .single();
+
+    const allowedDomains: string[] = settingsData?.value || [];
+    
+    if (allowedDomains.length > 0) {
+      const emailDomain = email.split('@')[1]?.toLowerCase();
+      const isValidDomain = allowedDomains.some(
+        (domain: string) => emailDomain === domain.toLowerCase()
+      );
+
+      if (!isValidDomain) {
+        throw new ApiError(
+          ErrorCode.VALIDATION_ERROR,
+          `Student signup requires an institutional email. Allowed domains: ${allowedDomains.join(', ')}`,
+          400
+        );
+      }
+    }
+
+    // Check if student self-signup is allowed
+    const { data: selfSignupData } = await supabaseAdmin
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'allow_student_self_signup')
+      .single();
+
+    const allowSelfSignup = selfSignupData?.value ?? false;
+    
+    if (!allowSelfSignup) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Student accounts must be created by an administrator. Please contact your school admin.',
+        403
+      );
+    }
+  }
 
   // Create user in Supabase Auth
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -56,6 +102,9 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   }
 
   // Create or update profile in profiles table
+  // For teachers, set pending_approval flag
+  const isPendingTeacher = role === UserRole.TEACHER
+  
   const { error: profileError } = await supabaseAdmin
     .from('profiles')
     .upsert({
@@ -65,6 +114,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       last_name,
       role: role || UserRole.STUDENT,
       email_verified: false,
+      pending_approval: isPendingTeacher, // Teachers require admin approval
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -75,6 +125,14 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       error: profileError.message 
     });
     // Don't fail the signup, profile trigger should handle this
+  }
+
+  // Log if this is a teacher signup that requires approval
+  if (isPendingTeacher) {
+    logger.info('Teacher signup - pending admin approval', { 
+      userId: authData.user.id, 
+      email 
+    })
   }
 
   // Send email verification
@@ -131,8 +189,12 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 /**
  * Login user with email and password
  */
-export const login = async (input: LoginInput): Promise<AuthResponse> => {
-  const { email, password } = input;
+export const login = async (
+  input: LoginInput,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<AuthResponse> => {
+  const { email, password, twoFactorCode } = input;
 
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({
     email,
@@ -141,6 +203,23 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
 
   if (error) {
     logger.error('Login failed', { email, error: error.message });
+    
+    // Try to get user ID for failed login audit (if user exists)
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .single();
+    
+    if (profile?.id) {
+      await auditService.logAuthEvent(
+        profile.id,
+        AuditEventType.LOGIN_FAILED,
+        ipAddress,
+        userAgent,
+        { reason: error.message }
+      );
+    }
     
     if (error.message.includes('Invalid login credentials')) {
       throw new ApiError(
@@ -168,6 +247,51 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
   // Fetch user profile
   const profile = await getUserProfile(data.user.id);
 
+  // Check if 2FA is enabled
+  const has2FA = await twoFactorService.isTwoFactorEnabled(data.user.id);
+  
+  if (has2FA) {
+    // If 2FA is enabled but no code provided, return requires2FA flag
+    if (!twoFactorCode) {
+      // Sign out the session immediately (don't grant access yet)
+      await supabaseAdmin.auth.admin.signOut(data.session.access_token);
+      
+      return {
+        user: profile,
+        session: {
+          access_token: '',
+          refresh_token: '',
+          expires_in: 0,
+          token_type: 'bearer',
+        },
+        requires2FA: true,
+        tempToken: data.session.access_token, // Temp token for verification
+      };
+    }
+    
+    // Verify 2FA code
+    try {
+      await twoFactorService.verifyTwoFactor(
+        data.user.id,
+        twoFactorCode,
+        ipAddress,
+        userAgent
+      );
+    } catch (error) {
+      // Sign out on failed 2FA
+      await supabaseAdmin.auth.admin.signOut(data.session.access_token);
+      throw error;
+    }
+  }
+
+  // Log successful login
+  await auditService.logAuthEvent(
+    data.user.id,
+    AuditEventType.LOGIN_SUCCESS,
+    ipAddress,
+    userAgent
+  );
+
   // Check if email is verified (optional enforcement - can be enabled later)
   if (!profile.email_verified) {
     logger.warn('Login attempt with unverified email', { userId: data.user.id, email })
@@ -193,7 +317,19 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
 /**
  * Logout user by revoking their session
  */
-export const logout = async (userId: string): Promise<void> => {
+export const logout = async (
+  userId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  // Log logout event
+  await auditService.logAuthEvent(
+    userId,
+    AuditEventType.LOGOUT,
+    ipAddress,
+    userAgent
+  );
+
   // Sign out user from Supabase
   const { error } = await supabaseAdmin.auth.admin.signOut(userId);
 
@@ -275,6 +411,115 @@ export const resetPassword = async (
       'Failed to reset password',
       500
     );
+  }
+
+  // Update password_changed_at to invalidate existing sessions
+  await updatePasswordChangedAt(user.id);
+};
+
+/**
+ * Change password for authenticated user
+ */
+export const changePassword = async (
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  // First verify current password by attempting to get user session
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('email')
+    .eq('id', userId)
+    .single();
+
+  if (!profile?.email) {
+    throw new ApiError(
+      ErrorCode.NOT_FOUND,
+      'User not found',
+      404
+    );
+  }
+
+  // Verify current password
+  const { error: verifyError } = await supabaseAdmin.auth.signInWithPassword({
+    email: profile.email,
+    password: currentPassword,
+  });
+
+  if (verifyError) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Current password is incorrect',
+      401
+    );
+  }
+
+  // Update password
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (error) {
+    logger.error('Password change failed', { userId, error: error.message });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to change password',
+      500
+    );
+  }
+
+  // Update password_changed_at to invalidate other sessions
+  await updatePasswordChangedAt(userId);
+  
+  // Log password change event
+  await auditService.logPasswordEvent(
+    userId,
+    AuditEventType.PASSWORD_CHANGED,
+    ipAddress,
+    userAgent
+  );
+  
+  logger.info('Password changed successfully', { userId });
+};
+
+/**
+ * Update password_changed_at timestamp (invalidates existing sessions)
+ */
+export const updatePasswordChangedAt = async (userId: string): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ password_changed_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  if (error) {
+    logger.error('Failed to update password_changed_at', { userId, error: error.message });
+    // Don't throw - this is not critical
+  }
+};
+
+/**
+ * Log session event
+ */
+export const logSessionEvent = async (
+  userId: string,
+  eventType: 'login' | 'logout' | 'token_refresh' | 'session_expired',
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  try {
+    await supabaseAdmin
+      .from('session_logs')
+      .insert({
+        user_id: userId,
+        event_type: eventType,
+        ip_address: ipAddress || null,
+        user_agent: userAgent || null,
+      });
+  } catch (error) {
+    logger.error('Failed to log session event', { userId, eventType, error });
+    // Don't throw - logging failure shouldn't break auth flow
   }
 };
 

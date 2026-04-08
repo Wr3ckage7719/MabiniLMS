@@ -1,21 +1,62 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { AppSidebar } from '@/components/Sidebar';
 import { CreateClassDialog } from '@/components/CreateClassDialog';
 import { JoinClassDialog } from '@/components/JoinClassDialog';
+import FirstLoginPasswordChange from '@/components/FirstLoginPasswordChange';
+import PendingApprovalOverlay from '@/components/PendingApprovalOverlay';
 import { RoleProvider } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { Loader2 } from 'lucide-react';
 
 export default function AppLayout() {
-  const { isLoggedIn, isLoading } = useAuth();
+  const { isLoggedIn, isLoading, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [checkingPassword, setCheckingPassword] = useState(true);
+
+  // Check if user must change password (for student first login)
+  useEffect(() => {
+    const checkTempPassword = async () => {
+      if (!user?.id) {
+        setCheckingPassword(false);
+        return;
+      }
+      
+      try {
+        const { data } = await supabase
+          .from('temporary_passwords')
+          .select('must_change_password')
+          .eq('user_id', user.id)
+          .is('used_at', null)
+          .single();
+        
+        setMustChangePassword(data?.must_change_password || false);
+      } catch {
+        // No temp password record or error - that's fine
+        setMustChangePassword(false);
+      } finally {
+        setCheckingPassword(false);
+      }
+    };
+
+    if (isLoggedIn && user) {
+      checkTempPassword();
+    } else {
+      setCheckingPassword(false);
+    }
+  }, [isLoggedIn, user]);
+
+  const handlePasswordChanged = () => {
+    setMustChangePassword(false);
+  };
 
   // Show loading while checking auth
-  if (isLoading) {
+  if (isLoading || checkingPassword) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -44,6 +85,18 @@ export default function AppLayout() {
         </div>
         <CreateClassDialog open={createOpen} onOpenChange={setCreateOpen} />
         <JoinClassDialog open={joinOpen} onOpenChange={setJoinOpen} />
+        
+        {/* Force password change for students with temporary passwords */}
+        {user && (
+          <FirstLoginPasswordChange
+            open={mustChangePassword}
+            userId={user.id}
+            onComplete={handlePasswordChanged}
+          />
+        )}
+
+        {/* Pending approval overlay for teachers */}
+        <PendingApprovalOverlay />
       </div>
     </RoleProvider>
   );

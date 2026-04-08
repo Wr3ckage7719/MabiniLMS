@@ -16,6 +16,7 @@ export const signupSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
+  twoFactorCode: z.string().optional(), // Optional 2FA code
 });
 
 export const forgotPasswordSchema = z.object({
@@ -96,6 +97,8 @@ export interface UserProfile {
 export interface AuthResponse {
   user: UserProfile;
   session: AuthSession;
+  requires2FA?: boolean; // Flag to indicate 2FA is required
+  tempToken?: string; // Temporary token for 2FA verification
 }
 
 export interface PaginatedUsers {

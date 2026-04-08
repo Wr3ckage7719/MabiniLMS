@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { GraduationCap } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { GraduationCap, AlertCircle } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, loginWithGoogle, isLoggedIn } = useAuth();
+  const { login, loginWithGoogle, isLoggedIn, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -16,13 +17,19 @@ export default function LoginPage() {
   const [isTeacher, setIsTeacher] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [showAnimation, setShowAnimation] = useState(false);
+  const [showPendingApproval, setShowPendingApproval] = useState(false);
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
-    if (isLoggedIn) {
-      navigate('/dashboard');
+    if (isLoggedIn && user) {
+      // Check if teacher account is pending approval
+      if (user.role === 'teacher' && user.pending_approval) {
+        setShowPendingApproval(true);
+      } else {
+        navigate('/dashboard');
+      }
     }
-  }, [isLoggedIn, navigate]);
+  }, [isLoggedIn, user, navigate]);
 
   useEffect(() => {
     setShowAnimation(true);
@@ -42,11 +49,12 @@ export default function LoginPage() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setShowPendingApproval(false);
     setIsLoading(true);
 
     try {
       await login(email, password);
-      navigate('/dashboard');
+      // The useEffect will handle navigation or showing pending message
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -134,6 +142,19 @@ export default function LoginPage() {
               </button>
 
               {error && <div className="text-sm text-destructive text-center bg-destructive/10 p-3 rounded-lg">{error}</div>}
+
+              {/* Pending Approval Alert for Teachers */}
+              {showPendingApproval && (
+                <Alert className="bg-amber-500/10 border-amber-500/30 text-amber-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Account Pending Approval</strong>
+                    <p className="mt-1 text-sm">
+                      Your teacher account is awaiting admin verification. You will receive an email once approved.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <Button
                 type="submit"

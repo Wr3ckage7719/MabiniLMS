@@ -74,6 +74,13 @@ router.get(
   authController.getCurrentUser
 );
 
+router.post(
+  '/change-password',
+  authenticate,
+  authLimiter,
+  authController.changePassword
+);
+
 // Email verification routes
 router.get(
   '/verify-email',

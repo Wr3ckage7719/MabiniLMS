@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import AppLayout from "./layouts/AppLayout";
+import AdminLayout from "./layouts/AdminLayout";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import ClassDetail from "./pages/ClassDetail";
@@ -13,6 +14,12 @@ import CalendarPage from "./pages/CalendarPage";
 import GradesPage from "./pages/GradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import AdminLoginPage from "./pages/AdminLoginPage";
+import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
+import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
+import StudentManagementPage from "./pages/admin/StudentManagementPage";
+import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
+import AuditLogsPage from "./pages/admin/AuditLogsPage";
 import NotFound from "./pages/NotFound";
 import TeacherDemoPage from "./pages/TeacherDemoPage";
 
@@ -36,6 +43,19 @@ const AppRoutes = () => (
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/teacher-demo" element={<TeacherDemoPage />} />
+    
+    {/* Admin Routes */}
+    <Route path="/admin/login" element={<AdminLoginPage />} />
+    <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+    <Route element={<AdminLayout />}>
+      <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+      <Route path="/admin/teachers/pending" element={<PendingTeachersPage />} />
+      <Route path="/admin/students" element={<StudentManagementPage />} />
+      <Route path="/admin/settings" element={<SystemSettingsPage />} />
+      <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
+    </Route>
+    
+    {/* Regular App Routes */}
     <Route element={<AppLayout />}>
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/class/:id" element={<ClassDetail />} />
@@ -44,6 +64,7 @@ const AppRoutes = () => (
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/archived" element={<Dashboard />} />
     </Route>
+    
     <Route path="*" element={<NotFound />} />
   </Routes>
 );

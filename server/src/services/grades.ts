@@ -18,6 +18,8 @@ import {
   calculateLetterGrade,
 } from '../types/grades.js'
 import { SubmissionStatus } from '../types/assignments.js'
+import * as auditService from './audit.js'
+import { AuditEventType } from './audit.js'
 import logger from '../utils/logger.js'
 
 // ============================================
@@ -114,6 +116,20 @@ export const createGrade = async (
     .update({ status: SubmissionStatus.GRADED })
     .eq('id', input.submission_id)
 
+  // Log grade assignment audit event
+  await auditService.logGradeEvent(
+    submission.student_id,
+    AuditEventType.GRADE_ASSIGNED,
+    grade.id,
+    {
+      submission_id: input.submission_id,
+      assignment_id: assignment.id,
+      points_earned: input.points_earned,
+      max_points: assignment.max_points,
+      graded_by: graderId,
+    }
+  );
+
   logger.info('Grade created', {
     gradeId: grade.id,
     submissionId: input.submission_id,
@@ -198,6 +214,28 @@ export const updateGrade = async (
   if (updateError) {
     logger.error('Failed to update grade', { error: updateError.message })
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update grade', 500)
+  }
+
+  // Get student_id from submission
+  const { data: submissionData } = await supabaseAdmin
+    .from('submissions')
+    .select('student_id')
+    .eq('id', existingGrade.submission_id)
+    .single();
+
+  // Log grade update audit event
+  if (submissionData) {
+    await auditService.logGradeEvent(
+      submissionData.student_id,
+      AuditEventType.GRADE_UPDATED,
+      gradeId,
+      {
+        submission_id: existingGrade.submission_id,
+        old_points: existingGrade.points_earned,
+        new_points: input.points_earned,
+        updated_by: userId,
+      }
+    );
   }
 
   logger.info('Grade updated', { gradeId, userId })

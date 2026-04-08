@@ -1,15 +1,19 @@
 import express, { Request, Response } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { supabase } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
-import { apiLimiter } from './middleware/rateLimiter.js';
+import { apiLimiter, adminLimiter, batchLimiter, searchLimiter } from './middleware/rateLimiter.js';
 import logger from './utils/logger.js';
-import { 
+import { initializeWebSocket } from './services/websocket.js';
+import {
   authRoutes, 
-  userRoutes, 
+  userRoutes,
+  adminRoutes,
   courseRoutes, 
   materialRoutes, 
   enrollmentRoutes,
@@ -20,36 +24,115 @@ import {
   notificationRoutes,
   analyticsRoutes,
   batchRoutes,
+  twoFactorRoutes,
 } from './routes/index.js';
 
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// Middleware
+// Initialize WebSocket server
+initializeWebSocket(httpServer);
+
+// Disable X-Powered-By header (security through obscurity)
+app.disable('x-powered-by');
+
+// =============================================================================
+// SECURITY MIDDLEWARE
+// =============================================================================
+
+// 1. Helmet.js - Security headers (CSP, X-Frame-Options, HSTS, etc.)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Needed for Swagger UI
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", process.env.SUPABASE_URL || ''].filter(Boolean),
+      fontSrc: ["'self'", "https:", "data:"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Allow embedding for API docs
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true,
+  },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  xContentTypeOptions: true,
+  xDnsPrefetchControl: { allow: false },
+  xDownloadOptions: true,
+  xFrameOptions: { action: "deny" },
+  xPermittedCrossDomainPolicies: { permittedPolicies: "none" },
+  xPoweredBy: false,
+  xXssProtection: true,
+}));
+
+// 2. CORS Configuration - Strict origin validation
 const allowedOrigins = [
   process.env.CLIENT_URL || 'http://localhost:5173',
   process.env.CORS_ORIGIN,
   'http://localhost:8080',
+  'http://localhost:8081',
   'http://localhost:3000',
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
     
-    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+    // Check if origin matches allowed list
+    const isAllowed = allowedOrigins.some(allowed => 
+      origin === allowed || origin.startsWith(allowed)
+    );
+    
+    if (isAllowed) {
       callback(null, true);
+    } else if (isProduction) {
+      // In production, reject unknown origins
+      logger.warn('CORS blocked request from unknown origin', { origin });
+      callback(new Error('Not allowed by CORS'), false);
     } else {
-      callback(null, true); // Allow all in development, restrict in production if needed
+      // In development, allow but log warning
+      logger.warn('CORS allowing unknown origin in development', { origin });
+      callback(null, true);
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
+  exposedHeaders: ['X-Request-Id'],
+  maxAge: 86400, // 24 hours preflight cache
 }));
-app.use(express.json());
-app.use(requestLogger); // Add correlation IDs and log errors
+
+// 3. Body parsing with size limits (DoS prevention)
+app.use(express.json({ 
+  limit: '1mb',  // Max JSON body size
+  strict: true,  // Only accept arrays and objects
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '1mb',  // Max URL-encoded body size
+  parameterLimit: 1000, // Max number of parameters
+}));
+app.use(express.raw({ 
+  limit: '5mb',  // Max raw body (for file uploads)
+  type: ['application/octet-stream', 'multipart/form-data'],
+}));
+
+// 4. Request logging with correlation IDs
+app.use(requestLogger);
 
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
@@ -170,29 +253,97 @@ app.get('/api/db-test', async (_req: Request, res: Response) => {
   }
 });
 
-// API Routes
+// API Routes with specific rate limiters
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/google', googleOAuthRoutes); // Google OAuth routes
+app.use('/api/2fa', twoFactorRoutes); // Two-Factor Authentication routes
 app.use('/api/users', userRoutes);
+app.use('/api/admin', adminLimiter, adminRoutes); // Admin-specific rate limiting
 app.use('/api/courses', courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/grades', gradeRoutes);
-app.use('/api/search', searchRoutes);
+app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/batch', batchRoutes);
+app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
 
 // Error handlers (must be last)
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start server
-app.listen(PORT, () => {
+// =============================================================================
+// SERVER STARTUP & GRACEFUL SHUTDOWN
+// =============================================================================
+
+const server = httpServer.listen(PORT, () => {
+  logger.info(`🚀 Server is running on port ${PORT}`);
+  logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`);
+  logger.info(`🔌 WebSocket: Enabled for real-time notifications`);
+  logger.info(`🔒 Security: Helmet enabled, CORS configured, rate limiting active`);
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-  logger.error('Server started successfully'); // Test logger
+  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
 });
 
+// Graceful shutdown handling
+let isShuttingDown = false;
+
+const gracefulShutdown = (signal: string) => {
+  if (isShuttingDown) {
+    logger.warn('Shutdown already in progress, ignoring signal', { signal });
+    return;
+  }
+  
+  isShuttingDown = true;
+  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close((err) => {
+    if (err) {
+      logger.error('Error during server close', { error: err.message });
+      process.exit(1);
+    }
+
+    logger.info('HTTP server closed. All connections terminated.');
+    console.log('✅ HTTP server closed successfully.');
+
+    // Clean up any other resources here (database connections, etc.)
+    // Supabase client doesn't require explicit cleanup
+
+    logger.info('Graceful shutdown complete.');
+    console.log('👋 Goodbye!');
+    process.exit(0);
+  });
+
+  // Force shutdown after 30 seconds if graceful shutdown fails
+  setTimeout(() => {
+    logger.error('Graceful shutdown timed out. Forcing exit.');
+    console.error('⚠️ Graceful shutdown timed out. Forcing exit.');
+    process.exit(1);
+  }, 30000);
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception', { error: { name: error.name, message: error.message, stack: error.stack } });
+  console.error('💥 Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection', { reason, promise: String(promise) });
+  console.error('💥 Unhandled Rejection:', reason);
+  gracefulShutdown('unhandledRejection');
+});
+
+export default app;

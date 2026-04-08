@@ -110,7 +110,10 @@ export const login = async (
 ) => {
   try {
     const input: LoginInput = req.body;
-    const result = await authService.login(input);
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+    
+    const result = await authService.login(input, ipAddress, userAgent);
 
     const response: ApiResponse<AuthResponse> = {
       success: true,
@@ -145,7 +148,10 @@ export const logout = async (
 ) => {
   try {
     const userId = req.user!.id;
-    await authService.logout(userId);
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+    
+    await authService.logout(userId, ipAddress, userAgent);
 
     const response: ApiResponse = {
       success: true,
@@ -325,6 +331,77 @@ export const getCurrentUser = async (
     const response: ApiResponse = {
       success: true,
       data: profile,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @openapi
+ * /api/auth/change-password:
+ *   post:
+ *     summary: Change password
+ *     description: Change password for authenticated user (invalidates other sessions)
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - current_password
+ *               - new_password
+ *             properties:
+ *               current_password:
+ *                 type: string
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *       401:
+ *         description: Current password incorrect
+ */
+export const changePassword = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = req.user!.id;
+    const { current_password, new_password } = req.body;
+
+    if (!current_password || !new_password) {
+      res.status(400).json({
+        success: false,
+        error: { message: 'Current password and new password are required' },
+      });
+      return;
+    }
+
+    if (new_password.length < 8) {
+      res.status(400).json({
+        success: false,
+        error: { message: 'New password must be at least 8 characters' },
+      });
+      return;
+    }
+
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+    
+    await authService.changePassword(userId, current_password, new_password, ipAddress, userAgent);
+
+    const response: ApiResponse = {
+      success: true,
+      data: { message: 'Password changed successfully. Other sessions have been invalidated.' },
     };
     res.json(response);
   } catch (error) {
