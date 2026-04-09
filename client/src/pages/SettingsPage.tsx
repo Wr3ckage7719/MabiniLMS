@@ -91,11 +91,15 @@ export default function SettingsPage() {
       });
     } catch (error) {
       const isNetworkError = axios.isAxiosError(error) && !error.response;
+      const responseMessage = axios.isAxiosError(error)
+        ? error.response?.data?.error?.message || error.response?.data?.message
+        : undefined;
       const errorMessage = isNetworkError
         ? 'Cannot reach upload API. Check production VITE_API_URL, CORS, and backend availability.'
-        : error instanceof Error
+        : responseMessage ||
+          (error instanceof Error
           ? error.message
-          : 'Unable to update avatar.';
+          : 'Unable to update avatar.');
 
       toast({
         title: 'Upload failed',

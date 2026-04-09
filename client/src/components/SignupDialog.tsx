@@ -79,8 +79,8 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -193,7 +193,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
             <div>
               <Input
                 type="password"
-                placeholder="Password (min 6 characters)"
+                placeholder="Password (min 8 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="rounded-xl bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 h-11"

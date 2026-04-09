@@ -9,6 +9,53 @@ import {
 } from '../types/auth.js';
 import logger from '../utils/logger.js';
 
+const AVATARS_BUCKET = 'avatars';
+const AVATAR_ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+];
+
+const isMissingBucketError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return normalized.includes('bucket') && (normalized.includes('not found') || normalized.includes('does not exist'));
+};
+
+const isAlreadyExistsBucketError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return normalized.includes('already exists') || normalized.includes('duplicate');
+};
+
+const ensureAvatarBucketExists = async (): Promise<void> => {
+  const { data: bucket, error: getBucketError } = await supabaseAdmin.storage.getBucket(AVATARS_BUCKET);
+
+  if (!getBucketError && bucket) {
+    return;
+  }
+
+  if (getBucketError && !isMissingBucketError(getBucketError.message)) {
+    logger.warn('Could not verify avatars bucket, attempting creation anyway', {
+      error: getBucketError.message,
+    });
+  }
+
+  const { error: createBucketError } = await supabaseAdmin.storage.createBucket(AVATARS_BUCKET, {
+    public: true,
+    allowedMimeTypes: AVATAR_ALLOWED_MIME_TYPES,
+    fileSizeLimit: '5MB',
+  });
+
+  if (createBucketError && !isAlreadyExistsBucketError(createBucketError.message)) {
+    logger.error('Failed to create avatars bucket', { error: createBucketError.message });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Avatar upload storage is not configured. Please contact an administrator.',
+      500
+    );
+  }
+};
+
 /**
  * Get user profile by ID
  */
@@ -223,23 +270,32 @@ export const uploadAvatar = async (
     originalname: string;
   }
 ): Promise<string> => {
+  await ensureAvatarBucketExists();
+
   // Generate unique filename with user ID and timestamp
   const fileExtension = file.originalname.split('.').pop() || 'jpg';
   const fileName = `${userId}/${Date.now()}.${fileExtension}`;
 
   // Delete any existing avatars for this user (cleanup old files)
-  const { data: existingFiles } = await supabaseAdmin.storage
-    .from('avatars')
+  const { data: existingFiles, error: listError } = await supabaseAdmin.storage
+    .from(AVATARS_BUCKET)
     .list(userId);
+
+  if (listError && !isMissingBucketError(listError.message)) {
+    logger.warn('Failed to list existing avatars before upload', {
+      userId,
+      error: listError.message,
+    });
+  }
 
   if (existingFiles && existingFiles.length > 0) {
     const filesToDelete = existingFiles.map(f => `${userId}/${f.name}`);
-    await supabaseAdmin.storage.from('avatars').remove(filesToDelete);
+    await supabaseAdmin.storage.from(AVATARS_BUCKET).remove(filesToDelete);
   }
 
   // Upload new avatar
   const { error: uploadError } = await supabaseAdmin.storage
-    .from('avatars')
+    .from(AVATARS_BUCKET)
     .upload(fileName, file.buffer, {
       contentType: file.mimetype,
       upsert: true,
@@ -247,6 +303,15 @@ export const uploadAvatar = async (
 
   if (uploadError) {
     logger.error('Failed to upload avatar', { userId, error: uploadError.message });
+
+    if (isMissingBucketError(uploadError.message)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Avatar storage bucket is missing. Please contact an administrator.',
+        500
+      );
+    }
+
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to upload avatar',
@@ -256,7 +321,7 @@ export const uploadAvatar = async (
 
   // Get public URL for the uploaded file
   const { data: urlData } = supabaseAdmin.storage
-    .from('avatars')
+    .from(AVATARS_BUCKET)
     .getPublicUrl(fileName);
 
   const avatarUrl = urlData.publicUrl;

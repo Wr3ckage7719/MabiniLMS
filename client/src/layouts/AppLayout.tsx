@@ -35,7 +35,7 @@ export default function AppLayout() {
           .select('must_change_password')
           .eq('user_id', user.id)
           .is('used_at', null)
-          .single();
+          .maybeSingle();
         
         setMustChangePassword(data?.must_change_password || false);
       } catch {

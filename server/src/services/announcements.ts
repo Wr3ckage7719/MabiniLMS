@@ -15,14 +15,66 @@ import {
 import { notifyAnnouncementCreated } from './websocket.js';
 import logger from '../utils/logger.js';
 
-// Helper to fix nested Supabase join arrays
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fixAuthorJoin = (data: any): AnnouncementWithAuthor => {
-  if (!data) return data;
-  return {
-    ...data,
-    author: Array.isArray(data.author) ? data.author[0] || null : data.author
-  };
+const ANNOUNCEMENT_SELECT_BASE =
+  'id, course_id, author_id, title, content, pinned, created_at, updated_at';
+
+type AnnouncementRow = {
+  id: string;
+  course_id: string;
+  author_id: string;
+  title: string;
+  content: string;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type AuthorRow = {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+};
+
+const toAnnouncementAuthor = (
+  authorId: string,
+  authorData?: AuthorRow
+): AnnouncementWithAuthor['author'] => ({
+  id: authorId,
+  email: authorData?.email || '',
+  first_name: authorData?.first_name || '',
+  last_name: authorData?.last_name || '',
+  avatar_url: authorData?.avatar_url || null,
+});
+
+const enrichAnnouncementsWithAuthors = async (
+  rows: AnnouncementRow[]
+): Promise<AnnouncementWithAuthor[]> => {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
+  let authorMap = new Map<string, AuthorRow>();
+
+  if (authorIds.length > 0) {
+    const { data: authors, error: authorsError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, avatar_url')
+      .in('id', authorIds);
+
+    if (authorsError) {
+      logger.warn('Failed to load announcement author profiles', { error: authorsError.message });
+    } else {
+      authorMap = new Map((authors || []).map((author) => [author.id, author as AuthorRow]));
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    author: toAnnouncementAuthor(row.author_id, authorMap.get(row.author_id)),
+  }));
 };
 
 /**
@@ -65,10 +117,7 @@ export const createAnnouncement = async (
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .select(`
-      id, course_id, author_id, title, content, pinned, created_at, updated_at,
-      author:profiles!announcements_author_id_fkey(id, email, first_name, last_name, avatar_url)
-    `)
+    .select(ANNOUNCEMENT_SELECT_BASE)
     .single();
 
   if (error) {
@@ -83,7 +132,8 @@ export const createAnnouncement = async (
   });
 
   logger.info('Announcement created', { announcementId: data.id, courseId, authorId });
-  return fixAuthorJoin(data);
+  const [announcement] = await enrichAnnouncementsWithAuthors([data as AnnouncementRow]);
+  return announcement;
 };
 
 /**
@@ -106,10 +156,7 @@ export const listAnnouncements = async (
 
   const { data, error, count } = await supabaseAdmin
     .from('announcements')
-    .select(`
-      id, course_id, author_id, title, content, pinned, created_at, updated_at,
-      author:profiles!announcements_author_id_fkey(id, email, first_name, last_name, avatar_url)
-    `, { count: 'exact' })
+    .select(ANNOUNCEMENT_SELECT_BASE, { count: 'exact' })
     .eq('course_id', courseId)
     .order('pinned', { ascending: false })
     .order('created_at', { ascending: false })
@@ -120,8 +167,10 @@ export const listAnnouncements = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list announcements', 500);
   }
 
+  const announcements = await enrichAnnouncementsWithAuthors((data || []) as AnnouncementRow[]);
+
   return {
-    announcements: (data || []).map(fixAuthorJoin),
+    announcements,
     total: count || 0,
   };
 };
@@ -134,10 +183,7 @@ export const getAnnouncementById = async (
 ): Promise<AnnouncementWithAuthor> => {
   const { data, error } = await supabaseAdmin
     .from('announcements')
-    .select(`
-      id, course_id, author_id, title, content, pinned, created_at, updated_at,
-      author:profiles!announcements_author_id_fkey(id, email, first_name, last_name, avatar_url)
-    `)
+    .select(ANNOUNCEMENT_SELECT_BASE)
     .eq('id', announcementId)
     .single();
 
@@ -149,7 +195,8 @@ export const getAnnouncementById = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get announcement', 500);
   }
 
-  return fixAuthorJoin(data);
+  const [announcement] = await enrichAnnouncementsWithAuthors([data as AnnouncementRow]);
+  return announcement;
 };
 
 /**
@@ -197,10 +244,7 @@ export const updateAnnouncement = async (
     .from('announcements')
     .update(updateData)
     .eq('id', announcementId)
-    .select(`
-      id, course_id, author_id, title, content, pinned, created_at, updated_at,
-      author:profiles!announcements_author_id_fkey(id, email, first_name, last_name, avatar_url)
-    `)
+    .select(ANNOUNCEMENT_SELECT_BASE)
     .single();
 
   if (error) {
@@ -209,7 +253,8 @@ export const updateAnnouncement = async (
   }
 
   logger.info('Announcement updated', { announcementId, userId });
-  return fixAuthorJoin(data);
+  const [updatedAnnouncement] = await enrichAnnouncementsWithAuthors([data as AnnouncementRow]);
+  return updatedAnnouncement;
 };
 
 /**

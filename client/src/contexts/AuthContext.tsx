@@ -11,6 +11,26 @@ const AUTH_OPERATION_TIMEOUT_MS = 15000;
 const TEACHER_PENDING_APPROVAL_MESSAGE = 'Your teacher account is pending admin approval. Please wait for approval from the admin.';
 const TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE = 'No approved teacher account was found for this Google login. Please request a teacher account and wait for admin approval.';
 
+const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null) {
+    const maybeError = error as {
+      response?: { data?: { error?: { message?: string }; message?: string } };
+      message?: string;
+    };
+
+    const responseMessage = maybeError.response?.data?.error?.message || maybeError.response?.data?.message;
+    if (responseMessage) {
+      return responseMessage;
+    }
+
+    if (maybeError.message) {
+      return maybeError.message;
+    }
+  }
+
+  return fallback;
+};
+
 const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   return Promise.race([
     promise,
@@ -259,8 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!response?.success) {
         throw new Error(response?.error || 'Registration failed');
       }
-    } catch (err: any) {
-      throw new Error(err.message || 'Registration failed');
+    } catch (err) {
+      throw new Error(getApiErrorMessage(err, 'Registration failed'));
     }
   };
 
@@ -274,9 +294,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(`Student signup requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
     }
 
-    const response = await authService.requestStudentCredentials(normalizedEmail);
-    if (!response?.success) {
-      throw new Error(response?.error || 'Failed to request student credentials');
+    try {
+      const response = await authService.requestStudentCredentials(normalizedEmail);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to request student credentials');
+      }
+    } catch (err) {
+      throw new Error(getApiErrorMessage(err, 'Failed to request student credentials'));
     }
   };
 
@@ -307,8 +331,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(userData);
         setSession(data.session || null);
       }
-    } catch (err: any) {
-      throw new Error(err.message || 'Login failed');
+    } catch (err) {
+      throw new Error(getApiErrorMessage(err, 'Login failed'));
     }
   };
 
@@ -335,9 +359,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) throw error;
-    } catch (err: any) {
+    } catch (err) {
       clearRoleIntent();
-      throw new Error(err.message || 'Google login failed');
+      throw new Error(getApiErrorMessage(err, 'Google login failed'));
     }
   };
 
