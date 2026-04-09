@@ -9,6 +9,19 @@ let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
+const PROFILE_SELECT_WITH_PASSWORD_TRACKING =
+  'role, email, first_name, last_name, pending_approval, password_changed_at';
+const PROFILE_SELECT_LEGACY =
+  'role, email, first_name, last_name, pending_approval';
+
+type AuthProfile = {
+  role: UserRole | string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  pending_approval: boolean | null;
+  password_changed_at: string | null;
+};
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
@@ -17,6 +30,52 @@ const resolveUserRole = (roleValue: unknown): UserRole => {
     return roleValue;
   }
   return UserRole.STUDENT;
+};
+
+const isMissingPasswordChangedAtColumnError = (message?: string): boolean => {
+  const normalizedMessage = (message || '').toLowerCase();
+  return (
+    normalizedMessage.includes('password_changed_at') &&
+    normalizedMessage.includes('column')
+  );
+};
+
+const fetchAuthProfile = async (
+  userId: string
+): Promise<{ profile: AuthProfile | null; errorMessage?: string }> => {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select(PROFILE_SELECT_WITH_PASSWORD_TRACKING)
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (!error) {
+    return { profile: data as AuthProfile | null };
+  }
+
+  if (!isMissingPasswordChangedAtColumnError(error.message)) {
+    return { profile: null, errorMessage: error.message };
+  }
+
+  // Backward compatibility for environments that have not applied migration 005 yet.
+  const { data: legacyData, error: legacyError } = await supabaseAdmin
+    .from('profiles')
+    .select(PROFILE_SELECT_LEGACY)
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (legacyError) {
+    return { profile: null, errorMessage: legacyError.message };
+  }
+
+  const legacyProfile = legacyData
+    ? ({
+        ...legacyData,
+        password_changed_at: null,
+      } as AuthProfile)
+    : null;
+
+  return { profile: legacyProfile };
 };
 
 /**
@@ -111,17 +170,13 @@ export const authenticate = async (
       );
     }
 
-    // Fetch user profile to get role and approval status
-    const { data: existingProfile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('role, email, first_name, last_name, pending_approval, password_changed_at')
-      .eq('id', user.id)
-      .maybeSingle();
+    // Fetch user profile to get role and approval status.
+    const { profile: existingProfile, errorMessage: profileErrorMessage } = await fetchAuthProfile(user.id);
 
-    if (profileError) {
+    if (profileErrorMessage) {
       logger.error('Profile fetch failed', { 
         userId: user.id, 
-        error: profileError?.message 
+        error: profileErrorMessage,
       });
       throw new ApiError(
         ErrorCode.UNAUTHORIZED,
@@ -143,7 +198,7 @@ export const authenticate = async (
       const firstName = user.user_metadata?.first_name || nameParts[0] || null;
       const lastName = user.user_metadata?.last_name || nameParts.slice(1).join(' ') || null;
 
-      const { data: bootstrapProfile, error: bootstrapError } = await supabaseAdmin
+      const { error: bootstrapError } = await supabaseAdmin
         .from('profiles')
         .upsert(
           {
@@ -158,15 +213,31 @@ export const authenticate = async (
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'id' }
-        )
-        .select('role, email, first_name, last_name, pending_approval, password_changed_at')
-        .single();
+        );
 
-      if (bootstrapError || !bootstrapProfile) {
+      if (bootstrapError) {
         logger.error('Profile bootstrap failed', {
           userId: user.id,
           email: normalizedEmail,
-          error: bootstrapError?.message,
+          error: bootstrapError.message,
+        });
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'User profile not found',
+          401
+        );
+      }
+
+      const {
+        profile: bootstrapProfile,
+        errorMessage: bootstrapProfileErrorMessage,
+      } = await fetchAuthProfile(user.id);
+
+      if (bootstrapProfileErrorMessage || !bootstrapProfile) {
+        logger.error('Profile bootstrap failed', {
+          userId: user.id,
+          email: normalizedEmail,
+          error: bootstrapProfileErrorMessage,
         });
         throw new ApiError(
           ErrorCode.UNAUTHORIZED,
