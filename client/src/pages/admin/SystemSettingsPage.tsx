@@ -32,7 +32,7 @@ export default function SystemSettingsPage() {
   const [emailFrom, setEmailFrom] = useState('');
   const [emailFromName, setEmailFromName] = useState('MabiniLMS');
 
-  const { data: settings, isLoading } = useQuery({
+  const { data: settings, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['system-settings'],
     queryFn: adminService.getSystemSettings,
     onSuccess: (data) => {
@@ -118,6 +118,26 @@ export default function SystemSettingsPage() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-slate-900 p-6">
+        <div className="max-w-2xl mx-auto">
+          <Card className="bg-slate-800 border-slate-700 p-6 space-y-4">
+            <h1 className="text-xl font-semibold text-white">Failed to load system settings</h1>
+            <p className="text-slate-300 text-sm">
+              {error instanceof Error
+                ? error.message
+                : 'Unable to load settings right now. Please retry.'}
+            </p>
+            <Button onClick={() => refetch()} className="bg-blue-600 hover:bg-blue-700">
+              Retry
+            </Button>
+          </Card>
+        </div>
       </div>
     );
   }

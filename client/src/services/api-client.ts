@@ -16,6 +16,16 @@ const resolveApiUrl = () => {
 
 const API_URL = resolveApiUrl();
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+const AUTH_LOOKUP_TIMEOUT_MS = 4000;
+
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    }),
+  ]);
+};
 
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -37,10 +47,23 @@ class ApiClient {
     // Request interceptor to add auth token
     this.client.interceptors.request.use(
       async (config) => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          config.headers.Authorization = `Bearer ${session.access_token}`;
+        try {
+          const {
+            data: { session },
+          } = await withTimeout(
+            supabase.auth.getSession(),
+            AUTH_LOOKUP_TIMEOUT_MS,
+            'Auth session lookup timed out'
+          );
+
+          if (session?.access_token) {
+            config.headers.Authorization = `Bearer ${session.access_token}`;
+          }
+        } catch (sessionError) {
+          // Avoid hanging all API requests when auth state lookup gets stuck.
+          console.warn('Proceeding without auth header due to session lookup failure', sessionError);
         }
+
         return config;
       },
       (error) => {
@@ -60,7 +83,20 @@ class ApiClient {
             originalRequest._retry = true;
 
             // Token may be stale, try to refresh once.
-            const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+            let session: { access_token?: string } | null = null;
+            let refreshError: unknown = null;
+
+            try {
+              const refreshResult = await withTimeout(
+                supabase.auth.refreshSession(),
+                AUTH_LOOKUP_TIMEOUT_MS,
+                'Auth session refresh timed out'
+              );
+              session = refreshResult.data.session;
+              refreshError = refreshResult.error;
+            } catch (refreshFailure) {
+              refreshError = refreshFailure;
+            }
 
             if (!refreshError && session) {
               originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
