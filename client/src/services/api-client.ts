@@ -54,31 +54,28 @@ class ApiClient {
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
           const originalRequest = error.config as RetryableRequestConfig | undefined;
-          if (originalRequest?._retry) {
-            await supabase.auth.signOut();
-            window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
-            return Promise.reject(error);
-          }
+          const hasRetried = Boolean(originalRequest?._retry);
 
-          if (originalRequest) {
+          if (!hasRetried && originalRequest) {
             originalRequest._retry = true;
+
+            // Token may be stale, try to refresh once.
+            const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+
+            if (!refreshError && session) {
+              originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
+              return this.client.request(originalRequest);
+            }
           }
 
-          // Token expired, try to refresh
-          const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
-          
-          if (refreshError || !session) {
-            // Refresh failed, logout user
+          // Only expire auth state if Supabase session is truly gone.
+          const { data: { session: activeSession } } = await supabase.auth.getSession();
+          if (!activeSession) {
             await supabase.auth.signOut();
             window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
-            return Promise.reject(error);
           }
 
-          // Retry the original request with new token
-          if (originalRequest) {
-            originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
-            return this.client.request(originalRequest);
-          }
+          return Promise.reject(error);
         }
 
         if (error.code === 'ECONNABORTED') {
