@@ -18,7 +18,7 @@ const navItems = [
 ];
 
 export function AppSidebar({ open, onClose }: SidebarProps) {
-  const { data: classes = [], isLoading } = useClasses();
+  const { data: classes = [], isLoading, error } = useClasses();
 
   return (
     <>
@@ -68,6 +68,8 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
             </p>
             {isLoading ? (
               <div className="px-3 py-2 text-xs text-muted-foreground">Loading courses...</div>
+            ) : error ? (
+              <div className="px-3 py-2 text-xs text-destructive">Unable to load courses</div>
             ) : classes.length === 0 ? (
               <div className="px-3 py-4 text-center">
                 <div className="inline-flex p-2 rounded-full bg-secondary/50 mb-2">

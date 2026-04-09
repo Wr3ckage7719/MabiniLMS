@@ -3,14 +3,16 @@ import { useClasses } from '@/hooks-api/useClasses';
 import { useGrades } from '@/hooks-api/useGrades';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 export default function GradesPage() {
   // Fetch real data from API
-  const { data: classes = [], isLoading: classesLoading } = useClasses();
-  const { data: grades = [], isLoading: gradesLoading } = useGrades();
+  const { data: classes = [], isLoading: classesLoading, error: classesError, refetch: refetchClasses } = useClasses();
+  const { data: grades = [], isLoading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
 
   const isLoading = classesLoading || gradesLoading;
+  const error = classesError || gradesError;
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -26,8 +28,29 @@ export default function GradesPage() {
         </div>
       )}
 
+      {!isLoading && error && (
+        <div className="text-center py-12">
+          <p className="text-destructive mb-2">Failed to load grades</p>
+          <p className="text-sm text-muted-foreground">
+            {error instanceof Error ? error.message : 'Please try again later'}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl mt-4 gap-2"
+            onClick={() => {
+              refetchClasses();
+              refetchGrades();
+            }}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Content */}
-      {!isLoading && (
+      {!isLoading && !error && (
         <div className="space-y-4 animate-stagger">
           {classes.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">

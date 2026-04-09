@@ -3,8 +3,11 @@ import { assignmentsService } from '@/services/assignments.service';
 import { apiClient } from '@/services/api-client';
 import { transformAssignments } from '@/services/data-transformer';
 import { Assignment } from '@/lib/data';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function useAssignments(courseId?: string): UseQueryResult<Assignment[], Error> {
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+
   return useQuery({
     queryKey: ['assignments', courseId],
     queryFn: async () => {
@@ -26,18 +29,37 @@ export function useAssignments(courseId?: string): UseQueryResult<Assignment[], 
       const response = await assignmentsService.getAssignments(courseId);
       return transformAssignments(response.data?.assignments || []);
     },
+    enabled: !authLoading && isLoggedIn,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        return false;
+      }
+      return failureCount < 1;
+    },
+    refetchOnReconnect: false,
     staleTime: 3 * 60 * 1000,
   });
 }
 
 export function useAssignment(courseId: string, assignmentId: string) {
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+
   return useQuery({
     queryKey: ['assignment', courseId, assignmentId],
     queryFn: async () => {
       const response = await assignmentsService.getAssignmentById(courseId, assignmentId);
       return transformAssignments([response.data?.assignment])[0];
     },
-    enabled: !!courseId && !!assignmentId,
+    enabled: !authLoading && isLoggedIn && !!courseId && !!assignmentId,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        return false;
+      }
+      return failureCount < 1;
+    },
+    refetchOnReconnect: false,
   });
 }
 
