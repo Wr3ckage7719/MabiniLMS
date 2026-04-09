@@ -5,7 +5,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/contexts/RoleContext';
-import { mockStudents } from '@/lib/data';
 
 interface StudentPost {
   id: string;
@@ -53,49 +52,21 @@ const getFileType = (filename: string): string => {
 };
 
 export function StudentClassStream() {
-  const { currentUserAvatar } = useRole();
-  const currentStudent = mockStudents[0];
-  const [posts, setPosts] = useState<StudentPost[]>([
-    {
-      id: '1',
-      studentId: '2',
-      studentName: 'Sarah Chen',
-      studentAvatar: 'SC',
-      content: "Just finished the chapter reading. Really interesting perspective on the Industrial Revolution!",
-      attachments: [],
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      likes: 3,
-      liked: false,
-      replies: 2,
-    },
-    {
-      id: '2',
-      studentId: '3',
-      studentName: 'Alex Rodriguez',
-      studentAvatar: 'AR',
-      content: 'I have a question about the homework problem set. Is the due date really tomorrow?',
-      attachments: [
-        { id: 'a1', name: 'homework_questions.pdf', size: '2.4 MB', type: 'pdf', icon: getFileType('homework_questions.pdf') },
-      ],
-      timestamp: new Date(Date.now() - 30 * 60 * 1000),
-      likes: 1,
-      liked: false,
-    },
-  ]);
+  const { currentUserAvatar, currentUserName, currentUserId } = useRole();
+  const [posts, setPosts] = useState<StudentPost[]>([]);
 
   const [postContent, setPostContent] = useState('');
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
 
   const handleAddAttachment = () => {
-    // In a real app, this would open a file picker
-    const mockFile: AttachmentFile = {
-      id: Math.random().toString(),
-      name: 'sample_document.pdf',
-      size: '1.2 MB',
-      type: 'pdf',
-      icon: getFileType('sample_document.pdf'),
+    const placeholderFile: AttachmentFile = {
+      id: `${Date.now()}-${Math.random()}`,
+      name: 'attachment.txt',
+      size: '0 KB',
+      type: 'text',
+      icon: getFileType('attachment.txt'),
     };
-    setAttachments([...attachments, mockFile]);
+    setAttachments([...attachments, placeholderFile]);
   };
 
   const handleRemoveAttachment = (id: string) => {
@@ -106,10 +77,10 @@ export function StudentClassStream() {
     if (!postContent.trim()) return;
 
     const newPost: StudentPost = {
-      id: Math.random().toString(),
-      studentId: currentStudent.id,
-      studentName: currentStudent.name,
-      studentAvatar: currentStudent.avatar,
+      id: `${Date.now()}-${Math.random()}`,
+      studentId: currentUserId,
+      studentName: currentUserName,
+      studentAvatar: currentUserAvatar,
       content: postContent,
       attachments,
       timestamp: new Date(),
@@ -156,7 +127,7 @@ export function StudentClassStream() {
       <div className="space-y-3 md:space-y-4 flex-1 overflow-y-auto">
         {posts.length === 0 ? (
           <div className="text-center py-8 md:py-12 text-muted-foreground">
-            <p className="text-sm md:text-base">No posts yet. Be the first to share!</p>
+            <p className="text-sm md:text-base">No data present: class discussion posts</p>
           </div>
         ) : (
           posts.map((post) => (
@@ -229,7 +200,7 @@ export function StudentClassStream() {
         <CardContent className="p-4 md:p-6">
           <div className="flex gap-3">
             <Avatar className="h-10 w-10 flex-shrink-0">
-              <AvatarFallback className="bg-primary text-primary-foreground text-sm">{currentStudent.avatar}</AvatarFallback>
+              <AvatarFallback className="bg-primary text-primary-foreground text-sm">{currentUserAvatar}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
               <div className="space-y-3">

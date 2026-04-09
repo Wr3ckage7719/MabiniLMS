@@ -21,7 +21,6 @@ import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
 import NotFound from "./pages/NotFound";
-import TeacherDemoPage from "./pages/TeacherDemoPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,7 +41,6 @@ const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<LoginPage />} />
-    <Route path="/teacher-demo" element={<TeacherDemoPage />} />
     
     {/* Admin Routes */}
     <Route path="/admin/login" element={<AdminLoginPage />} />

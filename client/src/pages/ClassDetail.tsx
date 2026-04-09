@@ -5,6 +5,7 @@ import { useAssignments } from '@/hooks-api/useAssignments';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useClasses } from '@/hooks-api/useClasses';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
+import { useStudents } from '@/hooks-api/useStudents';
 import { useRole } from '@/contexts/RoleContext';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, File, Music, Image as ImageIcon, Archive, Loader2, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,7 @@ export default function ClassDetail() {
   const { data: assignments = [], isLoading: assignmentsLoading } = useAssignments(id);
   const { data: materials = [], isLoading: materialsLoading } = useMaterials(id);
   const { data: announcements = [], isLoading: announcementsLoading } = useAnnouncements(id);
+  const { data: students = [], isLoading: studentsLoading } = useStudents(id || '');
   const [selectedAssignment, setSelectedAssignment] = useState<typeof assignments[0] | null>(null);
 
   const cls = classes.find((c) => c.id === id);
@@ -176,12 +178,17 @@ export default function ClassDetail() {
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
-            ) : announcements.length > 0 && (
+            ) : announcements.length > 0 ? (
               <div className="space-y-3 md:space-y-4">
                 <h3 className="font-semibold text-sm md:text-base">Announcements</h3>
                 {announcements.map((a) => (
                   <AnnouncementCard key={a.id} announcement={a} />
                 ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 md:py-12 text-muted-foreground">
+                <MessageSquare className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 md:mb-3 opacity-30" />
+                <p className="text-sm md:text-base">No data present: announcements</p>
               </div>
             )}
 
@@ -330,9 +337,14 @@ export default function ClassDetail() {
               </div>
             </div>
             <div>
-              <h3 className="font-semibold text-sm md:text-base mb-2 md:mb-3">Students ({mockStudents.length})</h3>
-              <div className="space-y-1 animate-stagger">
-                {mockStudents.map((s) => (
+              <h3 className="font-semibold text-sm md:text-base mb-2 md:mb-3">Students ({students.length})</h3>
+              {studentsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : students.length > 0 ? (
+                <div className="space-y-1 animate-stagger">
+                  {students.map((s) => (
                   <div key={s.id} className="flex items-center gap-2 md:gap-3 p-2 md:p-3 rounded-lg md:rounded-xl hover:bg-secondary/50 transition-colors">
                     <Avatar className="h-8 w-8 md:h-10 md:w-10 flex-shrink-0">
                       <AvatarFallback className="bg-secondary text-secondary-foreground text-xs md:text-sm">{s.avatar}</AvatarFallback>
@@ -342,8 +354,14 @@ export default function ClassDetail() {
                       <p className="text-xs text-muted-foreground truncate">{s.email}</p>
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 md:py-12 text-muted-foreground">
+                  <Users className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 md:mb-3 opacity-30" />
+                  <p className="text-sm md:text-base">No data present: students</p>
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -357,11 +375,11 @@ export default function ClassDetail() {
                 <CardContent className="p-4 md:p-6">
                   <div className="flex items-start gap-4">
                     <Avatar className="h-12 w-12 md:h-14 md:w-14 flex-shrink-0">
-                      <AvatarFallback className="bg-primary text-primary-foreground text-base md:text-lg">{currentStudentGrade.avatar}</AvatarFallback>
+                      <AvatarFallback className="bg-primary text-primary-foreground text-base md:text-lg">{currentUserAvatar}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm md:text-base">{currentStudentGrade.name}</p>
-                      <p className="text-xs md:text-sm text-muted-foreground truncate">{currentStudentGrade.email}</p>
+                      <p className="font-semibold text-sm md:text-base">Current Student</p>
+                      <p className="text-xs md:text-sm text-muted-foreground truncate">No data present: profile grade data</p>
                     </div>
                   </div>
                 </CardContent>
@@ -370,7 +388,7 @@ export default function ClassDetail() {
               <Card className="border-0 shadow-sm flex items-center justify-center">
                 <CardContent className="p-4 md:p-6 text-center w-full">
                   <p className="text-xs md:text-sm text-muted-foreground mb-2">Overall Grade</p>
-                  <p className="text-4xl md:text-5xl font-bold text-primary">{currentStudentGrade.grade}</p>
+                  <p className="text-4xl md:text-5xl font-bold text-primary">N/A</p>
                 </CardContent>
               </Card>
             </div>

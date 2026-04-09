@@ -1,7 +1,20 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { supabase } from '@/lib/supabase';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const resolveApiUrl = () => {
+  const configuredApiUrl = import.meta.env.VITE_API_URL;
+  if (configuredApiUrl) {
+    return configuredApiUrl;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return `${window.location.origin}/api`;
+  }
+
+  return 'http://localhost:3000/api';
+};
+
+const API_URL = resolveApiUrl();
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
