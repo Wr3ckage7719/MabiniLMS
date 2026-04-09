@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 import { assignmentsService } from '@/services/assignments.service';
+import { apiClient } from '@/services/api-client';
 import { transformAssignments } from '@/services/data-transformer';
 import { Assignment } from '@/lib/data';
 
@@ -7,7 +8,21 @@ export function useAssignments(courseId?: string): UseQueryResult<Assignment[], 
   return useQuery({
     queryKey: ['assignments', courseId],
     queryFn: async () => {
-      if (!courseId) return [];
+      if (!courseId) {
+        const coursesResponse = await apiClient.get('/courses');
+        const courses = coursesResponse.data?.courses || [];
+        const allAssignments = await Promise.all(
+          courses.map(async (course: { id: string }) => {
+            try {
+              const response = await assignmentsService.getAssignments(course.id);
+              return transformAssignments(response.data?.assignments || []);
+            } catch {
+              return [];
+            }
+          })
+        );
+        return allAssignments.flat();
+      }
       const response = await assignmentsService.getAssignments(courseId);
       return transformAssignments(response.data?.assignments || []);
     },

@@ -27,6 +27,7 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -78,6 +79,14 @@ class ApiClient {
             originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
             return this.client.request(originalRequest);
           }
+        }
+
+        if (error.code === 'ECONNABORTED') {
+          return Promise.reject(new Error('Request timed out. Please check your network and try again.'));
+        }
+
+        if (!error.response) {
+          return Promise.reject(new Error('Network error. Unable to reach the server.'));
         }
 
         return Promise.reject(error);

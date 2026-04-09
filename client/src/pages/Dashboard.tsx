@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useClasses } from '@/hooks-api/useClasses';
 import { ClassCard } from '@/components/ClassCard';
@@ -6,39 +6,19 @@ import { UpcomingWidget } from '@/components/UpcomingWidget';
 import { StatsBar } from '@/components/StatsBar';
 import { Button } from '@/components/ui/button';
 import { useRole } from '@/contexts/RoleContext';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 export default function Dashboard() {
   const { currentUserName } = useRole();
   const location = useLocation();
   const navigate = useNavigate();
-  const [archivedClasses, setArchivedClasses] = useState<string[]>([]);
-  const [unenrolledClasses, setUnenrolledClasses] = useState<string[]>([]);
-
   // Fetch real classes from API
-  const { data: allClasses = [], isLoading, error } = useClasses();
+  const { data: allClasses = [], isLoading, error, refetch } = useClasses();
 
   const isArchivedView = location.pathname === '/archived';
 
-  const activeClasses = allClasses.filter(
-    (cls) => !archivedClasses.includes(cls.id) && !unenrolledClasses.includes(cls.id)
-  );
-
-  const displayedArchivedClasses = allClasses.filter(
-    (cls) => archivedClasses.includes(cls.id)
-  );
-
-  const handleArchive = (classId: string) => {
-    setArchivedClasses([...archivedClasses, classId]);
-  };
-
-  const handleUnenroll = (classId: string) => {
-    setUnenrolledClasses([...unenrolledClasses, classId]);
-  };
-
-  const handleRestore = (classId: string) => {
-    setArchivedClasses(archivedClasses.filter(id => id !== classId));
-  };
+  const activeClasses = useMemo(() => allClasses.filter((cls) => !cls.archived), [allClasses]);
+  const displayedArchivedClasses = useMemo(() => allClasses.filter((cls) => !!cls.archived), [allClasses]);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in">
@@ -67,10 +47,14 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">
             {error instanceof Error ? error.message : 'Please try again later'}
           </p>
+          <Button variant="outline" size="sm" className="rounded-xl mt-4 gap-2" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
         </div>
       )}
 
-      {isArchivedView ? (
+      {isArchivedView && !isLoading && !error ? (
         <div className="space-y-5">
           {displayedArchivedClasses.length > 0 ? (
             <div className="space-y-5">
@@ -85,9 +69,9 @@ export default function Dashboard() {
                   <ClassCard 
                     key={cls.id} 
                     classItem={{ ...cls, archived: true }}
-                    onArchive={handleArchive}
-                    onUnenroll={handleUnenroll}
-                    onRestore={handleRestore}
+                    onArchive={() => {}}
+                    onUnenroll={() => {}}
+                    onRestore={() => {}}
                   />
                 ))}
               </div>
@@ -119,9 +103,9 @@ export default function Dashboard() {
                     <ClassCard 
                       key={cls.id} 
                       classItem={cls}
-                      onArchive={handleArchive}
-                      onUnenroll={handleUnenroll}
-                      onRestore={handleRestore}
+                      onArchive={() => {}}
+                      onUnenroll={() => {}}
+                      onRestore={() => {}}
                     />
                   ))}
                 </div>
