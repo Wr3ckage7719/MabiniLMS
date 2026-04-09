@@ -95,6 +95,7 @@ export interface UserProfile {
   avatar_url: string | null;
   email_verified: boolean;
   email_verified_at: string | null;
+  pending_approval?: boolean | null;
   created_at: string;
   updated_at: string;
 }

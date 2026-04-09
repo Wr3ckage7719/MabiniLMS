@@ -14,6 +14,7 @@ import CalendarPage from "./pages/CalendarPage";
 import GradesPage from "./pages/GradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
@@ -47,6 +48,8 @@ const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+    <Route path="/reset-password" element={<ResetPasswordPage />} />
     
     {/* Admin Routes */}
     <Route path="/admin/login" element={<AdminLoginPage />} />

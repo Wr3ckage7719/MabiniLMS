@@ -513,6 +513,24 @@ export const login = async (
     );
   }
 
+  if (profile.role === UserRole.TEACHER && profile.pending_approval === true) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      { reason: 'teacher_pending_approval', email: profile.email }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Your teacher account is pending admin approval. Please wait for approval from the admin.',
+      403
+    );
+  }
+
   // Check if 2FA is enabled
   const has2FA = await twoFactorService.isTwoFactorEnabled(data.user.id);
   
@@ -637,7 +655,7 @@ export const refreshToken = async (input: RefreshTokenInput): Promise<AuthSessio
  */
 export const forgotPassword = async (email: string): Promise<void> => {
   const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password`,
+    redirectTo: `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/reset-password`,
   });
 
   if (error) {
@@ -795,7 +813,7 @@ export const logSessionEvent = async (
 export const getUserProfile = async (userId: string): Promise<UserProfile> => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role, avatar_url, email_verified, email_verified_at, created_at, updated_at')
+    .select('id, email, first_name, last_name, role, avatar_url, email_verified, email_verified_at, pending_approval, created_at, updated_at')
     .eq('id', userId)
     .single();
 

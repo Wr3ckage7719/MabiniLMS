@@ -6,7 +6,10 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
+const AUTH_ROLE_INTENT_STORAGE_KEY = 'auth_role_intent';
 const AUTH_OPERATION_TIMEOUT_MS = 15000;
+const TEACHER_PENDING_APPROVAL_MESSAGE = 'Your teacher account is pending admin approval. Please wait for approval from the admin.';
+const TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE = 'No approved teacher account was found for this Google login. Please request a teacher account and wait for admin approval.';
 
 const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   return Promise.race([
@@ -35,7 +38,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
   requestStudentSignup: (email: string) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
   logout: () => void;
   updateAvatar: (avatarUrl: string) => void;
 }
@@ -47,6 +50,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<{ access_token?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const setStoredAuthError = useCallback((message: string) => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(AUTH_ERROR_STORAGE_KEY, message);
+    }
+  }, []);
+
+  const clearRoleIntent = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(AUTH_ROLE_INTENT_STORAGE_KEY);
+    }
+  }, []);
+
+  const getRoleIntent = useCallback((): 'student' | 'teacher' | null => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const value = sessionStorage.getItem(AUTH_ROLE_INTENT_STORAGE_KEY);
+    return value === 'teacher' || value === 'student' ? value : null;
+  }, []);
+
+  const blockSignInWithMessage = useCallback(async (message: string) => {
+    setStoredAuthError(message);
+    clearRoleIntent();
+
+    await supabase.auth.signOut();
+    setUser(null);
+    setSession(null);
+
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.replace('/login');
+    }
+  }, [clearRoleIntent, setStoredAuthError]);
+
   const enforceInstitutionalStudentPolicy = useCallback(async (candidateUser: User, email: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     const resolvedRole = (candidateUser.role || 'student').toLowerCase();
@@ -56,15 +93,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)
     ) {
       const message = `Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`;
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem(AUTH_ERROR_STORAGE_KEY, message);
-      }
-      await supabase.auth.signOut();
-      setUser(null);
-      setSession(null);
+      await blockSignInWithMessage(message);
       throw new Error(message);
     }
-  }, []);
+  }, [blockSignInWithMessage]);
+
+  const enforceTeacherApprovalPolicy = useCallback(
+    async (candidateUser: User, roleIntent: 'student' | 'teacher' | null = null) => {
+      const resolvedRole = (candidateUser.role || 'student').toLowerCase();
+      const isPendingTeacher = resolvedRole === 'teacher' && candidateUser.pending_approval === true;
+
+      if (isPendingTeacher) {
+        await blockSignInWithMessage(TEACHER_PENDING_APPROVAL_MESSAGE);
+        throw new Error(TEACHER_PENDING_APPROVAL_MESSAGE);
+      }
+
+      if (roleIntent === 'teacher' && resolvedRole !== 'teacher') {
+        await blockSignInWithMessage(TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE);
+        throw new Error(TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE);
+      }
+    },
+    [blockSignInWithMessage]
+  );
 
   const loadUserData = useCallback(async (id: string, email: string, authUser?: SupabaseUser | null): Promise<User> => {
     try {
@@ -99,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         avatar,
         avatarUrl: profileData?.avatar_url || profile?.user_metadata?.avatar_url || null,
-        role: profileData?.role || 'student',
+        role: profileData?.role || profile?.user_metadata?.role || 'student',
         pending_approval: profileData?.pending_approval || false,
       };
     } catch (error) {
@@ -125,12 +175,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           const normalizedEmail = (session.user.email || '').trim().toLowerCase();
           const userData = await loadUserData(session.user.id, normalizedEmail, session.user);
+          const roleIntent = getRoleIntent();
           await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+          await enforceTeacherApprovalPolicy(userData, roleIntent);
           setUser(userData);
         }
       } catch (error) {
         console.error('Failed to initialize auth:', error);
       } finally {
+        clearRoleIntent();
         setLoading(false);
       }
     };
@@ -149,10 +202,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
               const normalizedEmail = (signedInUser.email || '').trim().toLowerCase();
               const userData = await loadUserData(signedInUser.id, normalizedEmail, signedInUser);
+              const roleIntent = getRoleIntent();
               await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+              await enforceTeacherApprovalPolicy(userData, roleIntent);
               setUser(userData);
             } catch (error) {
               console.error('Sign-in blocked by policy:', error);
+            } finally {
+              clearRoleIntent();
             }
           })();
         }, 0);
@@ -170,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
-  }, [enforceInstitutionalStudentPolicy, loadUserData]);
+  }, [clearRoleIntent, enforceInstitutionalStudentPolicy, enforceTeacherApprovalPolicy, getRoleIntent, loadUserData]);
 
   const register = async (
     email: string,
@@ -202,8 +259,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!response?.success) {
         throw new Error(response?.error || 'Registration failed');
       }
-
-      await login(trimmedEmail, password);
     } catch (err: any) {
       throw new Error(err.message || 'Registration failed');
     }
@@ -232,6 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
+      clearRoleIntent();
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({
           email: normalizedEmail,
@@ -246,6 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.user) {
         const userData = await loadUserData(data.user.id, normalizedEmail, data.user);
         await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+        await enforceTeacherApprovalPolicy(userData, null);
 
         setUser(userData);
         setSession(data.session || null);
@@ -255,21 +312,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (roleIntent: 'student' | 'teacher' = 'student') => {
     try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(AUTH_ROLE_INTENT_STORAGE_KEY, roleIntent);
+      }
+
+      const queryParams: Record<string, string> = {
+        prompt: 'select_account',
+      };
+
+      if (roleIntent === 'student') {
+        queryParams.hd = STUDENT_INSTITUTIONAL_DOMAIN;
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
-          queryParams: {
-            hd: STUDENT_INSTITUTIONAL_DOMAIN,
-            prompt: 'select_account',
-          },
+          queryParams,
         },
       });
 
       if (error) throw error;
     } catch (err: any) {
+      clearRoleIntent();
       throw new Error(err.message || 'Google login failed');
     }
   };

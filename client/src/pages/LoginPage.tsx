@@ -4,8 +4,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { GraduationCap, AlertCircle } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
+import { authService } from '@/services/auth.service';
 
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
@@ -19,6 +28,11 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isTeacher, setIsTeacher] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
   const [showAnimation, setShowAnimation] = useState(false);
   const [showPendingApproval, setShowPendingApproval] = useState(false);
 
@@ -81,6 +95,44 @@ export default function LoginPage() {
 
   const toggleRole = () => {
     setIsTeacher(!isTeacher);
+  };
+
+  const handleForgotPasswordOpen = () => {
+    setForgotPasswordOpen(true);
+    setForgotError('');
+    setForgotSuccess('');
+    setForgotEmail(email.trim().toLowerCase());
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setForgotError('');
+    setForgotSuccess('');
+
+    const normalizedEmail = forgotEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setForgotError('Email is required.');
+      return;
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(normalizedEmail)) {
+      setForgotError('Please enter a valid email address.');
+      return;
+    }
+
+    setForgotLoading(true);
+
+    try {
+      await authService.forgotPassword(normalizedEmail);
+      setForgotSuccess('If an account exists for this email, a password reset link has been sent.');
+    } catch (submitError: any) {
+      const responseMessage = submitError?.response?.data?.error?.message || submitError?.response?.data?.message;
+      setForgotError(responseMessage || submitError?.message || 'Failed to send reset email. Please try again.');
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
@@ -154,7 +206,11 @@ export default function LoginPage() {
                 />
               </div>
 
-              <button type="button" className="text-xs text-primary hover:underline">
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={handleForgotPasswordOpen}
+              >
                 Forgot password?
               </button>
 
@@ -212,7 +268,7 @@ export default function LoginPage() {
                 setIsLoading(true);
                 setError('');
                 try {
-                  await loginWithGoogle();
+                  await loginWithGoogle(isTeacher ? 'teacher' : 'student');
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Google login failed');
                   setIsLoading(false);
@@ -271,6 +327,65 @@ export default function LoginPage() {
         </div>
 
         <SignupDialog open={signupOpen} onOpenChange={setSignupOpen} isTeacher={isTeacher} />
+
+        <Dialog
+          open={forgotPasswordOpen}
+          onOpenChange={(open) => {
+            setForgotPasswordOpen(open);
+            if (!open) {
+              setForgotError('');
+              setForgotSuccess('');
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reset your password</DialogTitle>
+              <DialogDescription>
+                Enter your email and we will send a password reset link.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+              <Input
+                type="email"
+                placeholder="Email address"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                disabled={forgotLoading}
+                autoFocus
+              />
+
+              {forgotError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{forgotError}</AlertDescription>
+                </Alert>
+              )}
+
+              {forgotSuccess && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{forgotSuccess}</AlertDescription>
+                </Alert>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setForgotPasswordOpen(false)}
+                  disabled={forgotLoading}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={forgotLoading}>
+                  {forgotLoading ? 'Sending...' : 'Send Reset Link'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
