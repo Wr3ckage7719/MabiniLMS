@@ -27,7 +27,7 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
-      timeout: 15000,
+      timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -68,12 +68,9 @@ class ApiClient {
             }
           }
 
-          // Only expire auth state if Supabase session is truly gone.
-          const { data: { session: activeSession } } = await supabase.auth.getSession();
-          if (!activeSession) {
-            await supabase.auth.signOut();
-            window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
-          }
+          // Backend rejected the request after retry/refresh; expire local session to avoid endless loading loops.
+          await supabase.auth.signOut();
+          window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
 
           return Promise.reject(error);
         }

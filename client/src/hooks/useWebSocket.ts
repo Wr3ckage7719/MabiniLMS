@@ -40,16 +40,28 @@ export interface NotificationPayload {
 }
 
 const resolveSocketUrl = (): string => {
+  const normalizeForSecureContext = (url: string): string => {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      if (url.startsWith('ws://')) {
+        return url.replace(/^ws:\/\//, 'wss://');
+      }
+      if (url.startsWith('http://')) {
+        return url.replace(/^http:\/\//, 'https://');
+      }
+    }
+    return url;
+  };
+
   const configuredWsUrl = import.meta.env.VITE_WS_URL;
   if (configuredWsUrl) {
-    return configuredWsUrl;
+    return normalizeForSecureContext(configuredWsUrl);
   }
 
   const configuredApiUrl = import.meta.env.VITE_API_URL;
   if (configuredApiUrl) {
     try {
       const parsed = new URL(configuredApiUrl);
-      return `${parsed.protocol}//${parsed.host}`;
+      return normalizeForSecureContext(`${parsed.protocol}//${parsed.host}`);
     } catch {
       // Fall back below
     }

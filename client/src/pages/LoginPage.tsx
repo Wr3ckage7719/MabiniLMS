@@ -8,6 +8,7 @@ import { GraduationCap, AlertCircle } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
 
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
+const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -35,6 +36,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     setShowAnimation(true);
+  }, []);
+
+  useEffect(() => {
+    const storedAuthError = sessionStorage.getItem(AUTH_ERROR_STORAGE_KEY);
+    if (storedAuthError) {
+      setError(storedAuthError);
+      sessionStorage.removeItem(AUTH_ERROR_STORAGE_KEY);
+    }
   }, []);
 
   useEffect(() => {

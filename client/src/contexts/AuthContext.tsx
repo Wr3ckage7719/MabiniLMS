@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/services/auth.service';
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
+const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
 interface User {
   id: string;
@@ -35,6 +36,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<{ access_token?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const enforceInstitutionalStudentPolicy = useCallback(async (candidateUser: User, email: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const resolvedRole = (candidateUser.role || 'student').toLowerCase();
+
+    if (
+      resolvedRole === 'student' &&
+      !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)
+    ) {
+      const message = `Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`;
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(AUTH_ERROR_STORAGE_KEY, message);
+      }
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
+      throw new Error(message);
+    }
+  }, []);
+
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -42,7 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session || null);
         
         if (session?.user) {
-          const userData = await loadUserData(session.user.id, session.user.email || '');
+          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
+          const userData = await loadUserData(session.user.id, normalizedEmail);
+          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
           setUser(userData);
         }
       } catch (error) {
@@ -58,8 +80,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session || null);
 
       if (event === 'SIGNED_IN' && session?.user) {
-        const userData = await loadUserData(session.user.id, session.user.email || '');
-        setUser(userData);
+        try {
+          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
+          const userData = await loadUserData(session.user.id, normalizedEmail);
+          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+          setUser(userData);
+        } catch (error) {
+          console.error('Sign-in blocked by policy:', error);
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
       }
@@ -74,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
-  }, []);
+  }, [enforceInstitutionalStudentPolicy]);
 
   const loadUserData = async (id: string, email: string): Promise<User> => {
     try {
@@ -93,11 +121,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                      fullName.charAt(0).toUpperCase();
 
       // Fetch user profile data including role, pending_approval, and avatar_url
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('role, pending_approval, avatar_url')
         .eq('id', id)
-        .single();
+        .maybeSingle();
+
+      if (profileError) {
+        console.warn('Profile lookup warning:', profileError.message);
+      }
 
       return {
         id,
@@ -105,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         avatar,
         avatarUrl: profileData?.avatar_url || profile?.user_metadata?.avatar_url || null,
-        role: profileData?.role,
+        role: profileData?.role || 'student',
         pending_approval: profileData?.pending_approval || false,
       };
     } catch (error) {
@@ -116,6 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         avatar: email.charAt(0).toUpperCase(),
         avatarUrl: null,
+        role: 'student',
+        pending_approval: false,
       };
     }
   };
@@ -189,16 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         const userData = await loadUserData(data.user.id, normalizedEmail);
-
-        if (
-          userData.role === 'student' &&
-          !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)
-        ) {
-          await supabase.auth.signOut();
-          setUser(null);
-          setSession(null);
-          throw new Error(`Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
-        }
+        await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
 
         setUser(userData);
         setSession(data.session || null);
@@ -214,6 +239,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
+          queryParams: {
+            hd: STUDENT_INSTITUTIONAL_DOMAIN,
+            prompt: 'select_account',
+          },
         },
       });
 

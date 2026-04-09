@@ -1,12 +1,23 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest, ApiError, ErrorCode, UserRole } from '../types/index.js';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import logger from '../utils/logger.js';
 
 // Cache for session timeout setting (refreshed every 5 minutes)
 let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
+
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+const resolveUserRole = (roleValue: unknown): UserRole => {
+  if (roleValue === UserRole.ADMIN || roleValue === UserRole.TEACHER || roleValue === UserRole.STUDENT) {
+    return roleValue;
+  }
+  return UserRole.STUDENT;
+};
 
 /**
  * Get session timeout from system settings (with caching)
@@ -101,13 +112,13 @@ export const authenticate = async (
     }
 
     // Fetch user profile to get role and approval status
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const { data: existingProfile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('role, email, first_name, last_name, pending_approval, password_changed_at')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError || !profile) {
+    if (profileError) {
       logger.error('Profile fetch failed', { 
         userId: user.id, 
         error: profileError?.message 
@@ -117,6 +128,78 @@ export const authenticate = async (
         'User profile not found',
         401
       );
+    }
+
+    let profile = existingProfile;
+
+    // Backfill a missing profile so API does not hard-fail for valid auth users.
+    if (!profile) {
+      const rawRole = user.user_metadata?.role || user.app_metadata?.role;
+      const role = resolveUserRole(rawRole);
+      const normalizedEmail = normalizeEmail(user.email || '');
+
+      const fullName = (user.user_metadata?.full_name || user.user_metadata?.name || '').trim();
+      const nameParts = fullName ? fullName.split(/\s+/).filter(Boolean) : [];
+      const firstName = user.user_metadata?.first_name || nameParts[0] || null;
+      const lastName = user.user_metadata?.last_name || nameParts.slice(1).join(' ') || null;
+
+      const { data: bootstrapProfile, error: bootstrapError } = await supabaseAdmin
+        .from('profiles')
+        .upsert(
+          {
+            id: user.id,
+            email: normalizedEmail,
+            first_name: firstName,
+            last_name: lastName,
+            role,
+            email_verified: Boolean(user.email_confirmed_at),
+            email_verified_at: user.email_confirmed_at || null,
+            pending_approval: role === UserRole.TEACHER,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        )
+        .select('role, email, first_name, last_name, pending_approval, password_changed_at')
+        .single();
+
+      if (bootstrapError || !bootstrapProfile) {
+        logger.error('Profile bootstrap failed', {
+          userId: user.id,
+          email: normalizedEmail,
+          error: bootstrapError?.message,
+        });
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'User profile not found',
+          401
+        );
+      }
+
+      profile = bootstrapProfile;
+    }
+
+    if (!profile) {
+      throw new ApiError(
+        ErrorCode.UNAUTHORIZED,
+        'User profile not found',
+        401
+      );
+    }
+
+    // Enforce institutional domain for students at API boundary, regardless of login method.
+    if (profile.role === UserRole.STUDENT) {
+      const profileEmail = normalizeEmail(profile.email || user.email || '');
+      if (!profileEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
+        logger.warn('Access denied - non-institutional student email', {
+          userId: user.id,
+          email: profileEmail,
+        });
+        throw new ApiError(
+          ErrorCode.FORBIDDEN,
+          `Student login requires an institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}).`,
+          403
+        );
+      }
     }
 
     // Check if password was changed after token was issued (force re-login)
