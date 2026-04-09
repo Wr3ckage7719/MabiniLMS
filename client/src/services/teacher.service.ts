@@ -217,19 +217,22 @@ export const teacherService = {
   }): Promise<{ data: Notification[] }> {
     const params = new URLSearchParams();
     if (options?.unread_only) {
-      params.append('unread_only', 'true');
+      params.append('read', 'false');
     }
     if (options?.limit) {
       params.append('limit', options.limit.toString());
     }
-    return apiClient.get(`/notifications?${params.toString()}`);
+
+    const query = params.toString();
+    return apiClient.get(`/notifications${query ? `?${query}` : ''}`);
   },
 
   /**
    * Get notification count
    */
   async getNotificationCount(): Promise<{ total: number; unread: number }> {
-    return apiClient.get('/notifications/count');
+    const response = await apiClient.get('/notifications/count');
+    return response?.data || { total: 0, unread: 0 };
   },
 
   /**

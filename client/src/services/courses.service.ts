@@ -12,13 +12,14 @@ export interface CourseData {
 export const coursesService = {
   async getCourses(params?: { archived?: boolean; role?: 'student' | 'teacher' }) {
     const queryParams = new URLSearchParams();
-    if (params?.archived !== undefined) {
-      queryParams.append('archived', params.archived.toString());
+
+    // Backend supports status filtering; use archived=true as explicit archived status filter.
+    if (params?.archived === true) {
+      queryParams.append('status', 'archived');
     }
-    if (params?.role) {
-      queryParams.append('role', params.role);
-    }
-    return apiClient.get(`/courses?${queryParams.toString()}`);
+
+    const queryString = queryParams.toString();
+    return apiClient.get(`/courses${queryString ? `?${queryString}` : ''}`);
   },
 
   async getCourseById(id: string) {

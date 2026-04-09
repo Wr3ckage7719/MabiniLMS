@@ -39,7 +39,30 @@ export interface NotificationPayload {
   createdAt?: string;
 }
 
-const SOCKET_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
+const resolveSocketUrl = (): string => {
+  const configuredWsUrl = import.meta.env.VITE_WS_URL;
+  if (configuredWsUrl) {
+    return configuredWsUrl;
+  }
+
+  const configuredApiUrl = import.meta.env.VITE_API_URL;
+  if (configuredApiUrl) {
+    try {
+      const parsed = new URL(configuredApiUrl);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      // Fall back below
+    }
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:3000';
+};
+
+const SOCKET_URL = resolveSocketUrl();
 
 /**
  * Hook for WebSocket connection and real-time notifications

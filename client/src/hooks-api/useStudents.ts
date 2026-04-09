@@ -8,7 +8,7 @@ export function useStudents(courseId: string): UseQueryResult<Student[], Error> 
     queryKey: ['students', courseId],
     queryFn: async () => {
       const response = await coursesService.getCourseStudents(courseId);
-      return transformUsers(response.data?.students || []);
+      return transformUsers(response.data || []);
     },
     enabled: !!courseId,
     staleTime: 5 * 60 * 1000,

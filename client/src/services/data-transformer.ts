@@ -11,6 +11,12 @@ interface BackendCourse {
   cover_image?: string;
   created_by?: string;
   teacher_name?: string;
+  teacher?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+  } | null;
+  status?: 'draft' | 'published' | 'archived';
   enrollment_count?: number;
   pending_assignments_count?: number;
   archived?: boolean;
@@ -45,11 +51,13 @@ interface BackendMaterial {
   course_id: string;
   title: string;
   description?: string;
-  file_type: string;
+  type?: string;
+  file_type?: string;
   file_size?: number;
   file_url?: string;
   uploaded_by?: string;
-  created_at: string;
+  uploaded_at?: string;
+  created_at?: string;
   download_count?: number;
 }
 
@@ -63,18 +71,23 @@ function getCourseColor(index: number): 'blue' | 'teal' | 'purple' | 'orange' | 
 }
 
 export function transformCourseToClassItem(course: BackendCourse, index: number = 0): ClassItem {
+  const teacherFullName = [course.teacher?.first_name, course.teacher?.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
   return {
     id: course.id,
     name: course.title,
     section: course.section || 'Section A',
-    teacher: course.teacher_name || 'Teacher',
+    teacher: course.teacher_name || teacherFullName || course.teacher?.email || 'Teacher',
     color: getCourseColor(index),
     students: course.enrollment_count || 0,
     pendingAssignments: course.pending_assignments_count || 0,
     room: course.room || 'Room TBA',
     schedule: course.schedule || 'Schedule TBA',
     coverImage: course.cover_image,
-    archived: course.archived || false,
+    archived: Boolean(course.archived || course.status === 'archived'),
   };
 }
 
@@ -119,6 +132,8 @@ export function transformUserToStudent(user: BackendUser): Student {
 }
 
 export function transformMaterial(material: BackendMaterial): LearningMaterial {
+  const materialType = material.type || material.file_type;
+
   const fileTypeMap: Record<string, LearningMaterial['fileType']> = {
     'application/pdf': 'pdf',
     'application/msword': 'doc',
@@ -134,6 +149,10 @@ export function transformMaterial(material: BackendMaterial): LearningMaterial {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'spreadsheet',
     'application/zip': 'archive',
     'application/x-zip-compressed': 'archive',
+    pdf: 'pdf',
+    video: 'video',
+    document: 'doc',
+    link: 'link',
   };
 
   const formatFileSize = (bytes?: number): string => {
@@ -151,10 +170,10 @@ export function transformMaterial(material: BackendMaterial): LearningMaterial {
     classId: material.course_id,
     title: material.title,
     description: material.description || '',
-    fileType: fileTypeMap[material.file_type] || 'pdf',
+    fileType: fileTypeMap[materialType] || 'pdf',
     fileSize: formatFileSize(material.file_size),
     uploadedBy: material.uploaded_by || 'Unknown',
-    uploadedDate: material.created_at,
+    uploadedDate: material.uploaded_at || material.created_at || new Date().toISOString(),
     downloads: material.download_count || 0,
     url: material.file_url,
   };

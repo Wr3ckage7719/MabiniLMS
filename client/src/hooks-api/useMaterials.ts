@@ -9,7 +9,7 @@ export function useMaterials(courseId?: string): UseQueryResult<LearningMaterial
     queryFn: async () => {
       if (!courseId) return [];
       const response = await apiClient.get(`/courses/${courseId}/materials`);
-      return transformMaterials(response.data?.materials || []);
+      return transformMaterials(response.data || []);
     },
     staleTime: 10 * 60 * 1000, // 10 minutes
   });
