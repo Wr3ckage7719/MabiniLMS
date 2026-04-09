@@ -12,6 +12,8 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [showAnimation, setShowAnimation] = useState(false);
 
   // Redirect if already logged in
@@ -34,10 +36,30 @@ export default function AdminLoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setEmailError('');
+    setPasswordError('');
+
+    const trimmedEmail = email.trim();
+    let hasFieldError = false;
+
+    if (!trimmedEmail) {
+      setEmailError('Email is required');
+      hasFieldError = true;
+    }
+
+    if (!password) {
+      setPasswordError('Password is required');
+      hasFieldError = true;
+    }
+
+    if (hasFieldError) {
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      await login(trimmedEmail, password);
       // After login, check role via the AuthContext
       // The useEffect above will handle the redirect
     } catch (err) {
@@ -102,13 +124,20 @@ export default function AdminLoginPage() {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError('');
+                  }}
                   placeholder="admin@mabinilms.edu"
-                  required
                   disabled={isLoading}
-                  className="pl-11 bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                  className={`pl-11 bg-slate-900/50 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20 ${
+                    emailError ? 'border-red-500 focus:border-red-500' : 'border-slate-700'
+                  }`}
                 />
               </div>
+              {emailError && (
+                <p className="mt-1 text-xs text-red-400">{emailError}</p>
+              )}
             </div>
 
             {/* Password Field */}
@@ -122,13 +151,20 @@ export default function AdminLoginPage() {
                   id="password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (passwordError) setPasswordError('');
+                  }}
                   placeholder="••••••••"
-                  required
                   disabled={isLoading}
-                  className="pl-11 bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20"
+                  className={`pl-11 bg-slate-900/50 text-white placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/20 ${
+                    passwordError ? 'border-red-500 focus:border-red-500' : 'border-slate-700'
+                  }`}
                 />
               </div>
+              {passwordError && (
+                <p className="mt-1 text-xs text-red-400">{passwordError}</p>
+              )}
             </div>
 
             {/* Login Button */}

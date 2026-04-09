@@ -76,7 +76,7 @@ export default function Dashboard() {
             <div className="space-y-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Archived Classes ({displayedArchivedClasses.length})</h2>
-                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => navigate('/')}>
+                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => navigate('/dashboard')}>
                   Back to Active
                 </Button>
               </div>
@@ -95,7 +95,7 @@ export default function Dashboard() {
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <p className="text-lg">No archived classes yet.</p>
-              <Button variant="outline" size="sm" className="rounded-xl mt-4" onClick={() => navigate('/')}>
+              <Button variant="outline" size="sm" className="rounded-xl mt-4" onClick={() => navigate('/dashboard')}>
                 Back to Active
               </Button>
             </div>

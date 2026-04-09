@@ -1,7 +1,12 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { supabase } from '@/lib/supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+
+interface RetryableRequestConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
 
 class ApiClient {
   private client: AxiosInstance;
@@ -34,20 +39,31 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
+          const originalRequest = error.config as RetryableRequestConfig | undefined;
+          if (originalRequest?._retry) {
+            await supabase.auth.signOut();
+            window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
+            return Promise.reject(error);
+          }
+
+          if (originalRequest) {
+            originalRequest._retry = true;
+          }
+
           // Token expired, try to refresh
           const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
           
           if (refreshError || !session) {
             // Refresh failed, logout user
             await supabase.auth.signOut();
-            window.location.href = '/login';
+            window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
             return Promise.reject(error);
           }
 
           // Retry the original request with new token
-          if (error.config) {
-            error.config.headers.Authorization = `Bearer ${session.access_token}`;
-            return this.client.request(error.config);
+          if (originalRequest) {
+            originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
+            return this.client.request(originalRequest);
           }
         }
 

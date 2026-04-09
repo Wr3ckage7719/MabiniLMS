@@ -1,11 +1,14 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
+const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+
 interface User {
   id: string;
   name: string;
   email: string;
   avatar: string;
+  avatarUrl?: string | null;
   role?: string;
   pending_approval?: boolean;
 }
@@ -53,8 +56,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    const handleSessionExpired = async () => {
+      setUser(null);
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+
     return () => {
       subscription.unsubscribe();
+      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
   }, []);
 
@@ -69,10 +78,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const avatar = profile?.user_metadata?.avatar_url || 
                      fullName.charAt(0).toUpperCase();
 
-      // Fetch user profile data including role and pending_approval
+      // Fetch user profile data including role, pending_approval, and avatar_url
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('role, pending_approval')
+        .select('role, pending_approval, avatar_url')
         .eq('id', id)
         .single();
 
@@ -81,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: fullName,
         email,
         avatar,
+        avatarUrl: profileData?.avatar_url || profile?.user_metadata?.avatar_url || null,
         role: profileData?.role,
         pending_approval: profileData?.pending_approval || false,
       };
@@ -91,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: email.split('@')[0],
         email,
         avatar: email.charAt(0).toUpperCase(),
+        avatarUrl: null,
       };
     }
   };
@@ -119,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: fullName,
           email,
           avatar: fullName.charAt(0).toUpperCase(),
+          avatarUrl: null,
         };
         setUser(userData);
       }

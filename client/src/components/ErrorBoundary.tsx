@@ -60,13 +60,13 @@ class ErrorBoundary extends Component<Props, State> {
               </details>
             )}
             <div className="flex gap-3 justify-center pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  this.setState({ hasError: false, error: undefined });
-                  window.location.href = '/';
-                }}
-              >
+               <Button
+                 variant="outline"
+                 onClick={() => {
+                   this.setState({ hasError: false, error: undefined });
+                   window.location.href = '/dashboard';
+                 }}
+               >
                 Go Home
               </Button>
               <Button

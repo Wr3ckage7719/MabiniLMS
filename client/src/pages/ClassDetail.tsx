@@ -92,11 +92,11 @@ export default function ClassDetail() {
   }
 
   const handleArchive = () => {
-    navigate('/');
+    navigate('/dashboard');
   };
 
   const handleUnenroll = () => {
-    navigate('/');
+    navigate('/dashboard');
   };
 
   return (
@@ -112,7 +112,7 @@ export default function ClassDetail() {
               variant="ghost"
               size="sm"
               className="text-white/80 hover:text-white hover:bg-white/20 -ml-2 rounded-xl h-8 md:h-9"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/dashboard')}
             >
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
