@@ -35,6 +35,34 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
+const toOrigin = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    // Support plain host values from env by coercing to https.
+    if (/^[a-z0-9.-]+$/i.test(trimmed)) {
+      try {
+        return new URL(`https://${trimmed}`).origin;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+};
+
+const parseOrigins = (...values: Array<string | undefined>): string[] => {
+  const origins = values
+    .flatMap((value) => (value ? value.split(',') : []))
+    .map((value) => toOrigin(value))
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(origins));
+};
+
 // Initialize WebSocket server
 initializeWebSocket(httpServer);
 
@@ -78,15 +106,19 @@ app.use(helmet({
 }));
 
 // 2. CORS Configuration - Strict origin validation
-const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
+const allowedOrigins = parseOrigins(
+  process.env.CLIENT_URL,
   process.env.CORS_ORIGIN,
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
   'http://localhost:8080',
   'http://localhost:8081',
   'http://localhost:3000',
-].filter(Boolean) as string[];
+  'https://mabinilms.vercel.app',
+  'https://www.mabinilms.vercel.app'
+);
 
-app.use(cors({
+const corsOptions: cors.CorsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) {
@@ -94,9 +126,8 @@ app.use(cors({
     }
     
     // Check if origin matches allowed list
-    const isAllowed = allowedOrigins.some(allowed => 
-      origin === allowed || origin.startsWith(allowed)
-    );
+    const requestOrigin = toOrigin(origin);
+    const isAllowed = Boolean(requestOrigin && allowedOrigins.includes(requestOrigin));
     
     if (isAllowed) {
       callback(null, true);
@@ -115,7 +146,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
   exposedHeaders: ['X-Request-Id'],
   maxAge: 86400, // 24 hours preflight cache
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // 3. Body parsing with size limits (DoS prevention)
 app.use(express.json({ 

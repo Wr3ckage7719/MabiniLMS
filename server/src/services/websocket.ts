@@ -10,6 +10,41 @@ import logger from '../utils/logger.js';
 // Socket.io server instance
 let io: Server | null = null;
 
+const normalizeOrigin = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    if (/^[a-z0-9.-]+$/i.test(trimmed)) {
+      try {
+        return new URL(`https://${trimmed}`).origin;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+};
+
+const socketAllowedOrigins = Array.from(
+  new Set(
+    [
+      process.env.CLIENT_URL,
+      process.env.CORS_ORIGIN,
+      process.env.FRONTEND_URL,
+      'http://localhost:5173',
+      'http://localhost:8080',
+      'http://localhost:8081',
+      'https://mabinilms.vercel.app',
+      'https://www.mabinilms.vercel.app',
+    ]
+      .flatMap((value) => (value ? value.split(',') : []))
+      .map((value) => normalizeOrigin(value))
+      .filter((value): value is string => Boolean(value))
+  )
+);
+
 // Connected users map: userId -> Set of socket IDs
 const connectedUsers = new Map<string, Set<string>>();
 
@@ -61,11 +96,7 @@ export interface NotificationPayload {
 export const initializeWebSocket = (httpServer: HttpServer): Server => {
   io = new Server(httpServer, {
     cors: {
-      origin: [
-        process.env.CLIENT_URL || 'http://localhost:5173',
-        'http://localhost:8080',
-        'http://localhost:8081',
-      ],
+      origin: socketAllowedOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
     },
