@@ -1,10 +1,21 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/services/auth.service';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
+const AUTH_OPERATION_TIMEOUT_MS = 15000;
+
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    }),
+  ]);
+};
 
 interface User {
   id: string;
@@ -55,69 +66,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session || null);
-        
-        if (session?.user) {
-          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
-          const userData = await loadUserData(session.user.id, normalizedEmail);
-          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
-          setUser(userData);
-        }
-      } catch (error) {
-        console.error('Failed to initialize auth:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSession(session || null);
-
-      if (event === 'SIGNED_IN' && session?.user) {
-        try {
-          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
-          const userData = await loadUserData(session.user.id, normalizedEmail);
-          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
-          setUser(userData);
-        } catch (error) {
-          console.error('Sign-in blocked by policy:', error);
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-      }
-    });
-
-    const handleSessionExpired = async () => {
-      setUser(null);
-    };
-    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
-
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
-    };
-  }, [enforceInstitutionalStudentPolicy]);
-
-  const loadUserData = async (id: string, email: string): Promise<User> => {
+  const loadUserData = useCallback(async (id: string, email: string, authUser?: SupabaseUser | null): Promise<User> => {
     try {
-      const { data: { user: profile } } = await supabase.auth.getUser();
-      
+      const profile = authUser || (await supabase.auth.getUser()).data.user;
+
       const firstName = profile?.user_metadata?.first_name;
       const lastName = profile?.user_metadata?.last_name;
       const metadataName = [firstName, lastName].filter(Boolean).join(' ').trim();
 
-      const fullName = profile?.user_metadata?.full_name || 
+      const fullName = profile?.user_metadata?.full_name ||
                        metadataName ||
-                       profile?.user_metadata?.name || 
+                       profile?.user_metadata?.name ||
                        email.split('@')[0];
-      
-      const avatar = profile?.user_metadata?.avatar_url || 
+
+      const avatar = profile?.user_metadata?.avatar_url ||
                      fullName.charAt(0).toUpperCase();
 
       // Fetch user profile data including role, pending_approval, and avatar_url
@@ -152,7 +114,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pending_approval: false,
       };
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session || null);
+        
+        if (session?.user) {
+          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
+          const userData = await loadUserData(session.user.id, normalizedEmail, session.user);
+          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error('Failed to initialize auth:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session || null);
+
+      if (event === 'SIGNED_IN' && session?.user) {
+        const signedInUser = session.user;
+
+        // Avoid async auth calls directly in onAuthStateChange callback to prevent auth deadlocks.
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const normalizedEmail = (signedInUser.email || '').trim().toLowerCase();
+              const userData = await loadUserData(signedInUser.id, normalizedEmail, signedInUser);
+              await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+              setUser(userData);
+            } catch (error) {
+              console.error('Sign-in blocked by policy:', error);
+            }
+          })();
+        }, 0);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    const handleSessionExpired = async () => {
+      setUser(null);
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    };
+  }, [enforceInstitutionalStudentPolicy, loadUserData]);
 
   const register = async (
     email: string,
@@ -214,15 +232,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        }),
+        AUTH_OPERATION_TIMEOUT_MS,
+        'Login timed out. Please try again.'
+      );
 
       if (error) throw error;
 
       if (data.user) {
-        const userData = await loadUserData(data.user.id, normalizedEmail);
+        const userData = await loadUserData(data.user.id, normalizedEmail, data.user);
         await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
 
         setUser(userData);
