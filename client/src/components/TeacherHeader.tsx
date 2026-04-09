@@ -1,7 +1,7 @@
 import { Menu, Search, Settings, GraduationCap, LogOut, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRole } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -22,7 +22,7 @@ interface TeacherHeaderProps {
 }
 
 export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: TeacherHeaderProps) {
-  const { currentUserName, currentUserAvatar } = useRole();
+  const { currentUserName, currentUserAvatar, currentUserAvatarUrl } = useRole();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -111,6 +111,9 @@ export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: Te
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary/50 transition-colors ml-2">
                 <Avatar className="h-8 w-8">
+                  {currentUserAvatarUrl && (
+                    <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />
+                  )}
                   <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
                     {currentUserAvatar}
                   </AvatarFallback>

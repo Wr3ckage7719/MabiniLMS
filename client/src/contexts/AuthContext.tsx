@@ -21,6 +21,7 @@ interface AuthContextType {
   register: (email: string, password: string, fullName: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => void;
+  updateAvatar: (avatarUrl: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -186,6 +187,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateAvatar = (avatarUrl: string) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        avatarUrl,
+      };
+    });
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -196,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         loginWithGoogle,
         logout,
+        updateAvatar,
       }}
     >
       {children}

@@ -5,6 +5,7 @@ interface RoleContextType {
   currentUserId: string;
   currentUserName: string;
   currentUserAvatar: string;
+  currentUserAvatarUrl: string | null;
 }
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
@@ -16,6 +17,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     currentUserId: user?.id || 'student-1',
     currentUserName: user?.name || 'Kaide Olfindo',
     currentUserAvatar: user?.avatar || 'KO',
+    currentUserAvatarUrl: user?.avatarUrl || null,
   };
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

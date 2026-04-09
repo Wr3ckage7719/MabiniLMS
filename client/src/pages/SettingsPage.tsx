@@ -8,9 +8,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { usersService } from '@/services/users.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import axios from 'axios';
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, updateAvatar } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -82,15 +83,23 @@ export default function SettingsPage() {
       const uploadedAvatarUrl = response?.data?.avatar_url;
       if (uploadedAvatarUrl) {
         setAvatarUrl(uploadedAvatarUrl);
+        updateAvatar(uploadedAvatarUrl);
       }
       toast({
         title: 'Avatar updated',
         description: 'Your profile avatar has been updated.',
       });
     } catch (error) {
+      const isNetworkError = axios.isAxiosError(error) && !error.response;
+      const errorMessage = isNetworkError
+        ? 'Cannot reach upload API. Check production VITE_API_URL, CORS, and backend availability.'
+        : error instanceof Error
+          ? error.message
+          : 'Unable to update avatar.';
+
       toast({
         title: 'Upload failed',
-        description: error instanceof Error ? error.message : 'Unable to update avatar.',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
