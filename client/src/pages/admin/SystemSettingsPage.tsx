@@ -29,6 +29,8 @@ export default function SystemSettingsPage() {
   const [smtpSecure, setSmtpSecure] = useState(false);
   const [smtpUser, setSmtpUser] = useState('');
   const [smtpPass, setSmtpPass] = useState('');
+  const [emailFrom, setEmailFrom] = useState('');
+  const [emailFromName, setEmailFromName] = useState('MabiniLMS');
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['system-settings'],
@@ -57,6 +59,12 @@ export default function SystemSettingsPage() {
       }
       if (data.smtp_user?.value) {
         setSmtpUser(String(data.smtp_user.value));
+      }
+      if (data.email_from?.value !== undefined) {
+        setEmailFrom(String(data.email_from.value || ''));
+      }
+      if (data.email_from_name?.value !== undefined) {
+        setEmailFromName(String(data.email_from_name.value || 'MabiniLMS'));
       }
     },
   });
@@ -100,6 +108,8 @@ export default function SystemSettingsPage() {
       smtp_port: Number(smtpPort) || 587,
       smtp_secure: smtpSecure,
       smtp_user: smtpUser,
+      email_from: emailFrom.trim(),
+      email_from_name: emailFromName.trim() || 'MabiniLMS',
       ...(smtpPass ? { smtp_pass: smtpPass } : {}),
     });
   };
@@ -204,6 +214,25 @@ export default function SystemSettingsPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-white">From Email</Label>
+                <Input
+                  value={emailFrom}
+                  onChange={(e) => setEmailFrom(e.target.value)}
+                  placeholder="your_email@example.com"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+                <p className="text-xs text-slate-500">Use an address authorized by your SMTP provider.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-white">From Name</Label>
+                <Input
+                  value={emailFromName}
+                  onChange={(e) => setEmailFromName(e.target.value)}
+                  placeholder="MabiniLMS"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
               <div className="space-y-2">
                 <Label className="text-white">SMTP Host</Label>
                 <Input

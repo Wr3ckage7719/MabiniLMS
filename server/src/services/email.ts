@@ -49,6 +49,13 @@ let cachedSettings: Record<string, unknown> = {};
 let settingsLoadedAt = 0;
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
 
+export const invalidateEmailSettingsCache = (): void => {
+  cachedSettings = {};
+  settingsLoadedAt = 0;
+  transporter = null;
+  transporterConfigKey = null;
+};
+
 const getClientUrl = (): string => {
   return process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
 };
@@ -115,8 +122,10 @@ const getEmailConfig = (): EmailConfig => {
     process.env.EMAIL_SERVICE ||
     'mock'
   ).toLowerCase();
-  const provider: 'smtp' | 'gmail' | 'mock' =
-    rawProvider === 'smtp' || rawProvider === 'gmail' ? rawProvider : 'mock';
+  let provider: 'smtp' | 'gmail' | 'mock' =
+    rawProvider === 'smtp' || rawProvider === 'gmail' || rawProvider === 'mock'
+      ? rawProvider
+      : 'mock';
 
   const smtpHost =
     getSetting<string>('smtp_host') ||
@@ -134,7 +143,16 @@ const getEmailConfig = (): EmailConfig => {
     process.env.SMTP_PASS ||
     process.env.EMAIL_PASSWORD ||
     '';
-  const from = getSetting<string>('email_from') || process.env.EMAIL_FROM || 'noreply@mabinilms.edu.ph';
+  const configuredFrom = getSetting<string>('email_from') || process.env.EMAIL_FROM || '';
+
+  if (process.env.NODE_ENV === 'production' && provider === 'mock' && smtpUser && smtpPass) {
+    logger.warn(
+      'Email provider is set to mock in production, but SMTP credentials exist. Falling back to SMTP provider.'
+    );
+    provider = 'smtp';
+  }
+
+  const from = configuredFrom || smtpUser || 'noreply@mabinilms.edu.ph';
   const fromName = getSetting<string>('email_from_name') || process.env.EMAIL_FROM_NAME || 'MabiniLMS';
   
   return {

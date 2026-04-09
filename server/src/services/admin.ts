@@ -19,6 +19,17 @@ const SYSTEM_SETTING_DESCRIPTIONS: Record<string, string> = {
   smtp_pass: 'SMTP password or app password',
 }
 
+const EMAIL_SETTINGS_KEYS = new Set([
+  'email_provider',
+  'email_from',
+  'email_from_name',
+  'smtp_host',
+  'smtp_port',
+  'smtp_secure',
+  'smtp_user',
+  'smtp_pass',
+])
+
 /**
  * Admin Service
  * Handles admin-specific operations like teacher approval and student management
@@ -489,6 +500,10 @@ export const updateSystemSetting = async (
   if (error) {
     logger.error(`Error updating system setting ${key}: ${error.message}`)
     throw new Error(`Failed to update setting: ${key}`)
+  }
+
+  if (EMAIL_SETTINGS_KEYS.has(key)) {
+    emailService.invalidateEmailSettingsCache()
   }
 
   // Log the action
