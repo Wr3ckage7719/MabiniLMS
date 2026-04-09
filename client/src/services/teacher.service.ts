@@ -164,17 +164,35 @@ export const teacherService = {
     status?: 'submitted' | 'graded' | 'returned';
     courseId?: string;
   }): Promise<{ data: Submission[] }> {
-    const params = new URLSearchParams();
-    if (options?.limit) {
-      params.append('limit', options.limit.toString());
-    }
+    const assignmentQuery = options?.courseId
+      ? `/assignments?course_id=${options.courseId}&include_past=true&limit=100`
+      : '/assignments?include_past=true&limit=100';
+
+    const assignmentsResponse = await apiClient.get(assignmentQuery);
+    const assignments: Array<{ id: string }> = assignmentsResponse?.data || [];
+
+    const allSubmissions = await Promise.all(
+      assignments.map(async (assignment) => {
+        try {
+          const submissionResponse = await apiClient.get(`/assignments/${assignment.id}/submissions`);
+          return submissionResponse?.data || [];
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    let submissions = allSubmissions.flat();
+
     if (options?.status) {
-      params.append('status', options.status);
+      submissions = submissions.filter((submission: Submission) => submission.status === options.status);
     }
-    if (options?.courseId) {
-      params.append('course_id', options.courseId);
+
+    if (options?.limit) {
+      submissions = submissions.slice(0, options.limit);
     }
-    return apiClient.get(`/assignments/submissions?${params.toString()}`);
+
+    return { data: submissions };
   },
 
   /**
@@ -240,7 +258,8 @@ export const teacherService = {
    * Note: Falls back gracefully if endpoint doesn't exist
    */
   async createAnnouncement(courseId: string, content: string): Promise<{ data: Announcement }> {
-    return apiClient.post(`/courses/${courseId}/announcements`, { content });
+    const title = content.trim().slice(0, 80) || 'Announcement';
+    return apiClient.post(`/courses/${courseId}/announcements`, { title, content });
   },
 
   /**

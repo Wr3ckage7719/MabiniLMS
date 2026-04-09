@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
 import {
   signupSchema,
+  studentCredentialSignupSchema,
   loginSchema,
   refreshTokenSchema,
   forgotPasswordSchema,
@@ -33,6 +34,13 @@ router.post(
   authLimiter,
   validate({ body: signupSchema }),
   authController.signup
+);
+
+router.post(
+  '/student-signup',
+  authLimiter,
+  validate({ body: studentCredentialSignupSchema }),
+  authController.studentSignup
 );
 
 router.post(

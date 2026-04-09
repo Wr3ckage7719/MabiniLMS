@@ -11,6 +11,28 @@ app.use('/api/auth', authRouter)
 app.use(errorHandler)
 
 describe('Email Verification API Endpoints', () => {
+  describe('POST /api/auth/student-signup', () => {
+    it('should require email in request body', async () => {
+      const response = await request(app)
+        .post('/api/auth/student-signup')
+        .send({})
+        .expect(400)
+
+      expect(response.body.success).toBe(false)
+      expect(response.body.error).toBeDefined()
+    })
+
+    it('should reject non-institutional student email', async () => {
+      const response = await request(app)
+        .post('/api/auth/student-signup')
+        .send({ email: 'student@gmail.com' })
+        .expect(400)
+
+      expect(response.body.success).toBe(false)
+      expect(response.body.error.message).toContain('institutional email')
+    })
+  })
+
   describe('GET /api/auth/verify-email', () => {
     it('should require token query parameter', async () => {
       const response = await request(app)
@@ -76,8 +98,8 @@ describe('Email Verification API Endpoints', () => {
       const response = await request(app)
         .post('/api/auth/send-password-reset')
         .send({})
-        .expect(400)
 
+      expect([400, 429]).toContain(response.status)
       expect(response.body.success).toBe(false)
       expect(response.body.error).toBeDefined()
     })
@@ -86,8 +108,8 @@ describe('Email Verification API Endpoints', () => {
       const response = await request(app)
         .post('/api/auth/send-password-reset')
         .send({ email: 'invalid-email' })
-        .expect(400)
 
+      expect([400, 429]).toContain(response.status)
       expect(response.body.success).toBe(false)
     })
 

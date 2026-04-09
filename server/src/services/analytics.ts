@@ -168,7 +168,7 @@ export const getCourseAnalytics = async (
     `)
     .eq('submission.assignment.course_id', courseId)
 
-  let gradeStats: CourseAnalytics['grade_stats'] = {
+  const gradeStats: CourseAnalytics['grade_stats'] = {
     average: null,
     highest: null,
     lowest: null,

@@ -31,7 +31,9 @@ interface BackendAssignment {
 
 interface BackendUser {
   id: string;
-  full_name: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
   role?: string;
   avatar_url?: string;
@@ -105,11 +107,13 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
 }
 
 export function transformUserToStudent(user: BackendUser): Student {
+  const fullName = user.full_name || [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || 'User';
+
   return {
     id: user.id,
-    name: user.full_name,
+    name: fullName,
     email: user.email,
-    avatar: user.avatar_url || user.full_name.charAt(0).toUpperCase(),
+    avatar: user.avatar_url || fullName.charAt(0).toUpperCase(),
     grade: user.grade,
   };
 }

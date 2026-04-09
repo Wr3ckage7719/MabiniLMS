@@ -10,14 +10,11 @@ export const enrollmentsService = {
   },
 
   async getEnrollments(params?: { course_id?: string; user_id?: string }) {
-    const queryParams = new URLSearchParams();
     if (params?.course_id) {
-      queryParams.append('course_id', params.course_id);
+      return apiClient.get(`/courses/${params.course_id}/roster`);
     }
-    if (params?.user_id) {
-      queryParams.append('user_id', params.user_id);
-    }
-    return apiClient.get(`/enrollments?${queryParams.toString()}`);
+
+    return apiClient.get('/enrollments/my-courses');
   },
 
   async getEnrollmentStatus(courseId: string) {

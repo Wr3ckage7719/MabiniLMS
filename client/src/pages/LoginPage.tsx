@@ -7,6 +7,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { GraduationCap, AlertCircle } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
 
+const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, loginWithGoogle, isLoggedIn, user } = useAuth();
@@ -53,7 +55,13 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (!isTeacher && !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
+        throw new Error(`Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
+      }
+
+      await login(normalizedEmail, password);
       // The useEffect will handle navigation or showing pending message
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

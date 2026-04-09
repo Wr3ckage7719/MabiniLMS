@@ -20,7 +20,7 @@ const HTML_ENTITIES: Record<string, string> = {
   '=': '&#x3D;',
 }
 
-const HTML_ENTITY_PATTERN = /[&<>"'`=\/]/g
+const HTML_ENTITY_PATTERN = /[&<>"'`=/]/g
 
 // ============================================
 // XSS Prevention
@@ -140,7 +140,7 @@ export const detectSqlInjection = (str: string): boolean => {
   const patterns = [
     /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b)/i,
     /(\b(OR|AND)\b\s+\d+\s*=\s*\d+)/i,
-    /(--|\#|\/\*)/,
+    /(--|#|\/\*)/,
     /(\bEXEC\b|\bEXECUTE\b)/i,
     /(\bxp_)/i,
   ]

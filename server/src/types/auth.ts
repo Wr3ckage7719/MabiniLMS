@@ -23,6 +23,10 @@ export const forgotPasswordSchema = z.object({
   email: z.string().email('Invalid email format'),
 });
 
+export const studentCredentialSignupSchema = z.object({
+  email: z.string().email('Invalid email format'),
+});
+
 export const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
@@ -63,6 +67,7 @@ export const listUsersQuerySchema = z.object({
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type StudentCredentialSignupInput = z.infer<typeof studentCredentialSignupSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

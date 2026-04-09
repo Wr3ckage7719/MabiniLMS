@@ -10,6 +10,9 @@ export interface AssignmentData {
 }
 
 export interface SubmissionData {
+  drive_file_id?: string;
+  drive_file_name?: string;
+  content?: string;
   submission_text?: string;
   submission_url?: string;
   attachments?: File[];
@@ -17,40 +20,62 @@ export interface SubmissionData {
 
 export const assignmentsService = {
   async getAssignments(courseId: string) {
-    return apiClient.get(`/courses/${courseId}/assignments`);
+    const response = await apiClient.get(`/assignments?course_id=${courseId}&include_past=true`);
+    return {
+      data: {
+        assignments: response?.data || [],
+      },
+      meta: response?.meta,
+    };
   },
 
   async getAssignmentById(courseId: string, assignmentId: string) {
-    return apiClient.get(`/courses/${courseId}/assignments/${assignmentId}`);
+    const response = await apiClient.get(`/assignments/${assignmentId}`);
+    return {
+      data: {
+        assignment: response?.data,
+      },
+    };
   },
 
   async createAssignment(courseId: string, data: AssignmentData) {
-    return apiClient.post(`/courses/${courseId}/assignments`, data);
+    return apiClient.post(`/assignments/courses/${courseId}/assignments`, data);
   },
 
   async updateAssignment(courseId: string, assignmentId: string, data: Partial<AssignmentData>) {
-    return apiClient.patch(`/courses/${courseId}/assignments/${assignmentId}`, data);
+    return apiClient.patch(`/assignments/${assignmentId}`, data);
   },
 
   async deleteAssignment(courseId: string, assignmentId: string) {
-    return apiClient.delete(`/courses/${courseId}/assignments/${assignmentId}`);
+    return apiClient.delete(`/assignments/${assignmentId}`);
   },
 
   async submitAssignment(courseId: string, assignmentId: string, data: SubmissionData) {
-    return apiClient.post(`/courses/${courseId}/assignments/${assignmentId}/submit`, data);
+    const payload = {
+      drive_file_id: data.drive_file_id,
+      drive_file_name: data.drive_file_name,
+      content:
+        data.content ||
+        data.submission_text ||
+        data.submission_url ||
+        undefined,
+    };
+
+    return apiClient.post(`/assignments/${assignmentId}/submit`, payload);
   },
 
   async getSubmissions(courseId: string, assignmentId: string) {
-    return apiClient.get(`/courses/${courseId}/assignments/${assignmentId}/submissions`);
+    return apiClient.get(`/assignments/${assignmentId}/submissions`);
   },
 
   async getMySubmission(courseId: string, assignmentId: string) {
-    return apiClient.get(`/courses/${courseId}/assignments/${assignmentId}/my-submission`);
+    return apiClient.get(`/assignments/${assignmentId}/my-submission`);
   },
 
   async gradeSubmission(courseId: string, assignmentId: string, submissionId: string, grade: number, feedback?: string) {
-    return apiClient.patch(`/courses/${courseId}/assignments/${assignmentId}/submissions/${submissionId}/grade`, {
-      grade,
+    return apiClient.post('/grades', {
+      submission_id: submissionId,
+      points_earned: grade,
       feedback,
     });
   },

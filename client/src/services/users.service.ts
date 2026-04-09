@@ -1,8 +1,9 @@
 import { apiClient } from './api-client';
 
 export interface UpdateProfileData {
+  first_name?: string;
+  last_name?: string;
   full_name?: string;
-  bio?: string;
   avatar_url?: string;
 }
 
@@ -17,11 +18,24 @@ export const usersService = {
   },
 
   async updateProfile(data: UpdateProfileData) {
-    return apiClient.patch('/users/me', data);
+    let first_name = data.first_name;
+    let last_name = data.last_name;
+
+    if (!first_name && !last_name && data.full_name) {
+      const [firstToken, ...restTokens] = data.full_name.trim().split(' ').filter(Boolean);
+      first_name = firstToken;
+      last_name = restTokens.join(' ');
+    }
+
+    return apiClient.patch('/users/me', {
+      first_name,
+      last_name,
+      avatar_url: data.avatar_url,
+    });
   },
 
   async changePassword(data: ChangePasswordData) {
-    return apiClient.post('/users/me/change-password', data);
+    return apiClient.post('/auth/change-password', data);
   },
 
   async getUserById(userId: string) {
@@ -41,6 +55,6 @@ export const usersService = {
   async searchUsers(query: string, role?: 'student' | 'teacher') {
     const params = new URLSearchParams({ q: query });
     if (role) params.append('role', role);
-    return apiClient.get(`/users/search?${params.toString()}`);
+    return apiClient.get(`/search/users?${params.toString()}`);
   },
 };

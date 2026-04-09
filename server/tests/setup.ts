@@ -9,6 +9,9 @@ import { v4 as uuidv4 } from 'uuid'
 // Set test environment
 process.env.NODE_ENV = 'test'
 process.env.LOG_LEVEL = 'error' // Suppress logs during tests
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://test.supabase.co'
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key'
+process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'test-service-key'
 
 /**
  * Mock JWT token for testing

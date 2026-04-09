@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { authService } from '@/services/auth.service';
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 
 interface User {
   id: string;
@@ -15,10 +17,12 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  session: { access_token?: string } | null;
   isLoggedIn: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string) => Promise<void>;
+  register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
+  requestStudentSignup: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => void;
   updateAvatar: (avatarUrl: string) => void;
@@ -28,12 +32,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<{ access_token?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        setSession(session || null);
         
         if (session?.user) {
           const userData = await loadUserData(session.user.id, session.user.email || '');
@@ -49,6 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setSession(session || null);
+
       if (event === 'SIGNED_IN' && session?.user) {
         const userData = await loadUserData(session.user.id, session.user.email || '');
         setUser(userData);
@@ -72,7 +80,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data: { user: profile } } = await supabase.auth.getUser();
       
+      const firstName = profile?.user_metadata?.first_name;
+      const lastName = profile?.user_metadata?.last_name;
+      const metadataName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
       const fullName = profile?.user_metadata?.full_name || 
+                       metadataName ||
                        profile?.user_metadata?.name || 
                        email.split('@')[0];
       
@@ -107,36 +120,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (email: string, password: string, fullName: string) => {
+  const register = async (
+    email: string,
+    password: string,
+    fullName: string,
+    role: 'student' | 'teacher' = 'teacher'
+  ) => {
     if (!email || !password || !fullName) {
       throw new Error('All fields are required');
     }
 
+    if (role === 'student') {
+      throw new Error('Student sign-up is handled through institutional email credential request.');
+    }
+
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
+      const trimmedEmail = email.trim().toLowerCase();
+      const [firstToken, ...restTokens] = fullName.trim().split(' ').filter(Boolean);
+
+      const response = await authService.signup({
+        email: trimmedEmail,
         password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
+        full_name: fullName,
+        first_name: firstToken || 'User',
+        last_name: restTokens.join(' ') || 'Name',
+        role,
       });
 
-      if (error) throw error;
-
-      if (data.user) {
-        const userData: User = {
-          id: data.user.id,
-          name: fullName,
-          email,
-          avatar: fullName.charAt(0).toUpperCase(),
-          avatarUrl: null,
-        };
-        setUser(userData);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Registration failed');
       }
+
+      await login(trimmedEmail, password);
     } catch (err: any) {
       throw new Error(err.message || 'Registration failed');
+    }
+  };
+
+  const requestStudentSignup = async (email: string) => {
+    if (!email) {
+      throw new Error('Institutional email is required');
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
+      throw new Error(`Student signup requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
+    }
+
+    const response = await authService.requestStudentCredentials(normalizedEmail);
+    if (!response?.success) {
+      throw new Error(response?.error || 'Failed to request student credentials');
     }
   };
 
@@ -146,16 +179,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizedEmail,
         password,
       });
 
       if (error) throw error;
 
       if (data.user) {
-        const userData = await loadUserData(data.user.id, email);
+        const userData = await loadUserData(data.user.id, normalizedEmail);
+
+        if (
+          userData.role === 'student' &&
+          !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)
+        ) {
+          await supabase.auth.signOut();
+          setUser(null);
+          setSession(null);
+          throw new Error(`Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
+        }
+
         setUser(userData);
+        setSession(data.session || null);
       }
     } catch (err: any) {
       throw new Error(err.message || 'Login failed');
@@ -181,9 +227,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await supabase.auth.signOut();
       setUser(null);
+      setSession(null);
     } catch (error) {
       console.error('Logout error:', error);
       setUser(null);
+      setSession(null);
     }
   };
 
@@ -201,10 +249,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        session,
         isLoggedIn: user !== null,
         isLoading: loading,
         login,
         register,
+        requestStudentSignup,
         loginWithGoogle,
         logout,
         updateAvatar,

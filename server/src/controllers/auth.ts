@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthRequest, ApiResponse } from '../types/index.js';
 import {
   SignupInput,
+  StudentCredentialSignupInput,
   LoginInput,
   RefreshTokenInput,
   ForgotPasswordInput,
@@ -68,6 +69,56 @@ export const signup = async (
       data: result,
     };
     res.status(201).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @openapi
+ * /api/auth/student-signup:
+ *   post:
+ *     summary: Request student account credentials via email
+ *     description: Creates or resets a student account using institutional email and sends temporary credentials by email
+ *     tags:
+ *       - Authentication
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Credentials request processed
+ */
+export const studentSignup = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const input: StudentCredentialSignupInput = req.body;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    await authService.requestStudentCredentialSignup(input, ipAddress, userAgent);
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: 'If your institutional email is eligible, temporary login credentials have been sent.',
+      },
+    };
+
+    res.status(200).json(response);
   } catch (error) {
     next(error);
   }

@@ -2,59 +2,119 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
   SignupInput,
+  StudentCredentialSignupInput,
   LoginInput,
   RefreshTokenInput,
   AuthResponse,
   UserProfile,
   AuthSession,
 } from '../types/auth.js';
+import crypto from 'crypto';
 import logger from '../utils/logger.js';
 import * as emailVerificationService from './email-verification.js';
+import * as emailService from './email.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import * as twoFactorService from './twoFactor.js';
-import { getPendingTeachersCount } from './admin.js';
+import { generateTemporaryPassword, getPendingTeachersCount } from './admin.js';
+import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import { notifyAdminsPendingTeacher } from './websocket.js';
+
+const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
+
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+const isInstitutionalStudentEmail = (email: string): boolean => {
+  const normalizedEmail = normalizeEmail(email);
+  return normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`);
+};
+
+const assertInstitutionalStudentEmail = (email: string, context: string): void => {
+  if (!isInstitutionalStudentEmail(email)) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      `${context} requires an institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}).`,
+      400
+    );
+  }
+};
+
+const getAllowStudentSelfSignup = async (): Promise<boolean> => {
+  const { data: selfSignupData } = await supabaseAdmin
+    .from('system_settings')
+    .select('value')
+    .eq('key', 'allow_student_self_signup')
+    .single();
+
+  return Boolean(selfSignupData?.value ?? false);
+};
+
+const toStudentNameFromEmail = (email: string): { firstName: string; lastName: string } => {
+  const localPart = email.split('@')[0] || 'student';
+  const segments = localPart
+    .replace(/[._-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase());
+
+  if (segments.length === 0) {
+    return { firstName: 'Student', lastName: 'User' };
+  }
+
+  if (segments.length === 1) {
+    return { firstName: segments[0], lastName: 'User' };
+  }
+
+  return { firstName: segments[0], lastName: segments.slice(1).join(' ') };
+};
+
+const issueTemporaryPassword = async (userId: string, temporaryPassword: string): Promise<void> => {
+  const passwordHash = crypto.createHash('sha256').update(temporaryPassword).digest('hex');
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  await supabaseAdmin
+    .from('temporary_passwords')
+    .update({ used_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .is('used_at', null);
+
+  const { error: tempPassError } = await supabaseAdmin
+    .from('temporary_passwords')
+    .insert({
+      user_id: userId,
+      temp_password_hash: passwordHash,
+      must_change_password: true,
+      expires_at: expiresAt.toISOString(),
+    });
+
+  if (tempPassError) {
+    logger.error('Failed to issue temporary password record', {
+      userId,
+      error: tempPassError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to prepare temporary credentials',
+      500
+    );
+  }
+};
 
 /**
  * Sign up a new user with email and password
  */
 export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   const { email, password, first_name, last_name, role } = input;
+  const normalizedEmail = normalizeEmail(email);
 
   // Check institutional email domain for students
   if (role === UserRole.STUDENT) {
-    const { data: settingsData } = await supabaseAdmin
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'institutional_email_domains')
-      .single();
-
-    const allowedDomains: string[] = settingsData?.value || [];
-    
-    if (allowedDomains.length > 0) {
-      const emailDomain = email.split('@')[1]?.toLowerCase();
-      const isValidDomain = allowedDomains.some(
-        (domain: string) => emailDomain === domain.toLowerCase()
-      );
-
-      if (!isValidDomain) {
-        throw new ApiError(
-          ErrorCode.VALIDATION_ERROR,
-          `Student signup requires an institutional email. Allowed domains: ${allowedDomains.join(', ')}`,
-          400
-        );
-      }
-    }
+    assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
 
     // Check if student self-signup is allowed
-    const { data: selfSignupData } = await supabaseAdmin
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'allow_student_self_signup')
-      .single();
-
-    const allowSelfSignup = selfSignupData?.value ?? false;
+    const allowSelfSignup = await getAllowStudentSelfSignup();
     
     if (!allowSelfSignup) {
       throw new ApiError(
@@ -67,7 +127,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 
   // Create user in Supabase Auth
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email,
+    email: normalizedEmail,
     password,
     email_confirm: false, // Require email verification
     user_metadata: {
@@ -111,7 +171,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
     .from('profiles')
     .upsert({
       id: authData.user.id,
-      email,
+      email: normalizedEmail,
       first_name,
       last_name,
       role: role || UserRole.STUDENT,
@@ -142,7 +202,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       notifyAdminsPendingTeacher({
         id: authData.user.id,
         name: `${first_name} ${last_name}`,
-        email,
+        email: normalizedEmail,
         pendingCount,
       });
     } catch (notificationError) {
@@ -156,8 +216,8 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   // Send email verification
   const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173'
   try {
-    await emailVerificationService.sendEmailVerificationToken(authData.user.id, email, baseUrl)
-    logger.info('Verification email sent', { userId: authData.user.id, email })
+    await emailVerificationService.sendEmailVerificationToken(authData.user.id, normalizedEmail, baseUrl)
+    logger.info('Verification email sent', { userId: authData.user.id, email: normalizedEmail })
   } catch (emailError) {
     logger.error('Failed to send verification email', { 
       userId: authData.user.id, 
@@ -169,12 +229,12 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   // Generate magic link (not used, but validates the user exists)
   await supabaseAdmin.auth.admin.generateLink({
     type: 'magiclink',
-    email,
+    email: normalizedEmail,
   });
 
   // Sign in the user to get tokens
   const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-    email,
+    email: normalizedEmail,
     password,
   });
 
@@ -205,6 +265,175 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 };
 
 /**
+ * Student self-signup that sends temporary credentials via email.
+ */
+export const requestStudentCredentialSignup = async (
+  input: StudentCredentialSignupInput,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  const normalizedEmail = normalizeEmail(input.email);
+
+  assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
+
+  const allowSelfSignup = await getAllowStudentSelfSignup();
+  if (!allowSelfSignup) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Student self-signup is currently disabled. Please contact your school administrator.',
+      403
+    );
+  }
+
+  const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, first_name, last_name, role')
+    .eq('email', normalizedEmail)
+    .single();
+
+  if (profileLookupError && profileLookupError.code !== 'PGRST116') {
+    logger.error('Failed to lookup profile for student signup', {
+      email: normalizedEmail,
+      error: profileLookupError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to process signup request',
+      500
+    );
+  }
+
+  const temporaryPassword = generateTemporaryPassword();
+  let userId = '';
+  let firstName = 'Student';
+  let lastName = 'User';
+
+  if (existingProfile) {
+    if (existingProfile.role !== UserRole.STUDENT) {
+      throw new ApiError(
+        ErrorCode.CONFLICT,
+        'This email is already registered as a non-student account.',
+        409
+      );
+    }
+
+    userId = existingProfile.id;
+    const parsedName = toStudentNameFromEmail(normalizedEmail);
+    firstName = existingProfile.first_name || parsedName.firstName;
+    lastName = existingProfile.last_name || parsedName.lastName;
+
+    const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
+        first_name: firstName,
+        last_name: lastName,
+        role: UserRole.STUDENT,
+      },
+    });
+
+    if (authUpdateError) {
+      logger.error('Failed to reset student credentials', {
+        userId,
+        email: normalizedEmail,
+        error: authUpdateError.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to issue student credentials',
+        500
+      );
+    }
+  } else {
+    const parsedName = toStudentNameFromEmail(normalizedEmail);
+    firstName = parsedName.firstName;
+    lastName = parsedName.lastName;
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: normalizedEmail,
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
+        first_name: firstName,
+        last_name: lastName,
+        role: UserRole.STUDENT,
+      },
+    });
+
+    if (authError || !authData.user) {
+      logger.error('Failed to create student via self-signup', {
+        email: normalizedEmail,
+        error: authError?.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to create student account',
+        500
+      );
+    }
+
+    userId = authData.user.id;
+
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: userId,
+        email: normalizedEmail,
+        first_name: firstName,
+        last_name: lastName,
+        role: UserRole.STUDENT,
+        email_verified: true,
+        email_verified_at: new Date().toISOString(),
+        pending_approval: false,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (profileError) {
+      logger.error('Failed to upsert student profile during self-signup', {
+        userId,
+        email: normalizedEmail,
+        error: profileError.message,
+      });
+    }
+  }
+
+  await issueTemporaryPassword(userId, temporaryPassword);
+
+  const studentName = `${firstName} ${lastName}`.trim();
+  try {
+    await emailService.sendStudentCredentialsEmail(
+      normalizedEmail,
+      studentName || 'Student',
+      normalizedEmail,
+      temporaryPassword
+    );
+  } catch (emailError) {
+    logger.error('Failed to send student credentials email', {
+      userId,
+      email: normalizedEmail,
+      error: emailError instanceof Error ? emailError.message : 'Unknown error',
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Could not send credentials email. Please try again.',
+      500
+    );
+  }
+
+  await auditService.logAuthEvent(
+    userId,
+    AuditEventType.ACCOUNT_CREATED,
+    ipAddress,
+    userAgent,
+    {
+      source: 'student_self_signup',
+      email: normalizedEmail,
+      credentials_issued: true,
+    }
+  );
+};
+
+/**
  * Login user with email and password
  */
 export const login = async (
@@ -213,20 +442,21 @@ export const login = async (
   userAgent?: string
 ): Promise<AuthResponse> => {
   const { email, password, twoFactorCode } = input;
+  const normalizedEmail = normalizeEmail(email);
 
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({
-    email,
+    email: normalizedEmail,
     password,
   });
 
   if (error) {
-    logger.error('Login failed', { email, error: error.message });
+    logger.error('Login failed', { email: normalizedEmail, error: error.message });
     
     // Try to get user ID for failed login audit (if user exists)
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('id')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .single();
     
     if (profile?.id) {
@@ -264,6 +494,24 @@ export const login = async (
 
   // Fetch user profile
   const profile = await getUserProfile(data.user.id);
+
+  if (profile.role === UserRole.STUDENT && !isInstitutionalStudentEmail(profile.email)) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      { reason: 'non_institutional_student_email', email: profile.email }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      `Student login requires an institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}).`,
+      403
+    );
+  }
 
   // Check if 2FA is enabled
   const has2FA = await twoFactorService.isTwoFactorEnabled(data.user.id);

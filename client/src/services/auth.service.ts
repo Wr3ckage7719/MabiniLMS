@@ -3,7 +3,9 @@ import { apiClient } from './api-client';
 export interface SignupData {
   email: string;
   password: string;
-  full_name: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
   role?: 'student' | 'teacher';
 }
 
@@ -21,9 +23,33 @@ export interface AuthResponse {
   error?: string;
 }
 
+export interface StudentSignupResponse {
+  success: boolean;
+  data?: {
+    message: string;
+  };
+  error?: string;
+}
+
 export const authService = {
   async signup(data: SignupData): Promise<AuthResponse> {
-    return apiClient.post('/auth/signup', data);
+    const fullName = (data.full_name || '').trim();
+    const [firstToken, ...restTokens] = fullName.split(' ').filter(Boolean);
+
+    const first_name = data.first_name || firstToken || 'User';
+    const last_name = data.last_name || restTokens.join(' ') || 'Account';
+
+    return apiClient.post('/auth/signup', {
+      email: data.email,
+      password: data.password,
+      role: data.role,
+      first_name,
+      last_name,
+    });
+  },
+
+  async requestStudentCredentials(email: string): Promise<StudentSignupResponse> {
+    return apiClient.post('/auth/student-signup', { email });
   },
 
   async login(data: LoginData): Promise<AuthResponse> {
@@ -43,11 +69,12 @@ export const authService = {
   },
 
   async resetPassword(token: string, newPassword: string): Promise<{ success: boolean }> {
-    return apiClient.post('/auth/reset-password', { token, new_password: newPassword });
+    return apiClient.post('/auth/reset-password-token', { token, password: newPassword });
   },
 
   async verifyEmail(token: string): Promise<{ success: boolean }> {
-    return apiClient.post('/auth/verify-email', { token });
+    const params = new URLSearchParams({ token });
+    return apiClient.get(`/auth/verify-email?${params.toString()}`);
   },
 
   async resendVerification(email: string): Promise<{ success: boolean }> {
