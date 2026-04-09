@@ -49,6 +49,20 @@ interface TeacherClassStreamProps {
   schedule?: string;
 }
 
+interface ClassAssignment {
+  id: number;
+  title: string;
+  description: string;
+  dueDate: string;
+  dueSoon: boolean;
+  submitted: number;
+  total: number;
+  status: string;
+  type: 'activity' | 'material';
+  topic: string;
+  createdAt: Date;
+}
+
 export function TeacherClassStream({
   classId,
   className,
@@ -77,7 +91,7 @@ export function TeacherClassStream({
   const [topics, setTopics] = useState(['Functions', 'Derivatives', 'Integration']);
   const [showNewTopic, setShowNewTopic] = useState(false);
   const [newTopicName, setNewTopicName] = useState('');
-  const [assignments, setAssignments] = useState([
+  const [assignments, setAssignments] = useState<ClassAssignment[]>([
     {
       id: 1,
       title: 'Chapter 3: Functions & Graphs',

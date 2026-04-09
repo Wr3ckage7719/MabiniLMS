@@ -268,7 +268,7 @@ npm run test:coverage
 
 ## 🌍 Environment Variables
 
-Required environment variables (see `.env.example`):
+Required environment variables (see `.env.example`). In production, mirror the email settings in Admin Settings > System Settings so the runtime values stay aligned with the server defaults.
 
 ```env
 # Server
@@ -289,11 +289,15 @@ GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
 JWT_SECRET=your-secret-key
 JWT_EXPIRES_IN=7d
 
-# Email (optional - currently mock)
+# Email (optional - defaults can be overridden in Admin Settings > System Settings)
+EMAIL_PROVIDER=smtp
 EMAIL_FROM=noreply@mabinicolleges.edu.ph
-EMAIL_SERVICE=gmail
-EMAIL_USER=your-email
-EMAIL_PASSWORD=your-password
+EMAIL_FROM_NAME=MabiniLMS
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
 ```
 
 ---

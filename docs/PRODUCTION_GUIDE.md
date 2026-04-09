@@ -12,6 +12,8 @@
 
 ### Backend Environment Variables (`server/.env`)
 
+These values seed the email service at startup. In the running app, admins can override the active email provider and SMTP credentials from Admin Settings > System Settings.
+
 ```bash
 # ============================================
 # REQUIRED - Server Configuration

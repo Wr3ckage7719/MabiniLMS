@@ -299,12 +299,12 @@ Navigate to `http://localhost:5173/admin/login`
 
 ## 📝 Documentation
 
-Full implementation plan is in `plan.md` with 28 detailed todos.
+This repository now keeps the active setup and API references in `README.md` and `DOCUMENTATION.md`.
 
 For questions or issues, check:
-- `ADMIN_SYSTEM_PROGRESS.md` - Testing guide
 - `server/migrations/BOOTSTRAP.md` - Migration system setup
-- `plan.md` - Complete implementation plan
+- `README.md` - Setup and runtime guidance
+- `DOCUMENTATION.md` - API reference and implementation notes
 
 ---
 

@@ -56,7 +56,7 @@ Options:
 Example:
   npm run create-admin -- --email=admin@school.edu --password=MySecure123 --first-name=John --last-name=Admin
 `);
-    process.exit(0);
+    return;
   }
 
   const email = values.email;
@@ -67,12 +67,14 @@ Example:
   if (!email || !password) {
     console.error('❌ Error: --email and --password are required');
     console.log('   Run with --help for usage information');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   if (password.length < 8) {
     console.error('❌ Error: Password must be at least 8 characters');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   console.log(`\n🔧 Creating admin user: ${email}`);
@@ -88,7 +90,7 @@ Example:
     if (existingProfile) {
       if (existingProfile.role === 'admin') {
         console.log('ℹ️  User already exists and is an admin');
-        process.exit(0);
+        return;
       }
 
       // Update existing user to admin
@@ -102,7 +104,7 @@ Example:
 
       console.log('✅ User role updated to admin successfully!');
       console.log(`   Email: ${email}`);
-      process.exit(0);
+      return;
     }
 
     // Create new user in Supabase Auth
@@ -159,8 +161,12 @@ Example:
       console.log(`   UPDATE profiles SET role = 'admin' WHERE email = '${email}';`);
     }
     
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
-createAdmin();
+void createAdmin().catch((error: unknown) => {
+  console.error('\n❌ Unhandled error while creating admin user:');
+  console.error(`   ${error instanceof Error ? error.message : 'Unknown error'}`);
+  process.exitCode = 1;
+});

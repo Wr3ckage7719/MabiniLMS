@@ -199,8 +199,8 @@ const login = async (email, password) => {
 ## Support
 
 If you encounter any issues:
-1. Check `INTEGRATION_COMPLETE.md` for detailed documentation
-2. Review `plan.md` for implementation details
+1. Check `DOCUMENTATION.md` for API details and setup notes
+2. Review `README.md` for the current installation flow
 3. Check browser console for errors
 4. Verify environment variables are correct
 

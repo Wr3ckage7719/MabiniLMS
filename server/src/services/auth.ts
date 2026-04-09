@@ -13,6 +13,8 @@ import * as emailVerificationService from './email-verification.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import * as twoFactorService from './twoFactor.js';
+import { getPendingTeachersCount } from './admin.js';
+import { notifyAdminsPendingTeacher } from './websocket.js';
 
 /**
  * Sign up a new user with email and password
@@ -133,6 +135,22 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       userId: authData.user.id, 
       email 
     })
+
+    try {
+      const pendingCount = await getPendingTeachersCount();
+
+      notifyAdminsPendingTeacher({
+        id: authData.user.id,
+        name: `${first_name} ${last_name}`,
+        email,
+        pendingCount,
+      });
+    } catch (notificationError) {
+      logger.error('Failed to notify admins of pending teacher signup', {
+        userId: authData.user.id,
+        error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+      });
+    }
   }
 
   // Send email verification
