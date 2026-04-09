@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
+import { googleOAuthLimiter } from '../middleware/rateLimiter.js';
 import * as googleOAuthController from '../controllers/google-oauth.js';
 
 const router = Router();
@@ -12,13 +13,13 @@ const router = Router();
  */
 
 // GET /api/auth/google - Initiate OAuth (redirect to Google)
-router.get('/', googleOAuthController.initiateGoogleOAuth);
+router.get('/', googleOAuthLimiter, googleOAuthController.initiateGoogleOAuth);
 
 // GET /api/auth/google/url - Get OAuth URL (for SPA)
-router.get('/url', googleOAuthController.getGoogleOAuthUrl);
+router.get('/url', googleOAuthLimiter, googleOAuthController.getGoogleOAuthUrl);
 
 // GET /api/auth/google/callback - OAuth callback handler
-router.get('/callback', googleOAuthController.handleGoogleCallback);
+router.get('/callback', googleOAuthLimiter, googleOAuthController.handleGoogleCallback);
 
 // POST /api/auth/google/refresh - Refresh Google token (requires auth)
 router.post('/refresh', authenticate, googleOAuthController.refreshGoogleToken);

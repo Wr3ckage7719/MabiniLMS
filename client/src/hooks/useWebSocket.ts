@@ -207,12 +207,36 @@ export function useRealtimeNotifications() {
       }
     );
 
+    // Subscribe to teacher pending approval events (admin)
+    const unsubTeacherPending = subscribe<any>(
+      SocketEvent.TEACHER_PENDING,
+      (data) => {
+        toast({
+          title: '👨‍🏫 New Teacher Registration',
+          description: `${data.name} is awaiting approval.`,
+        });
+      }
+    );
+
+    // Subscribe to submission received events (teacher)
+    const unsubSubmissionReceived = subscribe<any>(
+      SocketEvent.SUBMISSION_RECEIVED,
+      (data) => {
+        toast({
+          title: '📥 New Submission',
+          description: `${data.studentName} submitted "${data.assignmentTitle}"`,
+        });
+      }
+    );
+
     return () => {
       unsubNotification();
       unsubCount();
       unsubGrade();
       unsubAssignment();
       unsubAnnouncement();
+      unsubTeacherPending();
+      unsubSubmissionReceived();
     };
   }, [isAuthenticated, subscribe, toast]);
 

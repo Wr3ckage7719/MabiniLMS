@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { supabaseAdmin } from '../lib/supabase.js';
 import logger from '../utils/logger.js'
 
 /**
@@ -33,33 +34,167 @@ interface EmailConfig {
   fromName: string
 }
 
+const EMAIL_SETTING_KEYS = [
+  'email_provider',
+  'email_from',
+  'email_from_name',
+  'smtp_host',
+  'smtp_port',
+  'smtp_secure',
+  'smtp_user',
+  'smtp_pass',
+] as const;
+
+let cachedSettings: Record<string, unknown> = {};
+let settingsLoadedAt = 0;
+const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+
+const getClientUrl = (): string => {
+  return process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+};
+
+const parseBoolean = (value: unknown, defaultValue: boolean): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true;
+    if (value.toLowerCase() === 'false') return false;
+  }
+  return defaultValue;
+};
+
+const parseNumber = (value: unknown, defaultValue: number): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return defaultValue;
+};
+
+const getSetting = <T>(key: string): T | undefined => {
+  return cachedSettings[key] as T | undefined;
+};
+
+const refreshEmailSettings = async (): Promise<void> => {
+  const now = Date.now();
+  if (now - settingsLoadedAt < SETTINGS_CACHE_TTL_MS) {
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('system_settings')
+      .select('key, value')
+      .in('key', [...EMAIL_SETTING_KEYS]);
+
+    if (error) {
+      logger.warn('Failed to load email settings from system settings', { error: error.message });
+      settingsLoadedAt = now;
+      return;
+    }
+
+    cachedSettings = {};
+    for (const setting of data || []) {
+      cachedSettings[setting.key] = setting.value;
+    }
+
+    settingsLoadedAt = now;
+  } catch (error) {
+    logger.warn('Error while loading email settings from system settings', {
+      error: (error as Error).message,
+    });
+    settingsLoadedAt = now;
+  }
+};
+
 // Email configuration from environment
 const getEmailConfig = (): EmailConfig => {
-  const provider = (process.env.EMAIL_PROVIDER || 'mock') as 'smtp' | 'gmail' | 'mock';
+  const rawProvider = String(
+    getSetting<string>('email_provider') ||
+    process.env.EMAIL_PROVIDER ||
+    process.env.EMAIL_SERVICE ||
+    'mock'
+  ).toLowerCase();
+  const provider: 'smtp' | 'gmail' | 'mock' =
+    rawProvider === 'smtp' || rawProvider === 'gmail' ? rawProvider : 'mock';
+
+  const smtpHost =
+    getSetting<string>('smtp_host') ||
+    process.env.SMTP_HOST ||
+    'smtp.gmail.com';
+  const smtpPort = parseNumber(getSetting<number | string>('smtp_port') || process.env.SMTP_PORT, 587);
+  const smtpSecure = parseBoolean(getSetting<boolean | string>('smtp_secure') || process.env.SMTP_SECURE, false);
+  const smtpUser =
+    getSetting<string>('smtp_user') ||
+    process.env.SMTP_USER ||
+    process.env.EMAIL_USER ||
+    '';
+  const smtpPass =
+    getSetting<string>('smtp_pass') ||
+    process.env.SMTP_PASS ||
+    process.env.EMAIL_PASSWORD ||
+    '';
+  const from = getSetting<string>('email_from') || process.env.EMAIL_FROM || 'noreply@mabinilms.edu.ph';
+  const fromName = getSetting<string>('email_from_name') || process.env.EMAIL_FROM_NAME || 'MabiniLMS';
   
   return {
     provider,
     smtp: {
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
       auth: {
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASS || '',
+        user: smtpUser,
+        pass: smtpPass,
       },
     },
-    from: process.env.EMAIL_FROM || 'noreply@mabinilms.edu.ph',
-    fromName: process.env.EMAIL_FROM_NAME || 'MabiniLMS',
+    from,
+    fromName,
   };
+};
+
+const assertEmailConfig = (config: EmailConfig): void => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (config.provider === 'mock') {
+    if (isProduction) {
+      throw new Error(
+        'Email provider is set to mock in production. Configure email_provider and SMTP settings in /api/admin/settings or environment variables.'
+      );
+    }
+    return;
+  }
+
+  if (!config.smtp?.auth.user || !config.smtp?.auth.pass) {
+    throw new Error('Email credentials are missing. Configure SMTP_USER/SMTP_PASS or smtp_user/smtp_pass in system settings.');
+  }
+
+  if (config.provider === 'smtp' && !config.smtp?.host) {
+    throw new Error('SMTP host is missing. Configure SMTP_HOST or smtp_host in system settings.');
+  }
 };
 
 // Create transporter based on configuration
 let transporter: nodemailer.Transporter | null = null;
+let transporterConfigKey: string | null = null;
 
 const getTransporter = (): nodemailer.Transporter => {
-  if (transporter) return transporter;
-  
   const config = getEmailConfig();
+  const configKey = JSON.stringify({
+    provider: config.provider,
+    host: config.smtp?.host,
+    port: config.smtp?.port,
+    secure: config.smtp?.secure,
+    user: config.smtp?.auth.user,
+    from: config.from,
+    fromName: config.fromName,
+  });
+
+  if (transporter && transporterConfigKey === configKey) {
+    return transporter;
+  }
+
+  transporterConfigKey = configKey;
   
   if (config.provider === 'mock') {
     // Create a mock transporter that logs to console
@@ -102,7 +237,9 @@ const getTransporter = (): nodemailer.Transporter => {
  * Send email with retry logic
  */
 export const sendEmail = async (options: EmailOptions): Promise<void> => {
+  await refreshEmailSettings();
   const config = getEmailConfig();
+  assertEmailConfig(config);
   const { to, subject, html, text, attachments } = options;
   
   // In mock mode, just log the email
@@ -177,14 +314,16 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
  * Verify email configuration is working
  */
 export const verifyEmailConfig = async (): Promise<boolean> => {
-  const config = getEmailConfig();
-  
-  if (config.provider === 'mock') {
-    logger.info('Email verification skipped (mock mode)');
-    return true;
-  }
-  
+  await refreshEmailSettings();
   try {
+    const config = getEmailConfig();
+    assertEmailConfig(config);
+
+    if (config.provider === 'mock') {
+      logger.info('Email verification skipped (mock mode)');
+      return true;
+    }
+
     const transport = getTransporter();
     await transport.verify();
     logger.info('Email configuration verified successfully');
@@ -447,6 +586,7 @@ export const sendTeacherApprovalEmail = async (
   email: string,
   teacherName: string
 ): Promise<void> => {
+  const clientUrl = getClientUrl();
   const subject = 'Your Teacher Account Has Been Approved - MabiniLMS'
 
   const html = `
@@ -460,7 +600,7 @@ export const sendTeacherApprovalEmail = async (
       <li>Manage course materials</li>
       <li>View analytics and student progress</li>
     </ul>
-    <p><a href="${process.env.CLIENT_URL || 'http://localhost:8080'}/login" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Go to Dashboard</a></p>
+    <p><a href="${clientUrl}/login" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Go to Dashboard</a></p>
   `
 
   const text = `
@@ -476,7 +616,7 @@ You now have full access to all teacher features, including:
 - Manage course materials
 - View analytics and student progress
 
-Visit: ${process.env.CLIENT_URL || 'http://localhost:8080'}/login
+Visit: ${clientUrl}/login
   `.trim()
 
   await sendEmail({ to: email, subject, html, text })
@@ -526,6 +666,7 @@ export const sendStudentCredentialsEmail = async (
   username: string,
   temporaryPassword: string
 ): Promise<void> => {
+  const clientUrl = getClientUrl();
   const subject = 'Your MabiniLMS Student Account - Login Credentials'
 
   const html = `
@@ -537,7 +678,7 @@ export const sendStudentCredentialsEmail = async (
       <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background-color: #e9ecef; padding: 2px 6px; border-radius: 3px;">${temporaryPassword}</code></p>
     </div>
     <p><strong>⚠️ Important:</strong> You will be required to change your password on first login for security purposes.</p>
-    <p><a href="${process.env.CLIENT_URL || 'http://localhost:8080'}/login" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Login to Your Account</a></p>
+    <p><a href="${clientUrl}/login" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Login to Your Account</a></p>
     <p style="color: #666; font-size: 12px; margin-top: 20px;">For security, do not share these credentials with anyone.</p>
   `
 
@@ -553,7 +694,7 @@ Temporary Password: ${temporaryPassword}
 
 ⚠️ Important: You will be required to change your password on first login for security purposes.
 
-Login at: ${process.env.CLIENT_URL || 'http://localhost:8080'}/login
+Login at: ${clientUrl}/login
 
 For security, do not share these credentials with anyone.
   `.trim()
@@ -570,6 +711,7 @@ export const sendAdminNotificationEmail = async (
   pendingCount: number,
   teacherNames: string[]
 ): Promise<void> => {
+  const clientUrl = getClientUrl();
   const subject = `${pendingCount} Teacher Account${pendingCount > 1 ? 's' : ''} Awaiting Approval - MabiniLMS`
 
   const teacherList = teacherNames.slice(0, 5).join(', ') + (teacherNames.length > 5 ? `, and ${teacherNames.length - 5} more` : '')
@@ -579,7 +721,7 @@ export const sendAdminNotificationEmail = async (
     <p>Dear ${adminName},</p>
     <p>There ${pendingCount === 1 ? 'is' : 'are'} currently <strong>${pendingCount}</strong> teacher account${pendingCount > 1 ? 's' : ''} waiting for your approval.</p>
     <p><strong>Recent applicants:</strong> ${teacherList}</p>
-    <p><a href="${process.env.CLIENT_URL || 'http://localhost:8080'}/admin/teachers/pending" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Review Pending Teachers</a></p>
+    <p><a href="${clientUrl}/admin/teachers/pending" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Review Pending Teachers</a></p>
   `
 
   const text = `
@@ -591,7 +733,7 @@ There ${pendingCount === 1 ? 'is' : 'are'} currently ${pendingCount} teacher acc
 
 Recent applicants: ${teacherList}
 
-Review at: ${process.env.CLIENT_URL || 'http://localhost:8080'}/admin/teachers/pending
+Review at: ${clientUrl}/admin/teachers/pending
   `.trim()
 
   await sendEmail({ to: adminEmail, subject, html, text })

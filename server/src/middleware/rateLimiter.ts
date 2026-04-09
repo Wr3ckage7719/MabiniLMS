@@ -38,6 +38,24 @@ export const authLimiter = rateLimit({
   },
 });
 
+// Google OAuth endpoints rate limiter - 20 requests per 15 minutes
+export const googleOAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    const response: ApiResponse = {
+      success: false,
+      error: {
+        code: ErrorCode.RATE_LIMIT_EXCEEDED,
+        message: 'Too many Google OAuth requests, please try again later',
+      },
+    };
+    res.status(429).json(response);
+  },
+});
+
 // Admin operations rate limiter - 50 requests per 15 minutes
 export const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

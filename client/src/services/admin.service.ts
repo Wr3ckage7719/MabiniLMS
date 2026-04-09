@@ -73,10 +73,36 @@ export interface DashboardStats {
   pending_teachers: number;
 }
 
+export interface AdminUser {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: 'admin' | 'teacher' | 'student';
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaginatedUsersResponse {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+const unwrapApiData = <T>(response: any): T => {
+  if (response && typeof response === 'object' && 'data' in response) {
+    return response.data as T;
+  }
+  return response as T;
+};
+
 // Teacher Management
 export const listPendingTeachers = async (): Promise<PendingTeacher[]> => {
   const response = await apiClient.get('/admin/teachers/pending');
-  return response.data.data;
+  return unwrapApiData<PendingTeacher[]>(response);
 };
 
 export const approveTeacher = async (teacherId: string): Promise<void> => {
@@ -90,18 +116,28 @@ export const rejectTeacher = async (teacherId: string, reason?: string): Promise
 // Student Management
 export const createStudent = async (studentData: StudentData): Promise<CreateStudentResponse> => {
   const response = await apiClient.post('/admin/students', studentData);
-  return response.data.data;
+  return unwrapApiData<CreateStudentResponse>(response);
 };
 
 export const bulkCreateStudents = async (students: StudentData[]): Promise<BulkCreateResult> => {
   const response = await apiClient.post('/admin/students/bulk', { students });
-  return response.data.data;
+  return unwrapApiData<BulkCreateResult>(response);
+};
+
+export const listUsers = async (params?: {
+  page?: number;
+  limit?: number;
+  role?: 'admin' | 'teacher' | 'student';
+  search?: string;
+}): Promise<PaginatedUsersResponse> => {
+  const response = await apiClient.get('/users', { params });
+  return unwrapApiData<PaginatedUsersResponse>(response);
 };
 
 // System Settings
 export const getSystemSettings = async (): Promise<SystemSettings> => {
   const response = await apiClient.get('/admin/settings');
-  return response.data.data;
+  return unwrapApiData<SystemSettings>(response);
 };
 
 export const updateSystemSettings = async (settings: Record<string, any>): Promise<void> => {
@@ -118,11 +154,11 @@ export const getAuditLogs = async (params?: {
   offset?: number;
 }): Promise<AuditLogsResponse> => {
   const response = await apiClient.get('/admin/audit-logs', { params });
-  return response.data.data;
+  return unwrapApiData<AuditLogsResponse>(response);
 };
 
 // Dashboard Stats
 export const getDashboardStats = async (): Promise<DashboardStats> => {
   const response = await apiClient.get('/admin/stats');
-  return response.data.data;
+  return unwrapApiData<DashboardStats>(response);
 };

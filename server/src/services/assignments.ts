@@ -14,6 +14,7 @@ import {
 import * as driveService from './google-drive.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
+import { notifyAssignmentCreated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
 
 // ============================================
@@ -32,7 +33,7 @@ export const createAssignment = async (
   // Verify course exists and user is teacher/admin
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
-    .select('id, teacher_id')
+    .select('id, title, teacher_id')
     .eq('id', courseId)
     .single();
 
@@ -65,6 +66,13 @@ export const createAssignment = async (
     logger.error('Failed to create assignment', { courseId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create assignment', 500);
   }
+
+  await notifyAssignmentCreated(courseId, {
+    id: data.id,
+    title: data.title,
+    courseName: course.title || 'Course',
+    dueDate: data.due_date || '',
+  });
 
   return data as Assignment;
 };
@@ -318,6 +326,13 @@ export const submitAssignment = async (
   const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
   const isLate = dueDate && now > dueDate;
 
+  const { data: studentProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('first_name, last_name')
+    .eq('id', userId)
+    .single();
+  const studentName = `${studentProfile?.first_name || ''} ${studentProfile?.last_name || ''}`.trim() || 'A student';
+
   // Check for existing submission
   const { data: existing } = await supabaseAdmin
     .from('submissions')
@@ -359,6 +374,13 @@ export const submitAssignment = async (
       }
     );
 
+    notifySubmissionReceived(assignment.course.teacher.id, {
+      assignmentId: assignmentId,
+      assignmentTitle: assignment.title,
+      studentName,
+      submittedAt: new Date().toISOString(),
+    });
+
     return data as Submission;
   }
 
@@ -394,6 +416,13 @@ export const submitAssignment = async (
       is_late: isLate,
     }
   );
+
+  notifySubmissionReceived(assignment.course.teacher.id, {
+    assignmentId: assignmentId,
+    assignmentTitle: assignment.title,
+    studentName,
+    submittedAt: new Date().toISOString(),
+  });
 
   return data as Submission;
 };

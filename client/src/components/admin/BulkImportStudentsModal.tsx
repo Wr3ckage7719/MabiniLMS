@@ -24,6 +24,7 @@ export default function BulkImportStudentsModal({ open, onOpenChange }: BulkImpo
     onSuccess: (data) => {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
       toast({
         title: 'Import Complete',
         description: `${data.created} students created, ${data.failed} failed`,

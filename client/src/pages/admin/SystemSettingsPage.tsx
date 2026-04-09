@@ -6,8 +6,15 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Settings as SettingsIcon, Save, Loader2, Plus, X } from 'lucide-react';
+import { Save, Loader2, Plus, X } from 'lucide-react';
 
 export default function SystemSettingsPage() {
   const { toast } = useToast();
@@ -16,6 +23,12 @@ export default function SystemSettingsPage() {
   const [newDomain, setNewDomain] = useState('');
   const [requireTeacherApproval, setRequireTeacherApproval] = useState(true);
   const [allowStudentSelfSignup, setAllowStudentSelfSignup] = useState(false);
+  const [emailProvider, setEmailProvider] = useState<'mock' | 'smtp' | 'gmail'>('mock');
+  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+  const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpSecure, setSmtpSecure] = useState(false);
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['system-settings'],
@@ -29,6 +42,21 @@ export default function SystemSettingsPage() {
       }
       if (data.allow_student_self_signup) {
         setAllowStudentSelfSignup(data.allow_student_self_signup.value);
+      }
+      if (data.email_provider?.value) {
+        setEmailProvider(data.email_provider.value);
+      }
+      if (data.smtp_host?.value) {
+        setSmtpHost(String(data.smtp_host.value));
+      }
+      if (data.smtp_port?.value !== undefined) {
+        setSmtpPort(String(data.smtp_port.value));
+      }
+      if (data.smtp_secure?.value !== undefined) {
+        setSmtpSecure(Boolean(data.smtp_secure.value));
+      }
+      if (data.smtp_user?.value) {
+        setSmtpUser(String(data.smtp_user.value));
       }
     },
   });
@@ -67,6 +95,12 @@ export default function SystemSettingsPage() {
       institutional_email_domains: emailDomains,
       require_teacher_approval: requireTeacherApproval,
       allow_student_self_signup: allowStudentSelfSignup,
+      email_provider: emailProvider,
+      smtp_host: smtpHost,
+      smtp_port: Number(smtpPort) || 587,
+      smtp_secure: smtpSecure,
+      smtp_user: smtpUser,
+      ...(smtpPass ? { smtp_pass: smtpPass } : {}),
     });
   };
 
@@ -148,6 +182,74 @@ export default function SystemSettingsPage() {
               checked={allowStudentSelfSignup}
               onCheckedChange={setAllowStudentSelfSignup}
             />
+          </div>
+
+          {/* Email / SMTP Settings */}
+          <div className="space-y-4 py-4 border-t border-slate-700">
+            <div>
+              <Label className="text-white mb-2 block">Email Provider</Label>
+              <p className="text-sm text-slate-400 mb-3">
+                Use smtp or gmail in production. Keep mock for local development only.
+              </p>
+              <Select value={emailProvider} onValueChange={(value) => setEmailProvider(value as 'mock' | 'smtp' | 'gmail')}>
+                <SelectTrigger className="bg-slate-900 border-slate-700 text-white">
+                  <SelectValue placeholder="Select provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mock">mock</SelectItem>
+                  <SelectItem value="smtp">smtp</SelectItem>
+                  <SelectItem value="gmail">gmail</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-white">SMTP Host</Label>
+                <Input
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-white">SMTP Port</Label>
+                <Input
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(e.target.value)}
+                  placeholder="587"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-white">SMTP User</Label>
+                <Input
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  placeholder="your_email@example.com"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-white">SMTP Password</Label>
+                <Input
+                  type="password"
+                  value={smtpPass}
+                  onChange={(e) => setSmtpPass(e.target.value)}
+                  placeholder="Leave blank to keep current password"
+                  className="bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-t border-slate-700">
+              <div>
+                <Label className="text-white">SMTP Secure (TLS)</Label>
+                <p className="text-sm text-slate-400 mt-1">Enable when your SMTP provider requires secure transport</p>
+              </div>
+              <Switch checked={smtpSecure} onCheckedChange={setSmtpSecure} />
+            </div>
           </div>
         </Card>
 

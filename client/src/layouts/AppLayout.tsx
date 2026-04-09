@@ -8,11 +8,13 @@ import FirstLoginPasswordChange from '@/components/FirstLoginPasswordChange';
 import PendingApprovalOverlay from '@/components/PendingApprovalOverlay';
 import { RoleProvider } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRealtimeNotifications } from '@/hooks/useWebSocket';
 import { supabase } from '@/lib/supabase';
 import { Loader2 } from 'lucide-react';
 
 export default function AppLayout() {
   const { isLoggedIn, isLoading, user } = useAuth();
+  useRealtimeNotifications();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);

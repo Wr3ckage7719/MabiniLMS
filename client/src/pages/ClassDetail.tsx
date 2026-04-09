@@ -4,6 +4,7 @@ import { CLASS_COLORS } from '@/lib/data';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useClasses } from '@/hooks-api/useClasses';
+import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useRole } from '@/contexts/RoleContext';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, File, Music, Image as ImageIcon, Archive, Loader2, GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ export default function ClassDetail() {
   const { data: classes = [], isLoading: classesLoading } = useClasses();
   const { data: assignments = [], isLoading: assignmentsLoading } = useAssignments(id);
   const { data: materials = [], isLoading: materialsLoading } = useMaterials(id);
+  const { data: announcements = [], isLoading: announcementsLoading } = useAnnouncements(id);
   const [selectedAssignment, setSelectedAssignment] = useState<typeof assignments[0] | null>(null);
 
   const cls = classes.find((c) => c.id === id);
@@ -88,11 +90,6 @@ export default function ClassDetail() {
       </div>
     );
   }
-
-  // TODO: Fetch announcements from API when endpoint is ready
-  const announcements: any[] = []; // Empty for now until API is ready
-  
-  const isLoading = assignmentsLoading || materialsLoading;
 
   const handleArchive = () => {
     navigate('/');
@@ -175,7 +172,11 @@ export default function ClassDetail() {
           {/* Stream */}
           <TabsContent value="stream" className="space-y-4 md:space-y-6">
             {/* Announcements Section */}
-            {announcements.length > 0 && (
+            {announcementsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : announcements.length > 0 && (
               <div className="space-y-3 md:space-y-4">
                 <h3 className="font-semibold text-sm md:text-base">Announcements</h3>
                 {announcements.map((a) => (

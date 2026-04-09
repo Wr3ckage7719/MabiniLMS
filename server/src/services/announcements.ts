@@ -12,6 +12,7 @@ import {
   UpdateAnnouncementInput,
   ListAnnouncementsQuery,
 } from '../types/announcements.js';
+import { notifyAnnouncementCreated } from './websocket.js';
 import logger from '../utils/logger.js';
 
 // Helper to fix nested Supabase join arrays
@@ -36,7 +37,7 @@ export const createAnnouncement = async (
   // Verify course exists and user has permission
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
-    .select('id, teacher_id')
+    .select('id, title, teacher_id')
     .eq('id', courseId)
     .single();
 
@@ -74,6 +75,12 @@ export const createAnnouncement = async (
     logger.error('Failed to create announcement', { courseId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create announcement', 500);
   }
+
+  await notifyAnnouncementCreated(courseId, {
+    id: data.id,
+    title: data.title,
+    courseName: course.title || 'Course',
+  });
 
   logger.info('Announcement created', { announcementId: data.id, courseId, authorId });
   return fixAuthorJoin(data);

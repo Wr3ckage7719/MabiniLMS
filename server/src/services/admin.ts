@@ -3,6 +3,22 @@ import logger from '../utils/logger.js'
 import * as emailService from './email.js'
 import crypto from 'crypto'
 
+const SYSTEM_SETTING_DESCRIPTIONS: Record<string, string> = {
+  institutional_email_domains: 'Array of allowed email domains for student signup',
+  require_teacher_approval: 'Whether teacher accounts require admin approval',
+  allow_student_self_signup: 'Whether students can self-register',
+  max_upload_size_mb: 'Maximum file upload size in megabytes',
+  session_timeout_minutes: 'Session timeout in minutes',
+  email_provider: "Email provider: 'mock', 'smtp', or 'gmail'",
+  email_from: 'From email address for outbound emails',
+  email_from_name: 'From name for outbound emails',
+  smtp_host: 'SMTP server host',
+  smtp_port: 'SMTP server port',
+  smtp_secure: 'Whether SMTP transport uses secure TLS',
+  smtp_user: 'SMTP username',
+  smtp_pass: 'SMTP password or app password',
+}
+
 /**
  * Admin Service
  * Handles admin-specific operations like teacher approval and student management
@@ -462,12 +478,13 @@ export const updateSystemSetting = async (
 
   const { error } = await supabaseAdmin
     .from('system_settings')
-    .update({
+    .upsert({
+      key,
       value,
+      description: SYSTEM_SETTING_DESCRIPTIONS[key] || `System setting for ${key}`,
       updated_by: adminId,
-      updated_at: new Date().toISOString()
-    })
-    .eq('key', key)
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' })
 
   if (error) {
     logger.error(`Error updating system setting ${key}: ${error.message}`)

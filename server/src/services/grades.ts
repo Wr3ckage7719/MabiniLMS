@@ -20,6 +20,7 @@ import {
 import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
 import { AuditEventType } from './audit.js'
+import { notifyGradeReleased } from './websocket.js'
 import logger from '../utils/logger.js'
 
 // ============================================
@@ -40,8 +41,8 @@ export const createGrade = async (
     .select(`
       id, student_id, status,
       assignment:assignments(
-        id, max_points, course_id,
-        course:courses(id, teacher_id)
+        id, title, max_points, course_id,
+        course:courses(id, title, teacher_id)
       )
     `)
     .eq('id', input.submission_id)
@@ -130,6 +131,14 @@ export const createGrade = async (
     }
   );
 
+  notifyGradeReleased(submission.student_id, {
+    assignmentId: assignment.id,
+    assignmentTitle: assignment.title || 'Assignment',
+    courseName: course?.title || 'Course',
+    score: input.points_earned,
+    maxScore: assignment.max_points,
+  });
+
   logger.info('Grade created', {
     gradeId: grade.id,
     submissionId: input.submission_id,
@@ -154,10 +163,10 @@ export const updateGrade = async (
     .select(`
       id, submission_id, points_earned, feedback,
       submission:submissions(
-        id,
+        id, student_id,
         assignment:assignments(
-          id, max_points,
-          course:courses(id, teacher_id)
+          id, title, max_points,
+          course:courses(id, title, teacher_id)
         )
       )
     `)
@@ -236,6 +245,16 @@ export const updateGrade = async (
         updated_by: userId,
       }
     );
+
+    if (assignment) {
+      notifyGradeReleased(submissionData.student_id, {
+        assignmentId: assignment.id,
+        assignmentTitle: assignment.title || 'Assignment',
+        courseName: course?.title || 'Course',
+        score: updated.points_earned,
+        maxScore: assignment.max_points,
+      });
+    }
   }
 
   logger.info('Grade updated', { gradeId, userId })

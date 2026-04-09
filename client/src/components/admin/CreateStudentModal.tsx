@@ -31,6 +31,7 @@ export default function CreateStudentModal({ open, onOpenChange }: CreateStudent
     onSuccess: (data) => {
       setCreatedStudent(data);
       queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
       toast({
         title: 'Student Created',
         description: 'The student account has been created successfully.',
