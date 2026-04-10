@@ -1,4 +1,8 @@
 import { apiClient } from './api-client';
+import {
+  createSubmissionSyncKey,
+  enqueueSubmission,
+} from './submission-queue.service';
 
 export interface AssignmentData {
   title: string;
@@ -16,7 +20,40 @@ export interface SubmissionData {
   submission_text?: string;
   submission_url?: string;
   attachments?: File[];
+  sync_key?: string;
 }
+
+export interface SubmissionResult {
+  queued: boolean;
+  sync_key?: string;
+  data?: any;
+  message?: string;
+}
+
+interface SubmitAssignmentOptions {
+  skipQueue?: boolean;
+}
+
+const buildSubmissionContent = (data: SubmissionData): string | undefined => {
+  return data.content || data.submission_text || data.submission_url || undefined;
+};
+
+const buildSubmissionPayload = (data: SubmissionData, syncKey: string) => {
+  return {
+    drive_file_id: data.drive_file_id,
+    drive_file_name: data.drive_file_name,
+    content: buildSubmissionContent(data),
+    sync_key: syncKey,
+  };
+};
+
+const shouldQueueOnError = (error: any): boolean => {
+  return !error?.response;
+};
+
+const isOffline = (): boolean => {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+};
 
 export const assignmentsService = {
   async getAssignments(courseId: string) {
@@ -50,18 +87,57 @@ export const assignmentsService = {
     return apiClient.delete(`/assignments/${assignmentId}`);
   },
 
-  async submitAssignment(courseId: string, assignmentId: string, data: SubmissionData) {
-    const payload = {
-      drive_file_id: data.drive_file_id,
-      drive_file_name: data.drive_file_name,
-      content:
-        data.content ||
-        data.submission_text ||
-        data.submission_url ||
-        undefined,
-    };
+  async submitAssignment(
+    courseId: string,
+    assignmentId: string,
+    data: SubmissionData,
+    options: SubmitAssignmentOptions = {}
+  ): Promise<SubmissionResult> {
+    if (!data.drive_file_id || !data.drive_file_name) {
+      throw new Error('A Drive file is required before submitting an assignment.');
+    }
 
-    return apiClient.post(`/assignments/${assignmentId}/submit`, payload);
+    const syncKey = data.sync_key || createSubmissionSyncKey();
+    const payload = buildSubmissionPayload(data, syncKey);
+
+    if (!options.skipQueue && isOffline()) {
+      const queuedItem = enqueueSubmission({
+        courseId,
+        assignmentId,
+        payload,
+      });
+
+      return {
+        queued: true,
+        sync_key: queuedItem.syncKey,
+        message: 'Submission queued and will sync when your connection returns.',
+      };
+    }
+
+    try {
+      const response = await apiClient.post(`/assignments/${assignmentId}/submit`, payload);
+      return {
+        queued: false,
+        sync_key: syncKey,
+        data: response,
+      };
+    } catch (error: any) {
+      if (!options.skipQueue && shouldQueueOnError(error)) {
+        const queuedItem = enqueueSubmission({
+          courseId,
+          assignmentId,
+          payload,
+        });
+
+        return {
+          queued: true,
+          sync_key: queuedItem.syncKey,
+          message: 'Network issue detected. Submission was queued for automatic sync.',
+        };
+      }
+
+      throw error;
+    }
   },
 
   async getSubmissions(courseId: string, assignmentId: string) {

@@ -25,6 +25,7 @@ import AuditLogsPage from "./pages/admin/AuditLogsPage";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
+import SubmissionQueueSync from "./components/SubmissionQueueSync";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,6 +98,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <AuthProvider>
+          <SubmissionQueueSync />
           <BrowserRouter>
             <AppRoutes />
           </BrowserRouter>

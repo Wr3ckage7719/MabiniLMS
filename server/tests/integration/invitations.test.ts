@@ -6,7 +6,9 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  bulkDirectEnrollByEmailSchema,
   createInvitationSchema,
+  directEnrollByEmailSchema,
   invitationIdParamSchema,
   courseInvitationsParamSchema,
   invitationQuerySchema,
@@ -40,6 +42,55 @@ describe('Invitation Schemas', () => {
       const result = createInvitationSchema.safeParse({
         course_id: 'not-a-uuid',
         student_email: 'student@example.com',
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('directEnrollByEmailSchema', () => {
+    it('should accept valid direct enrollment payload', () => {
+      const result = directEnrollByEmailSchema.safeParse({
+        course_id: '123e4567-e89b-12d3-a456-426614174000',
+        student_email: 'Student@MabiniColleges.edu.ph',
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.student_email).toBe('student@mabinicolleges.edu.ph')
+      }
+    })
+
+    it('should reject malformed email for direct enrollment', () => {
+      const result = directEnrollByEmailSchema.safeParse({
+        course_id: '123e4567-e89b-12d3-a456-426614174000',
+        student_email: 'bad-email',
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('bulkDirectEnrollByEmailSchema', () => {
+    it('should accept a valid list of student emails', () => {
+      const result = bulkDirectEnrollByEmailSchema.safeParse({
+        course_id: '123e4567-e89b-12d3-a456-426614174000',
+        student_emails: ['One@MabiniColleges.edu.ph', 'two@mabinicolleges.edu.ph'],
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.student_emails).toEqual([
+          'one@mabinicolleges.edu.ph',
+          'two@mabinicolleges.edu.ph',
+        ])
+      }
+    })
+
+    it('should reject empty direct enrollment email list', () => {
+      const result = bulkDirectEnrollByEmailSchema.safeParse({
+        course_id: '123e4567-e89b-12d3-a456-426614174000',
+        student_emails: [],
       })
 
       expect(result.success).toBe(false)

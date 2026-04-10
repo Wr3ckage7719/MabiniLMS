@@ -1,7 +1,11 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { coursesService } from '@/services/courses.service';
 import { enrollmentsService } from '@/services/enrollments.service';
-import { invitationsService, ClassInvitation } from '@/services/invitations.service';
+import {
+  invitationsService,
+  BulkDirectEnrollmentResult,
+  ClassInvitation,
+} from '@/services/invitations.service';
 import { useAuth } from '@/contexts/AuthContext';
 
 export interface StudentInvitation {
@@ -20,7 +24,10 @@ interface ClassesContextType {
   handleUnenroll: (classId: string) => Promise<void>;
   handleRestore: (classId: string) => Promise<void>;
   invitationsLoading: boolean;
-  sendInvitation: (classId: string, studentEmail: string, className: string) => Promise<void>;
+  directEnrollStudentsByEmail: (
+    classId: string,
+    studentEmails: string[]
+  ) => Promise<BulkDirectEnrollmentResult>;
   acceptInvitation: (invitationId: string) => Promise<void>;
   declineInvitation: (invitationId: string) => Promise<void>;
   refreshInvitations: (classId?: string) => Promise<void>;
@@ -150,10 +157,31 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const sendInvitation = useCallback(async (classId: string, studentEmail: string, _className: string) => {
-    await invitationsService.createInvitation(classId, studentEmail);
-    await loadCourseInvitations(classId);
-  }, [loadCourseInvitations]);
+  const directEnrollStudentsByEmail = useCallback(
+    async (classId: string, studentEmails: string[]): Promise<BulkDirectEnrollmentResult> => {
+      const normalizedEmails = studentEmails
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0);
+
+      const uniqueEmails = Array.from(new Set(normalizedEmails));
+
+      if (uniqueEmails.length === 0) {
+        return {
+          course_id: classId,
+          total: 0,
+          enrolled: 0,
+          already_enrolled: 0,
+          failed: 0,
+          results: [],
+        };
+      }
+
+      const response = await invitationsService.bulkDirectEnrollByEmail(classId, uniqueEmails);
+      await loadCourseInvitations(classId);
+      return (response as any).data as BulkDirectEnrollmentResult;
+    },
+    [loadCourseInvitations]
+  );
 
   const acceptInvitation = useCallback(async (invitationId: string) => {
     await invitationsService.acceptInvitation(invitationId);
@@ -189,7 +217,7 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
         handleUnenroll,
         handleRestore,
         invitationsLoading,
-        sendInvitation,
+        directEnrollStudentsByEmail,
         acceptInvitation,
         declineInvitation,
         refreshInvitations,

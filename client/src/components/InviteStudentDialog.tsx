@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Mail, Check, AlertCircle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Mail, Check, AlertCircle, Users } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,8 +9,9 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useClasses } from '@/contexts/ClassesContext';
+import type { DirectEnrollmentResult } from '@/services/invitations.service';
 
 interface InviteStudentDialogProps {
   open: boolean;
@@ -22,56 +24,115 @@ export function InviteStudentDialog({
   onOpenChange,
   classId,
 }: InviteStudentDialogProps) {
-  const [email, setEmail] = useState('');
+  const queryClient = useQueryClient();
+  const [emailsInput, setEmailsInput] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [messageType, setMessageType] = useState<'success' | 'error' | null>(null);
-  const { sendInvitation } = useClasses();
+  const [results, setResults] = useState<DirectEnrollmentResult[]>([]);
+  const { directEnrollStudentsByEmail } = useClasses();
 
   const className = classId ? `Class ${classId.toUpperCase()}` : 'Class';
 
-  const validateEmail = (emailToValidate: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(emailToValidate);
+  const parseEmails = (rawInput: string): string[] => {
+    return rawInput
+      .split(/[\n,;]+/)
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length > 0);
   };
 
-  const handleSendInvitation = async () => {
-    if (!email.trim()) {
-      setMessage('Please enter an email address');
-      setMessageType('error');
-      return;
+  const getErrorMessage = (error: unknown): string => {
+    if (!error || typeof error !== 'object') {
+      return 'Failed to enroll students by email.';
     }
 
-    if (!validateEmail(email)) {
-      setMessage('Please enter a valid email address');
+    const axiosLike = error as {
+      response?: {
+        data?: {
+          error?: { message?: string };
+          message?: string;
+        };
+      };
+      message?: string;
+    };
+
+    return (
+      axiosLike.response?.data?.error?.message ||
+      axiosLike.response?.data?.message ||
+      axiosLike.message ||
+      'Failed to enroll students by email.'
+    );
+  };
+
+  const getResultBadgeClasses = (status: DirectEnrollmentResult['status']): string => {
+    switch (status) {
+      case 'enrolled':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'already_enrolled':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      default:
+        return 'bg-red-100 text-red-800 border-red-200';
+    }
+  };
+
+  const getStatusLabel = (status: DirectEnrollmentResult['status']): string => {
+    switch (status) {
+      case 'enrolled':
+        return 'Enrolled';
+      case 'already_enrolled':
+        return 'Already Enrolled';
+      case 'invalid_domain':
+        return 'Invalid Domain';
+      case 'student_not_found':
+        return 'Student Not Found';
+      case 'not_student':
+        return 'Not a Student';
+      default:
+        return 'Failed';
+    }
+  };
+
+  const handleDirectEnroll = async () => {
+    const parsedEmails = parseEmails(emailsInput);
+
+    if (parsedEmails.length === 0) {
+      setMessage('Enter at least one student email address.');
       setMessageType('error');
       return;
     }
 
     setIsLoading(true);
     try {
-      await sendInvitation(classId, email, className);
-      setMessage('Invitation sent successfully!');
-      setMessageType('success');
-      
-      setTimeout(() => {
-        setEmail('');
-        setMessage('');
-        setMessageType(null);
-        onOpenChange(false);
-      }, 2000);
+      const response = await directEnrollStudentsByEmail(classId, parsedEmails);
+      setResults(response.results);
+
+      if (response.enrolled > 0) {
+        await queryClient.invalidateQueries({ queryKey: ['students', classId] });
+      }
+
+      const summary = `${response.enrolled} enrolled, ${response.already_enrolled} already enrolled, ${response.failed} failed.`;
+
+      if (response.failed > 0) {
+        setMessage(summary);
+        setMessageType('error');
+      } else {
+        setMessage(summary);
+        setMessageType('success');
+      }
     } catch (error) {
-      setMessage('Failed to send invitation');
+      setMessage(getErrorMessage(error));
       setMessageType('error');
+      setResults([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleClose = () => {
-    setEmail('');
+    setEmailsInput('');
     setMessage('');
     setMessageType(null);
+    setResults([]);
     onOpenChange(false);
   };
 
@@ -81,37 +142,37 @@ export function InviteStudentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary" />
-            Invite Student to {className}
+            Enroll Students to {className}
           </DialogTitle>
           <DialogDescription>
-            Enter the student's email address to send them an invitation to join the class.
+            Enter one or more institutional student emails. Separate with commas or new lines.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
           <div>
             <label className="text-sm font-medium text-foreground mb-2 block">
-              Student Email
+              Student Emails
             </label>
-            <Input
-              type="email"
-              placeholder="student@example.com"
-              value={email}
+            <Textarea
+              placeholder="student1@mabinicolleges.edu.ph\nstudent2@mabinicolleges.edu.ph"
+              value={emailsInput}
               onChange={(e) => {
-                setEmail(e.target.value);
+                setEmailsInput(e.target.value);
                 if (message) {
                   setMessage('');
                   setMessageType(null);
                 }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !isLoading && messageType !== 'success') {
-                  handleSendInvitation();
+                if (results.length > 0) {
+                  setResults([]);
                 }
               }}
               disabled={isLoading}
-              className="rounded-lg"
+              className="rounded-lg min-h-[110px]"
             />
+            <p className="text-xs text-muted-foreground mt-2">
+              Direct enrollment only supports student accounts with @mabinicolleges.edu.ph.
+            </p>
           </div>
 
           {message && (
@@ -131,6 +192,27 @@ export function InviteStudentDialog({
             </div>
           )}
 
+          {results.length > 0 && (
+            <div className="space-y-2 max-h-56 overflow-y-auto rounded-lg border p-3">
+              {results.map((result) => (
+                <div
+                  key={`${result.student_email}-${result.status}`}
+                  className="flex items-start justify-between gap-3 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{result.student_email}</p>
+                    <p className="text-xs text-muted-foreground">{result.message}</p>
+                  </div>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-xs whitespace-nowrap ${getResultBadgeClasses(result.status)}`}
+                  >
+                    {getStatusLabel(result.status)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-3 justify-end pt-2">
             <Button
               variant="outline"
@@ -141,11 +223,18 @@ export function InviteStudentDialog({
               Cancel
             </Button>
             <Button
-              onClick={handleSendInvitation}
-              disabled={isLoading || !email.trim()}
+              onClick={handleDirectEnroll}
+              disabled={isLoading || !emailsInput.trim()}
               className="rounded-lg"
             >
-              {isLoading ? 'Sending...' : 'Send Invitation'}
+              {isLoading ? (
+                'Enrolling...'
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Enroll by Email
+                </span>
+              )}
             </Button>
           </div>
         </div>

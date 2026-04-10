@@ -309,6 +309,26 @@ describe('Assignment Schemas', () => {
 
       expect(result.success).toBe(true)
     })
+
+    it('should allow optional sync_key', () => {
+      const result = createSubmissionSchema.safeParse({
+        drive_file_id: 'abc123',
+        drive_file_name: 'submission.pdf',
+        sync_key: 'sync-123',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject empty sync_key', () => {
+      const result = createSubmissionSchema.safeParse({
+        drive_file_id: 'abc123',
+        drive_file_name: 'submission.pdf',
+        sync_key: '',
+      })
+
+      expect(result.success).toBe(false)
+    })
   })
 
   describe('updateSubmissionSchema', () => {

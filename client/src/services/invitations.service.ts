@@ -2,6 +2,31 @@ import { apiClient } from './api-client';
 
 export type InvitationStatus = 'pending' | 'accepted' | 'declined';
 
+export type DirectEnrollmentStatus =
+  | 'enrolled'
+  | 'already_enrolled'
+  | 'invalid_domain'
+  | 'student_not_found'
+  | 'not_student'
+  | 'failed';
+
+export interface DirectEnrollmentResult {
+  student_email: string;
+  status: DirectEnrollmentStatus;
+  message: string;
+  student_id?: string | null;
+  enrollment_id?: string | null;
+}
+
+export interface BulkDirectEnrollmentResult {
+  course_id: string;
+  total: number;
+  enrolled: number;
+  already_enrolled: number;
+  failed: number;
+  results: DirectEnrollmentResult[];
+}
+
 export interface ClassInvitation {
   id: string;
   course_id: string;
@@ -26,6 +51,23 @@ export const invitationsService = {
       course_id: courseId,
       student_email: studentEmail,
     });
+  },
+
+  directEnrollByEmail(courseId: string, studentEmail: string) {
+    return apiClient.post<{ success: boolean; data: DirectEnrollmentResult }>('/invitations/direct-enroll', {
+      course_id: courseId,
+      student_email: studentEmail,
+    });
+  },
+
+  bulkDirectEnrollByEmail(courseId: string, studentEmails: string[]) {
+    return apiClient.post<{ success: boolean; data: BulkDirectEnrollmentResult }>(
+      '/invitations/direct-enroll/bulk',
+      {
+        course_id: courseId,
+        student_emails: studentEmails,
+      }
+    );
   },
 
   listMyInvitations(params?: { status?: InvitationStatus; limit?: number; offset?: number }) {

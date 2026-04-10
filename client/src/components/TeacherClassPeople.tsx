@@ -153,7 +153,7 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
           className="rounded-lg w-full sm:w-auto bg-primary hover:bg-primary/90"
         >
           <Mail className="h-4 w-4 mr-2" />
-          Invite Student
+          Enroll by Email
         </Button>
       </div>
 

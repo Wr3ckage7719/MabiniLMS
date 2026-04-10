@@ -6,9 +6,33 @@ export enum InvitationStatus {
   DECLINED = 'declined',
 }
 
+export enum DirectEnrollmentStatus {
+  ENROLLED = 'enrolled',
+  ALREADY_ENROLLED = 'already_enrolled',
+  INVALID_DOMAIN = 'invalid_domain',
+  STUDENT_NOT_FOUND = 'student_not_found',
+  NOT_STUDENT = 'not_student',
+  FAILED = 'failed',
+}
+
+const normalizedEmailSchema = z
+  .string()
+  .email('Valid student email is required')
+  .transform((value) => value.trim().toLowerCase());
+
 export const createInvitationSchema = z.object({
   course_id: z.string().uuid('Invalid course ID'),
-  student_email: z.string().email('Valid student email is required').transform((value) => value.trim().toLowerCase()),
+  student_email: normalizedEmailSchema,
+});
+
+export const directEnrollByEmailSchema = z.object({
+  course_id: z.string().uuid('Invalid course ID'),
+  student_email: normalizedEmailSchema,
+});
+
+export const bulkDirectEnrollByEmailSchema = z.object({
+  course_id: z.string().uuid('Invalid course ID'),
+  student_emails: z.array(normalizedEmailSchema).min(1).max(100),
 });
 
 export const invitationIdParamSchema = z.object({
@@ -26,7 +50,26 @@ export const invitationQuerySchema = z.object({
 });
 
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
+export type DirectEnrollByEmailInput = z.infer<typeof directEnrollByEmailSchema>;
+export type BulkDirectEnrollByEmailInput = z.infer<typeof bulkDirectEnrollByEmailSchema>;
 export type InvitationQuery = z.infer<typeof invitationQuerySchema>;
+
+export interface DirectEnrollmentResult {
+  student_email: string;
+  status: DirectEnrollmentStatus;
+  message: string;
+  student_id?: string | null;
+  enrollment_id?: string | null;
+}
+
+export interface BulkDirectEnrollmentResult {
+  course_id: string;
+  total: number;
+  enrolled: number;
+  already_enrolled: number;
+  failed: number;
+  results: DirectEnrollmentResult[];
+}
 
 export interface Invitation {
   id: string;

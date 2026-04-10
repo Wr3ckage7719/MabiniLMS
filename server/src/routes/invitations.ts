@@ -3,7 +3,9 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
 import {
+  bulkDirectEnrollByEmailSchema,
   createInvitationSchema,
+  directEnrollByEmailSchema,
   invitationIdParamSchema,
   courseInvitationsParamSchema,
   invitationQuerySchema,
@@ -21,6 +23,22 @@ router.post(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ body: createInvitationSchema }),
   invitationController.createInvitation
+);
+
+// POST /api/invitations/direct-enroll - direct enroll one student by email (teacher/admin)
+router.post(
+  '/direct-enroll',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ body: directEnrollByEmailSchema }),
+  invitationController.directEnrollByEmail
+);
+
+// POST /api/invitations/direct-enroll/bulk - direct enroll multiple students by email (teacher/admin)
+router.post(
+  '/direct-enroll/bulk',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ body: bulkDirectEnrollByEmailSchema }),
+  invitationController.bulkDirectEnrollByEmail
 );
 
 // GET /api/invitations/my - list invitations for current user

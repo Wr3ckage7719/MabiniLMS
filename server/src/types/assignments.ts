@@ -51,6 +51,7 @@ export const createSubmissionSchema = z.object({
   drive_file_id: z.string().min(1, 'Google Drive file ID is required'),
   drive_file_name: z.string().min(1, 'File name is required'),
   content: z.string().optional(), // Optional text content
+  sync_key: z.string().min(1).max(100).optional(),
 });
 
 export const updateSubmissionSchema = z.object({

@@ -23,6 +23,48 @@ export const createInvitation = async (
   }
 };
 
+export const directEnrollByEmail = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const result = await invitationService.directEnrollByEmail(
+      req.body,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const bulkDirectEnrollByEmail = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const result = await invitationService.bulkDirectEnrollByEmail(
+      req.body,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listMyInvitations = async (
   req: AuthRequest,
   res: Response,

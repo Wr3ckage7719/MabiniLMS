@@ -68,7 +68,11 @@ export function useSubmitAssignment(courseId: string, assignmentId: string) {
 
   return useMutation({
     mutationFn: (data: any) => assignmentsService.submitAssignment(courseId, assignmentId, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result?.queued) {
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ['assignments', courseId] });
       queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] });
     },

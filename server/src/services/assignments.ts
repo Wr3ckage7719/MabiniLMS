@@ -28,6 +28,101 @@ const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
   } as AssignmentCommentWithAuthor;
 };
 
+const isMissingRelationError = (
+  error?: { code?: string; message?: string } | null
+): boolean => {
+  const message = (error?.message || '').toLowerCase();
+  return (
+    error?.code === '42P01' ||
+    message.includes('could not find the table') ||
+    message.includes('does not exist')
+  );
+};
+
+const getSubmissionBySyncKey = async (
+  syncKey: string,
+  studentId: string
+): Promise<Submission | null> => {
+  const { data: syncEvent, error: syncError } = await supabaseAdmin
+    .from('submission_sync_events')
+    .select('submission_id')
+    .eq('student_id', studentId)
+    .eq('sync_key', syncKey)
+    .maybeSingle();
+
+  if (syncError) {
+    if (isMissingRelationError(syncError)) {
+      return null;
+    }
+
+    logger.error('Failed to read submission sync event', {
+      studentId,
+      syncKey,
+      error: syncError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate submission sync state', 500);
+  }
+
+  if (!syncEvent?.submission_id) {
+    return null;
+  }
+
+  const { data: submission, error: submissionError } = await supabaseAdmin
+    .from('submissions')
+    .select('*')
+    .eq('id', syncEvent.submission_id)
+    .single();
+
+  if (submissionError || !submission) {
+    if (submissionError?.code === 'PGRST116') {
+      return null;
+    }
+
+    logger.error('Failed to load synced submission record', {
+      studentId,
+      syncKey,
+      submissionId: syncEvent.submission_id,
+      error: submissionError?.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load synced submission', 500);
+  }
+
+  return submission as Submission;
+};
+
+const recordSubmissionSyncEvent = async (
+  syncKey: string,
+  studentId: string,
+  assignmentId: string,
+  submissionId: string
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('submission_sync_events')
+    .insert({
+      student_id: studentId,
+      assignment_id: assignmentId,
+      submission_id: submissionId,
+      sync_key: syncKey,
+      processed_at: new Date().toISOString(),
+    });
+
+  if (!error) {
+    return;
+  }
+
+  if (error.code === '23505' || isMissingRelationError(error)) {
+    return;
+  }
+
+  logger.warn('Failed to persist submission sync event', {
+    studentId,
+    assignmentId,
+    submissionId,
+    syncKey,
+    error: error.message,
+  });
+};
+
 // ============================================
 // Assignment Operations
 // ============================================
@@ -310,6 +405,13 @@ export const submitAssignment = async (
     );
   }
 
+  if (input.sync_key) {
+    const existingSyncedSubmission = await getSubmissionBySyncKey(input.sync_key, userId);
+    if (existingSyncedSubmission) {
+      return existingSyncedSubmission;
+    }
+  }
+
   // Verify file access
   const hasAccess = await driveService.checkFileAccess(input.drive_file_id, userId);
   if (!hasAccess) {
@@ -373,6 +475,10 @@ export const submitAssignment = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update submission', 500);
     }
 
+    if (input.sync_key) {
+      await recordSubmissionSyncEvent(input.sync_key, userId, assignmentId, data.id);
+    }
+
     // Log resubmission audit event
     await auditService.logAssignmentEvent(
       userId,
@@ -414,6 +520,10 @@ export const submitAssignment = async (
   if (error) {
     logger.error('Failed to create submission', { error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to submit assignment', 500);
+  }
+
+  if (input.sync_key) {
+    await recordSubmissionSyncEvent(input.sync_key, userId, assignmentId, data.id);
   }
 
   // Log submission audit event

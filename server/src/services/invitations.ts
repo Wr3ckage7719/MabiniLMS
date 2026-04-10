@@ -1,16 +1,82 @@
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
+  BulkDirectEnrollByEmailInput,
+  BulkDirectEnrollmentResult,
   CreateInvitationInput,
+  DirectEnrollByEmailInput,
+  DirectEnrollmentResult,
+  DirectEnrollmentStatus,
   Invitation,
   InvitationQuery,
   InvitationStatus,
   InvitationWithCourse,
 } from '../types/invitations.js';
 import * as enrollmentService from './enrollments.js';
+import * as auditService from './audit.js';
+import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
+import { sendEnrollmentNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+const DIRECT_ENROLL_AUDIT_EVENT = 'course_enroll_by_email';
+
+const isInstitutionalStudentEmail = (email: string): boolean => {
+  return normalizeEmail(email).endsWith(`@${ALLOWED_DOMAIN}`);
+};
+
+const shouldCountAsFailure = (status: DirectEnrollmentStatus): boolean => {
+  return status !== DirectEnrollmentStatus.ENROLLED && status !== DirectEnrollmentStatus.ALREADY_ENROLLED;
+};
+
+const syncPendingInvitationStatus = async (
+  courseId: string,
+  studentEmail: string,
+  studentId: string
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('class_invitations')
+    .update({
+      status: InvitationStatus.ACCEPTED,
+      student_id: studentId,
+      responded_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('course_id', courseId)
+    .eq('student_email', studentEmail)
+    .eq('status', InvitationStatus.PENDING);
+
+  if (error) {
+    logger.warn('Failed to sync pending invitation during direct enrollment', {
+      courseId,
+      studentEmail,
+      studentId,
+      error: error.message,
+    });
+  }
+};
+
+const logDirectEnrollmentAudit = async (
+  actorUserId: string,
+  courseId: string,
+  result: DirectEnrollmentResult
+): Promise<void> => {
+  await auditService.logAuditEvent({
+    user_id: actorUserId,
+    event_type: DIRECT_ENROLL_AUDIT_EVENT,
+    resource_type: 'course',
+    resource_id: courseId,
+    details: {
+      action: 'direct_enroll_by_email',
+      student_email: result.student_email,
+      status: result.status,
+      message: result.message,
+      student_id: result.student_id || null,
+      enrollment_id: result.enrollment_id || null,
+      timestamp: new Date().toISOString(),
+    },
+  });
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCourseJoin = (invitation: any): InvitationWithCourse => {
@@ -45,6 +111,151 @@ const getCourseWithAccessCheck = async (
   }
 
   return course;
+};
+
+const processDirectEnrollment = async (
+  course: { id: string; teacher_id: string; title: string },
+  studentEmail: string
+): Promise<DirectEnrollmentResult> => {
+  const normalizedEmail = normalizeEmail(studentEmail);
+
+  if (!isInstitutionalStudentEmail(normalizedEmail)) {
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.INVALID_DOMAIN,
+      message: `Student email must use @${ALLOWED_DOMAIN}.`,
+    };
+  }
+
+  const { data: studentProfile, error: studentError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, role')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  if (studentError) {
+    logger.error('Failed to lookup student profile for direct enrollment', {
+      courseId: course.id,
+      studentEmail: normalizedEmail,
+      error: studentError.message,
+    });
+
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.FAILED,
+      message: 'Failed to lookup student account.',
+    };
+  }
+
+  if (!studentProfile?.id) {
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.STUDENT_NOT_FOUND,
+      message: 'No student account found for this email.',
+    };
+  }
+
+  if (studentProfile.role !== UserRole.STUDENT) {
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.NOT_STUDENT,
+      message: 'This account is not a student account.',
+      student_id: studentProfile.id,
+    };
+  }
+
+  const isAlreadyEnrolled = await enrollmentService.isStudentEnrolled(course.id, studentProfile.id);
+
+  if (isAlreadyEnrolled) {
+    await syncPendingInvitationStatus(course.id, normalizedEmail, studentProfile.id);
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.ALREADY_ENROLLED,
+      message: 'Student is already enrolled.',
+      student_id: studentProfile.id,
+    };
+  }
+
+  try {
+    const enrollment = await enrollmentService.enrollStudent(course.id, studentProfile.id);
+
+    await syncPendingInvitationStatus(course.id, normalizedEmail, studentProfile.id);
+
+    try {
+      await sendEnrollmentNotification(studentProfile.id, course.title, course.id);
+    } catch (notificationError) {
+      logger.warn('Failed to send direct enrollment notification', {
+        courseId: course.id,
+        studentId: studentProfile.id,
+        error: notificationError instanceof Error ? notificationError.message : String(notificationError),
+      });
+    }
+
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.ENROLLED,
+      message: 'Student enrolled successfully.',
+      student_id: studentProfile.id,
+      enrollment_id: enrollment.id,
+    };
+  } catch (error) {
+    logger.error('Direct enrollment failed', {
+      courseId: course.id,
+      studentId: studentProfile.id,
+      studentEmail: normalizedEmail,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      student_email: normalizedEmail,
+      status: DirectEnrollmentStatus.FAILED,
+      message: error instanceof Error ? error.message : 'Failed to enroll student.',
+      student_id: studentProfile.id,
+    };
+  }
+};
+
+export const directEnrollByEmail = async (
+  input: DirectEnrollByEmailInput,
+  userId: string,
+  userRole: UserRole
+): Promise<DirectEnrollmentResult> => {
+  const course = await getCourseWithAccessCheck(input.course_id, userId, userRole);
+  const result = await processDirectEnrollment(course, input.student_email);
+  await logDirectEnrollmentAudit(userId, course.id, result);
+  return result;
+};
+
+export const bulkDirectEnrollByEmail = async (
+  input: BulkDirectEnrollByEmailInput,
+  userId: string,
+  userRole: UserRole
+): Promise<BulkDirectEnrollmentResult> => {
+  const course = await getCourseWithAccessCheck(input.course_id, userId, userRole);
+  const uniqueEmails = Array.from(new Set(input.student_emails.map((email) => normalizeEmail(email))));
+
+  const results: DirectEnrollmentResult[] = [];
+
+  for (const studentEmail of uniqueEmails) {
+    const result = await processDirectEnrollment(course, studentEmail);
+    results.push(result);
+    await logDirectEnrollmentAudit(userId, course.id, result);
+  }
+
+  const enrolled = results.filter((result) => result.status === DirectEnrollmentStatus.ENROLLED).length;
+  const alreadyEnrolled = results.filter(
+    (result) => result.status === DirectEnrollmentStatus.ALREADY_ENROLLED
+  ).length;
+  const failed = results.filter((result) => shouldCountAsFailure(result.status)).length;
+
+  return {
+    course_id: course.id,
+    total: results.length,
+    enrolled,
+    already_enrolled: alreadyEnrolled,
+    failed,
+    results,
+  };
 };
 
 export const createInvitation = async (
