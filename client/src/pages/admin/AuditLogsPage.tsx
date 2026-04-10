@@ -156,16 +156,16 @@ export default function AuditLogsPage() {
         </Card>
 
         {isLoading ? (
-          <Card className="bg-slate-800 border-slate-700 p-12 flex-1 min-h-0">
+          <Card className="bg-slate-800 border-slate-700 p-12">
             <div className="flex flex-col items-center text-slate-400">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
               <p>Loading audit logs...</p>
             </div>
           </Card>
         ) : data && data.logs.length > 0 ? (
-          <Card className="bg-slate-800 border-slate-700 flex-1 min-h-0">
-            <div className="h-full flex flex-col">
-              <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-700">
+          <Card className="bg-slate-800 border-slate-700">
+            <div className="flex flex-col">
+              <div className="max-h-[62vh] overflow-y-auto divide-y divide-slate-700">
                 {filteredLogs.length === 0 ? (
                   <div className="p-10 text-center text-slate-400">No logs match your search.</div>
                 ) : (
@@ -222,7 +222,7 @@ export default function AuditLogsPage() {
             </div>
           </Card>
         ) : (
-          <Card className="bg-slate-800 border-slate-700 p-12 flex-1 min-h-0">
+          <Card className="bg-slate-800 border-slate-700 p-12">
             <div className="flex flex-col items-center text-slate-400">
               <FileText className="w-16 h-16 mb-4 opacity-50" />
               <p>No audit logs found</p>

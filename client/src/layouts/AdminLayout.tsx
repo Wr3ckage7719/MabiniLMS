@@ -55,10 +55,10 @@ export default function AdminLayout() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-900 flex">
+    <div className="h-screen bg-slate-900 flex overflow-hidden">
       {/* Sidebar - Desktop */}
       <aside
-        className={`hidden lg:flex flex-col bg-slate-800 border-r border-slate-700 transition-all duration-300 ${
+        className={`hidden lg:flex h-full flex-col bg-slate-800 border-r border-slate-700 transition-all duration-300 ${
           sidebarOpen ? 'w-64' : 'w-20'
         }`}
       >
