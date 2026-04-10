@@ -14,6 +14,7 @@
     "test:coverage": "vitest --coverage",
     "db:migrate": "tsx src/cli/migrate.ts",
     "db:migrate:status": "tsx src/cli/migrate.ts status",
+    "db:migrate:bundle": "tsx src/cli/migrate.ts bundle",
     "db:migrate:up": "tsx src/cli/migrate.ts up",
     "db:migrate:down": "tsx src/cli/migrate.ts down",
     "db:migrate:create": "tsx src/cli/migrate.ts create",

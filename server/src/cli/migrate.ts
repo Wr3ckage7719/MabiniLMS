@@ -12,7 +12,7 @@
  * - npm run db:migrate:reset        Reset database (rollback all + reapply all)
  */
 
-import { writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import dotenv from 'dotenv'
 import * as migrationService from '../services/migration.js'
@@ -22,6 +22,31 @@ dotenv.config()
 
 const command = process.argv[2]
 const args = process.argv.slice(3)
+
+/**
+ * Escape SQL string literals.
+ */
+const escapeSqlLiteral = (value: string): string => {
+  return value.replace(/'/g, "''")
+}
+
+/**
+ * Build SQL that records a migration as applied after manual execution.
+ */
+const buildMigrationTrackingUpsert = (migration: migrationService.Migration): string => {
+  const version = escapeSqlLiteral(migration.version)
+  const name = escapeSqlLiteral(migration.name)
+  const checksum = escapeSqlLiteral(migration.checksum)
+
+  return `INSERT INTO public.schema_migrations (version, name, checksum, applied_by, execution_time_ms)
+VALUES ('${version}', '${name}', '${checksum}', 'manual_bundle', 0)
+ON CONFLICT (version) DO UPDATE
+SET
+  name = EXCLUDED.name,
+  checksum = EXCLUDED.checksum,
+  applied_by = EXCLUDED.applied_by,
+  applied_at = CURRENT_TIMESTAMP;`
+}
 
 /**
  * Format timestamp for display
@@ -74,8 +99,12 @@ const showStatus = async () => {
       console.log(`  ${icon} ${versionName.padEnd(40)} ${statusText} ${details}`)
     }
 
+    const appliedOrModified = appliedCount + modifiedCount
+
     console.log()
-    console.log(`  Total: ${status.length} | Applied: ${appliedCount} | Pending: ${pendingCount} | Modified: ${modifiedCount}`)
+    console.log(
+      `  Total: ${status.length} | Applied: ${appliedOrModified} | Pending: ${pendingCount} | Modified: ${modifiedCount}`
+    )
     
     if (modifiedCount > 0) {
       console.log()
@@ -106,6 +135,62 @@ const showStatus = async () => {
     }
     
     console.error('❌ Error fetching migration status:', error)
+    process.exit(1)
+  }
+}
+
+/**
+ * Generate one SQL file for all pending migrations.
+ * Includes schema_migrations upserts so tracking stays in sync.
+ */
+const bundlePendingMigrations = async () => {
+  console.log('🧾 Generating SQL bundle for pending migrations...\n')
+
+  try {
+    const pending = await migrationService.getPendingMigrations()
+
+    if (pending.length === 0) {
+      console.log('  ✅ No pending migrations. Nothing to bundle.\n')
+      return
+    }
+
+    const sections: string[] = [
+      '-- ============================================',
+      '-- MabiniLMS Pending Migrations Bundle',
+      `-- Generated: ${new Date().toISOString()}`,
+      '-- Run this in Supabase SQL Editor as one script.',
+      '-- ============================================',
+      '',
+    ]
+
+    for (const migration of pending) {
+      const content = readFileSync(migration.filepath, 'utf-8')
+      const upSql = migrationService.extractUpSection(content)
+
+      sections.push('-- --------------------------------------------')
+      sections.push(`-- Migration ${migration.version}_${migration.name}`)
+      sections.push('-- --------------------------------------------')
+      sections.push(upSql)
+      sections.push('')
+      sections.push(buildMigrationTrackingUpsert(migration))
+      sections.push('')
+    }
+
+    const outputDir = join(process.cwd(), 'tmp')
+    mkdirSync(outputDir, { recursive: true })
+    const outputPath = join(outputDir, 'pending-migrations.sql')
+    writeFileSync(outputPath, sections.join('\n'), 'utf-8')
+
+    console.log(`  ✅ Bundle created: ${outputPath}`)
+    console.log(`  📦 Included migrations: ${pending.map((m) => m.version).join(', ')}`)
+    console.log()
+    console.log('  Next steps:')
+    console.log('  1. Open Supabase SQL Editor')
+    console.log('  2. Run the SQL from tmp/pending-migrations.sql')
+    console.log('  3. Run: npm run db:migrate:status')
+    console.log()
+  } catch (error) {
+    console.error('\n  ❌ Failed to generate migration bundle:', error)
     process.exit(1)
   }
 }
@@ -266,6 +351,7 @@ Commands:
 
   npm run db:migrate                 Apply all pending migrations
   npm run db:migrate:status          Show migration status
+  npm run db:migrate:bundle          Generate SQL bundle for pending migrations
   npm run db:migrate:up              Apply next pending migration
   npm run db:migrate:down            Rollback last migration
   npm run db:migrate:create <name>   Create new migration file
@@ -309,6 +395,9 @@ const main = async () => {
   switch (command) {
     case 'status':
       await showStatus()
+      break
+    case 'bundle':
+      await bundlePendingMigrations()
       break
     case 'up':
       await migrateUp()

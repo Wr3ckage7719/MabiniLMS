@@ -27,6 +27,73 @@ const MIGRATIONS_DIR = join(process.cwd(), 'migrations')
 const MIGRATION_FILE_PATTERN = /^(\d{3})_(.+)\.sql$/
 
 /**
+ * Normalize migration identifiers to a 3-digit version.
+ * Supported formats: 001, 001_name, 001_name.sql
+ */
+const normalizeMigrationVersion = (identifier: string): string | null => {
+  const sanitized = identifier.trim().replace(/\.sql$/i, '')
+  const match = sanitized.match(/^(\d{3})(?:[_-].+)?$/)
+  return match ? match[1] : null
+}
+
+/**
+ * Parse dependency header value into normalized 3-digit versions.
+ */
+const parseDependencies = (rawDependencies?: string): string[] => {
+  if (!rawDependencies) {
+    return []
+  }
+
+  const dependencies: string[] = []
+
+  for (const rawDependency of rawDependencies.split(',')) {
+    const dependency = rawDependency.trim()
+    if (!dependency) {
+      continue
+    }
+
+    if (dependency.toLowerCase().startsWith('none')) {
+      continue
+    }
+
+    const normalizedVersion = normalizeMigrationVersion(dependency)
+    if (!normalizedVersion) {
+      throw new Error(
+        `Invalid migration dependency "${dependency}". Use format 001 or 001_name.`
+      )
+    }
+
+    dependencies.push(normalizedVersion)
+  }
+
+  return dependencies
+}
+
+/**
+ * Execute SQL using Supabase RPC. Requires public.exec_sql(sql_query text).
+ */
+const executeSql = async (sql: string): Promise<void> => {
+  const { error } = await supabaseAdmin.rpc('exec_sql', { sql_query: sql })
+
+  if (!error) {
+    return
+  }
+
+  const errorMessage = error.message ?? String(error)
+  const rpcUnavailable =
+    error.code === 'PGRST202' ||
+    /function\s+public\.exec_sql|exec_sql\(sql_query\)|schema cache/i.test(errorMessage)
+
+  if (rpcUnavailable) {
+    throw new Error(
+      'Migration SQL execution RPC is unavailable (public.exec_sql). Apply the SQL manually in Supabase SQL Editor and rerun migration status.'
+    )
+  }
+
+  throw new Error(`Failed to execute migration SQL: ${errorMessage}`)
+}
+
+/**
  * Calculate SHA-256 checksum of a file
  */
 export const calculateChecksum = (content: string): string => {
@@ -50,11 +117,7 @@ export const parseMigrationFile = (filepath: string): Migration => {
 
   // Parse dependencies from header comments
   const depsMatch = content.match(/-- Dependencies:\s*(.+)/i)
-  const dependencies: string[] = []
-  
-  if (depsMatch && depsMatch[1].toLowerCase() !== 'none') {
-    dependencies.push(...depsMatch[1].split(',').map((d) => d.trim()))
-  }
+  const dependencies = parseDependencies(depsMatch?.[1])
 
   return {
     version,
@@ -192,7 +255,19 @@ export const getMigrationStatus = async (): Promise<MigrationStatus[]> => {
 export const extractUpSection = (content: string): string => {
   const upMatch = content.match(/-- UP\s*\n([\s\S]*?)(?=\n-- DOWN|$)/i)
   if (!upMatch) {
-    throw new Error('Migration file missing -- UP section')
+    // Backward compatibility for legacy migrations that contain only UP SQL.
+    const normalized = content.replace(/\r\n/g, '\n')
+    const withoutHeader = normalized
+      .replace(/^--\s*Migration:.*\n/i, '')
+      .replace(/^--\s*Description:.*\n/i, '')
+      .replace(/^--\s*Dependencies:.*\n/i, '')
+      .trim()
+
+    if (!withoutHeader) {
+      throw new Error('Migration file missing executable SQL in UP section')
+    }
+
+    return withoutHeader
   }
   return upMatch[1].trim()
 }
@@ -218,10 +293,10 @@ export const verifyDependencies = async (migration: Migration): Promise<void> =>
 
   const appliedMigrations = await getAppliedMigrations()
 
-  for (const dependency of migration.dependencies) {
-    if (!appliedMigrations.has(dependency)) {
+  for (const dependencyVersion of migration.dependencies) {
+    if (!appliedMigrations.has(dependencyVersion)) {
       throw new Error(
-        `Migration ${migration.version} depends on ${dependency}, but it has not been applied yet`
+        `Migration ${migration.version} depends on ${dependencyVersion}, but it has not been applied yet`
       )
     }
   }
@@ -243,12 +318,8 @@ export const applyMigration = async (migration: Migration): Promise<number> => {
   const startTime = Date.now()
 
   try {
-    // Execute migration SQL
-    // Note: Supabase doesn't expose direct SQL execution via client
-    // In production, this would use a proper migration runner
-    // For now, we'll log and require manual application
-    logger.info(`Migration SQL for ${migration.version}:`)
-    logger.info(upSql)
+    // Execute migration SQL first to avoid recording fake-applied migrations.
+    await executeSql(upSql)
 
     // Record migration as applied
     const { error } = await supabaseAdmin
@@ -320,9 +391,8 @@ export const rollbackMigration = async (version: string): Promise<void> => {
   const downSql = extractDownSection(content)
 
   try {
-    // Execute rollback SQL
-    logger.info(`Rollback SQL for ${version}:`)
-    logger.info(downSql)
+    // Execute rollback SQL before removing migration record.
+    await executeSql(downSql)
 
     // Remove migration record
     const { error } = await supabaseAdmin
