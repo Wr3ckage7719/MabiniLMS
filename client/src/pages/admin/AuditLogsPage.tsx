@@ -165,34 +165,53 @@ export default function AuditLogsPage() {
         ) : data && data.logs.length > 0 ? (
           <Card className="bg-slate-800 border-slate-700">
             <div className="flex flex-col">
-              <div className="max-h-[62vh] overflow-y-auto divide-y divide-slate-700">
+              <div className="max-h-[62vh] overflow-y-auto">
+                <div className="sticky top-0 z-10 grid grid-cols-12 gap-3 border-b border-slate-700 bg-slate-800/95 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur md:px-5">
+                  <span className="col-span-7 md:col-span-5">Action</span>
+                  <span className="hidden md:block md:col-span-4">Actor / Target</span>
+                  <span className="col-span-5 md:col-span-3 text-right">Time</span>
+                </div>
+
                 {filteredLogs.length === 0 ? (
                   <div className="p-10 text-center text-slate-400">No logs match your search.</div>
                 ) : (
-                  filteredLogs.map((log) => {
-                    const actorLabel = getPersonLabel(log.admin);
-                    const targetLabel = log.target_user ? getPersonLabel(log.target_user) : null;
+                  <div className="divide-y divide-slate-700">
+                    {filteredLogs.map((log) => {
+                      const actorLabel = getPersonLabel(log.admin);
+                      const targetLabel = log.target_user ? getPersonLabel(log.target_user) : null;
 
-                    return (
-                      <div key={log.id} className="p-4 md:p-5 hover:bg-slate-750/60 transition-colors">
-                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white font-semibold mb-1">{getActionLabel(log.action_type)}</p>
-                            <p className="text-xs md:text-sm text-slate-400">
-                              By {actorLabel}
-                              {log.admin?.email ? ` (${log.admin.email})` : ''}
-                              {targetLabel ? ` • Target: ${targetLabel}` : ''}
-                            </p>
+                      return (
+                        <div key={log.id} className="p-4 md:p-5 hover:bg-slate-750/60 transition-colors">
+                          <div className="grid grid-cols-12 gap-3 items-start">
+                            <div className="col-span-7 md:col-span-5 min-w-0">
+                              <p className="text-white font-semibold mb-1">{getActionLabel(log.action_type)}</p>
+                              <p className="text-xs text-slate-400 md:hidden">
+                                By {actorLabel}
+                                {log.admin?.email ? ` (${log.admin.email})` : ''}
+                                {targetLabel ? ` • Target: ${targetLabel}` : ''}
+                              </p>
+                            </div>
+                            <div className="hidden md:block md:col-span-4 min-w-0">
+                              <p className="text-sm text-slate-300 truncate" title={actorLabel}>
+                                {actorLabel}
+                                {log.admin?.email ? ` (${log.admin.email})` : ''}
+                              </p>
+                              <p className="text-xs text-slate-500 truncate" title={targetLabel || undefined}>
+                                {targetLabel ? `Target: ${targetLabel}` : 'Target: N/A'}
+                              </p>
+                            </div>
+                            <div className="col-span-5 md:col-span-3 text-right">
+                              <span className="text-xs md:text-sm text-slate-500 whitespace-nowrap">
+                                {formatDate(log.created_at)}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-xs md:text-sm text-slate-500 whitespace-nowrap">
-                            {formatDate(log.created_at)}
-                          </span>
-                        </div>
 
-                        <p className="mt-3 text-sm text-slate-300 leading-relaxed">{getLogSummary(log)}</p>
-                      </div>
-                    );
-                  })
+                          <p className="mt-3 text-sm text-slate-300 leading-relaxed">{getLogSummary(log)}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
