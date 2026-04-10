@@ -11,6 +11,13 @@
 
 import { apiClient } from './api-client';
 
+const toArray = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  return [];
+};
+
 export interface TeacherCourse {
   id: string;
   title: string;
@@ -30,9 +37,9 @@ export interface CourseStudent {
   id: string;
   student_id: string;
   course_id: string;
-  status: 'enrolled' | 'completed' | 'dropped';
+  status: 'active' | 'completed' | 'dropped';
   enrolled_at: string;
-  profile: {
+  student?: {
     id: string;
     first_name: string | null;
     last_name: string | null;
@@ -132,28 +139,42 @@ export const teacherService = {
     if (options?.includeEnrollmentCount) {
       params.append('include_enrollment_count', 'true');
     }
-    return apiClient.get(`/courses?${params.toString()}`);
+    const query = params.toString();
+    const response = await apiClient.get(`/courses${query ? `?${query}` : ''}`);
+
+    return {
+      data: toArray<TeacherCourse>(response?.data?.courses),
+    };
   },
 
   /**
    * Get course roster (enrolled students)
    */
   async getCourseRoster(courseId: string): Promise<{ data: CourseStudent[] }> {
-    return apiClient.get(`/courses/${courseId}/roster`);
+    const response = await apiClient.get(`/courses/${courseId}/roster`);
+    return {
+      data: toArray<CourseStudent>(response?.data),
+    };
   },
 
   /**
    * Get all assignments for a course
    */
   async getCourseAssignments(courseId: string): Promise<{ data: TeacherAssignment[] }> {
-    return apiClient.get(`/assignments?course_id=${courseId}`);
+    const response = await apiClient.get(`/assignments?course_id=${courseId}&include_past=true&limit=100`);
+    return {
+      data: toArray<TeacherAssignment>(response?.data),
+    };
   },
 
   /**
    * Get submissions for a specific assignment
    */
   async getAssignmentSubmissions(assignmentId: string): Promise<{ data: Submission[] }> {
-    return apiClient.get(`/assignments/${assignmentId}/submissions`);
+    const response = await apiClient.get(`/assignments/${assignmentId}/submissions`);
+    return {
+      data: toArray<Submission>(response?.data),
+    };
   },
 
   /**
@@ -169,13 +190,13 @@ export const teacherService = {
       : '/assignments?include_past=true&limit=100';
 
     const assignmentsResponse = await apiClient.get(assignmentQuery);
-    const assignments: Array<{ id: string }> = assignmentsResponse?.data || [];
+    const assignments: Array<{ id: string }> = toArray(assignmentsResponse?.data);
 
     const allSubmissions = await Promise.all(
       assignments.map(async (assignment) => {
         try {
           const submissionResponse = await apiClient.get(`/assignments/${assignment.id}/submissions`);
-          return submissionResponse?.data || [];
+          return toArray<Submission>(submissionResponse?.data);
         } catch {
           return [];
         }
@@ -224,7 +245,10 @@ export const teacherService = {
     }
 
     const query = params.toString();
-    return apiClient.get(`/notifications${query ? `?${query}` : ''}`);
+    const response = await apiClient.get(`/notifications${query ? `?${query}` : ''}`);
+    return {
+      data: toArray<Notification>(response?.data),
+    };
   },
 
   /**
@@ -253,7 +277,10 @@ export const teacherService = {
    * Get course materials
    */
   async getCourseMaterials(courseId: string): Promise<{ data: any[] }> {
-    return apiClient.get(`/courses/${courseId}/materials`);
+    const response = await apiClient.get(`/courses/${courseId}/materials`);
+    return {
+      data: toArray<any>(response?.data),
+    };
   },
 
   /**
@@ -262,14 +289,20 @@ export const teacherService = {
    */
   async createAnnouncement(courseId: string, content: string): Promise<{ data: Announcement }> {
     const title = content.trim().slice(0, 80) || 'Announcement';
-    return apiClient.post(`/courses/${courseId}/announcements`, { title, content });
+    const response = await apiClient.post(`/courses/${courseId}/announcements`, { title, content });
+    return {
+      data: response?.data as Announcement,
+    };
   },
 
   /**
    * Get announcements for a course (if API exists)
    */
   async getAnnouncements(courseId: string): Promise<{ data: Announcement[] }> {
-    return apiClient.get(`/courses/${courseId}/announcements`);
+    const response = await apiClient.get(`/courses/${courseId}/announcements`);
+    return {
+      data: toArray<Announcement>(response?.data),
+    };
   },
 
   /**

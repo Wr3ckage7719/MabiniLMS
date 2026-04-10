@@ -1,10 +1,13 @@
 import { TeacherPanel } from '@/components/TeacherPanel';
 import { RoleProvider } from '@/contexts/RoleContext';
+import { ClassesProvider } from '@/contexts/ClassesContext';
 
 export default function TeacherDemoPage() {
   return (
     <RoleProvider>
-      <TeacherPanel />
+      <ClassesProvider>
+        <TeacherPanel />
+      </ClassesProvider>
     </RoleProvider>
   );
 }

@@ -32,8 +32,11 @@ export default function InteractiveCalendar() {
   const { data: classes = [] } = useClasses();
   const { data: allAssignments = [], isLoading, error } = useAssignments();
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = useMemo(() => {
+    const reference = new Date();
+    reference.setHours(0, 0, 0, 0);
+    return reference;
+  }, []);
 
   const calendar = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -248,13 +251,13 @@ export default function InteractiveCalendar() {
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>
         </div>
-      ) : allAssignments.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Clock className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm md:text-base">No data present: calendar assignments</p>
-        </div>
       ) : (
         <>
+          {allAssignments.length === 0 && (
+            <div className="text-center py-4 text-muted-foreground">
+              <p className="text-sm md:text-base">No assignments yet for this month. The calendar is ready when data arrives.</p>
+            </div>
+          )}
           <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50/80 via-white/95 to-blue-50/60 dark:from-slate-900/95 dark:via-slate-900/98 dark:to-slate-800/95 backdrop-blur-md overflow-hidden ring-1 ring-primary/5">
             <div className="p-3 md:p-6 lg:p-8">
               <div className="grid grid-cols-7 gap-1 md:gap-2 lg:gap-3 mb-2 md:mb-4">

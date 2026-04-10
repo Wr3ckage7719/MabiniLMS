@@ -88,6 +88,13 @@ export interface AuditLog {
   }
 }
 
+export interface AdminDashboardStats {
+  pending_teachers: number
+  total_students: number
+  total_teachers: number
+  active_courses: number
+}
+
 /**
  * Log an admin action to audit log
  */
@@ -612,4 +619,46 @@ export const getPendingTeachersCount = async (): Promise<number> => {
   }
 
   return count || 0
+}
+
+/**
+ * Get dashboard-level stats for admin pages
+ */
+export const getDashboardStats = async (): Promise<AdminDashboardStats> => {
+  const [pendingTeachersResult, totalStudentsResult, totalTeachersResult, activeCoursesResult] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'teacher')
+      .eq('pending_approval', true),
+    supabaseAdmin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'student'),
+    supabaseAdmin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'teacher'),
+    supabaseAdmin
+      .from('courses')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'published'),
+  ])
+
+  if (pendingTeachersResult.error || totalStudentsResult.error || totalTeachersResult.error || activeCoursesResult.error) {
+    logger.error('Failed to compute admin dashboard stats', {
+      pendingTeachersError: pendingTeachersResult.error?.message,
+      totalStudentsError: totalStudentsResult.error?.message,
+      totalTeachersError: totalTeachersResult.error?.message,
+      activeCoursesError: activeCoursesResult.error?.message,
+    })
+    throw new Error('Failed to fetch dashboard stats')
+  }
+
+  return {
+    pending_teachers: pendingTeachersResult.count || 0,
+    total_students: totalStudentsResult.count || 0,
+    total_teachers: totalTeachersResult.count || 0,
+    active_courses: activeCoursesResult.count || 0,
+  }
 }

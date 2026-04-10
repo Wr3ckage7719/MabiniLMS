@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import * as adminService from '@/services/admin.service';
@@ -24,12 +23,6 @@ export default function AdminDashboardPage() {
     queryFn: adminService.getDashboardStats,
   });
 
-  // Fetch pending teachers
-  const { data: pendingTeachers, isLoading: teachersLoading } = useQuery({
-    queryKey: ['pending-teachers'],
-    queryFn: adminService.listPendingTeachers,
-  });
-
   // Fetch recent audit logs
   const { data: auditLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['recent-audit-logs'],
@@ -48,7 +41,7 @@ export default function AdminDashboardPage() {
     },
     {
       title: 'Total Students',
-      value: '---',
+      value: stats?.total_students || 0,
       icon: GraduationCap,
       color: 'bg-green-500',
       bgColor: 'bg-green-500/10',
@@ -57,7 +50,7 @@ export default function AdminDashboardPage() {
     },
     {
       title: 'Total Teachers',
-      value: '---',
+      value: stats?.total_teachers || 0,
       icon: Users,
       color: 'bg-purple-500',
       bgColor: 'bg-purple-500/10',
@@ -65,7 +58,7 @@ export default function AdminDashboardPage() {
     },
     {
       title: 'Active Courses',
-      value: '---',
+      value: stats?.active_courses || 0,
       icon: BookOpen,
       color: 'bg-orange-500',
       bgColor: 'bg-orange-500/10',

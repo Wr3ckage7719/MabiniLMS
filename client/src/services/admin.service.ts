@@ -71,6 +71,9 @@ export interface SystemSettings {
 
 export interface DashboardStats {
   pending_teachers: number;
+  total_students: number;
+  total_teachers: number;
+  active_courses: number;
 }
 
 export interface AdminUser {

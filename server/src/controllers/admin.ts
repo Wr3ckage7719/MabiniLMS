@@ -566,14 +566,11 @@ export const getDashboardStats = async (
   next: NextFunction
 ) => {
   try {
-    const pendingTeachersCount = await adminService.getPendingTeachersCount()
+    const stats = await adminService.getDashboardStats()
 
-    // Get other stats (can be extended)
     const response: ApiResponse = {
       success: true,
-      data: {
-        pending_teachers: pendingTeachersCount
-      }
+      data: stats
     }
     res.json(response)
   } catch (error) {

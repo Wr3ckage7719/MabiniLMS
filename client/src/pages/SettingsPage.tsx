@@ -9,13 +9,17 @@ import { usersService } from '@/services/users.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
+import { Loader2 } from 'lucide-react';
 
 export default function SettingsPage() {
   const { user, updateAvatar } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(user?.avatarUrl || null);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('theme') === 'dark' || document.documentElement.classList.contains('dark');
@@ -36,6 +40,12 @@ export default function SettingsPage() {
   useEffect(() => {
     setAvatarUrl(user?.avatarUrl || null);
   }, [user?.avatarUrl]);
+
+  useEffect(() => {
+    const [firstToken = '', ...restTokens] = (user?.name || '').trim().split(/\s+/).filter(Boolean);
+    setFirstName(firstToken);
+    setLastName(restTokens.join(' '));
+  }, [user?.name]);
 
   const avatarFallback = useMemo(() => {
     if (!user?.name) return 'U';
@@ -112,6 +122,37 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveProfile = async () => {
+    if (!user) {
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      await usersService.updateProfile({
+        first_name: firstName.trim() || undefined,
+        last_name: lastName.trim() || undefined,
+      });
+
+      toast({
+        title: 'Profile updated',
+        description: 'Your profile details have been saved.',
+      });
+    } catch (error) {
+      const responseMessage = axios.isAxiosError(error)
+        ? error.response?.data?.error?.message || error.response?.data?.message
+        : undefined;
+
+      toast({
+        title: 'Save failed',
+        description: responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -148,16 +189,24 @@ export default function SettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>First name</Label>
-              <Input defaultValue="Kaide" className="rounded-xl" />
+              <Input
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                className="rounded-xl"
+              />
             </div>
             <div className="space-y-2">
               <Label>Last name</Label>
-              <Input defaultValue="Olfindo" className="rounded-xl" />
+              <Input
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                className="rounded-xl"
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label>Email</Label>
-            <Input defaultValue="KaideOlfindo@school.edu" className="rounded-xl" disabled />
+            <Input value={user?.email || ''} className="rounded-xl" disabled />
           </div>
         </CardContent>
       </Card>
@@ -194,7 +243,16 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Button className="rounded-xl">Save changes</Button>
+      <Button
+        className="rounded-xl"
+        onClick={() => {
+          void handleSaveProfile();
+        }}
+        disabled={isSavingProfile}
+      >
+        {isSavingProfile ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+        Save changes
+      </Button>
     </div>
   );
 }
