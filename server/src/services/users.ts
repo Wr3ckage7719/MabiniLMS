@@ -134,7 +134,7 @@ export const listUsers = async (query: ListUsersQuery): Promise<PaginatedUsers> 
   // Build query
   let queryBuilder = supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role, avatar_url, created_at, updated_at', { count: 'exact' });
+    .select('id, email, first_name, last_name, role, pending_approval, avatar_url, created_at, updated_at', { count: 'exact' });
 
   // Apply role filter
   if (role) {

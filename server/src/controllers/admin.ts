@@ -365,6 +365,72 @@ export const bulkCreateStudents = async (
 }
 
 /**
+ * Update a teacher/student account from admin panel
+ */
+export const updateManagedUser = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params
+    const { email, first_name, last_name } = req.body
+    const adminId = req.user!.id
+    const ipAddress = req.ip
+    const userAgent = req.get('user-agent')
+
+    const user = await adminService.updateManagedUser(
+      id,
+      { email, first_name, last_name },
+      adminId,
+      ipAddress,
+      userAgent
+    )
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: 'User updated successfully',
+        user,
+      }
+    }
+
+    res.json(response)
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Delete a teacher/student account from admin panel
+ */
+export const deleteManagedUser = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params
+    const adminId = req.user!.id
+    const ipAddress = req.ip
+    const userAgent = req.get('user-agent')
+
+    await adminService.deleteManagedUser(id, adminId, ipAddress, userAgent)
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: 'User deleted successfully',
+      }
+    }
+
+    res.json(response)
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
  * @openapi
  * /api/admin/settings:
  *   get:

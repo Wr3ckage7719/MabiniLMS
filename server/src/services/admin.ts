@@ -51,6 +51,23 @@ export interface StudentData {
   student_id?: string
 }
 
+export interface ManagedUser {
+  id: string
+  email: string
+  first_name: string
+  last_name: string
+  role: 'teacher' | 'student'
+  pending_approval?: boolean | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ManagedUserUpdateInput {
+  email?: string
+  first_name?: string
+  last_name?: string
+}
+
 export interface BulkStudentResult {
   total: number
   created: number
@@ -93,6 +110,23 @@ export interface AdminDashboardStats {
   total_students: number
   total_teachers: number
   active_courses: number
+}
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const normalizeText = (value?: string): string | undefined => {
+  if (value === undefined || value === null) return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+const normalizeStudentInput = (studentData: StudentData): StudentData => {
+  return {
+    email: (normalizeText(studentData.email) || '').toLowerCase(),
+    first_name: normalizeText(studentData.first_name) || '',
+    last_name: normalizeText(studentData.last_name) || '',
+    student_id: normalizeText(studentData.student_id)
+  }
 }
 
 /**
@@ -143,6 +177,189 @@ export const listPendingTeachers = async (): Promise<PendingTeacher[]> => {
   }
 
   return data as PendingTeacher[]
+}
+
+const getManageableUser = async (userId: string): Promise<ManagedUser> => {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, first_name, last_name, role, pending_approval, created_at, updated_at')
+    .eq('id', userId)
+    .single()
+
+  if (error || !data) {
+    throw new Error('User not found')
+  }
+
+  if (data.role !== 'teacher' && data.role !== 'student') {
+    throw new Error('Only teacher and student accounts can be managed')
+  }
+
+  return data as ManagedUser
+}
+
+/**
+ * Update a teacher or student account from admin panel
+ */
+export const updateManagedUser = async (
+  userId: string,
+  input: ManagedUserUpdateInput,
+  adminId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<ManagedUser> => {
+  const existingUser = await getManageableUser(userId)
+
+  const nextEmail = input.email !== undefined
+    ? (normalizeText(input.email) || '').toLowerCase()
+    : undefined
+  const nextFirstName = input.first_name !== undefined ? normalizeText(input.first_name) : undefined
+  const nextLastName = input.last_name !== undefined ? normalizeText(input.last_name) : undefined
+
+  if (input.email !== undefined && !nextEmail) {
+    throw new Error('Email is required')
+  }
+
+  if (nextEmail && !EMAIL_REGEX.test(nextEmail)) {
+    throw new Error('Invalid email address')
+  }
+
+  if (input.first_name !== undefined && !nextFirstName) {
+    throw new Error('First name is required')
+  }
+
+  if (input.last_name !== undefined && !nextLastName) {
+    throw new Error('Last name is required')
+  }
+
+  if (
+    nextEmail === undefined &&
+    nextFirstName === undefined &&
+    nextLastName === undefined
+  ) {
+    throw new Error('At least one field is required')
+  }
+
+  if (nextEmail && nextEmail !== existingUser.email) {
+    const { data: duplicateUser, error: duplicateCheckError } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', nextEmail)
+      .maybeSingle()
+
+    if (duplicateCheckError) {
+      logger.error(`Failed email duplicate check for ${nextEmail}: ${duplicateCheckError.message}`)
+      throw new Error('Failed to validate email address')
+    }
+
+    if (duplicateUser && duplicateUser.id !== userId) {
+      throw new Error(`User with email ${nextEmail} already exists`)
+    }
+  }
+
+  const updatedEmail = nextEmail ?? existingUser.email
+  const updatedFirstName = nextFirstName ?? existingUser.first_name
+  const updatedLastName = nextLastName ?? existingUser.last_name
+
+  if (
+    updatedEmail !== existingUser.email ||
+    updatedFirstName !== existingUser.first_name ||
+    updatedLastName !== existingUser.last_name
+  ) {
+    const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      email: updatedEmail,
+      user_metadata: {
+        first_name: updatedFirstName,
+        last_name: updatedLastName,
+      },
+    })
+
+    if (authUpdateError) {
+      logger.error(`Failed to update auth user ${userId}: ${authUpdateError.message}`)
+      throw new Error(`Failed to update user account: ${authUpdateError.message}`)
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  }
+
+  if (nextEmail !== undefined) {
+    updatePayload.email = updatedEmail
+  }
+  if (nextFirstName !== undefined) {
+    updatePayload.first_name = updatedFirstName
+  }
+  if (nextLastName !== undefined) {
+    updatePayload.last_name = updatedLastName
+  }
+
+  const { data: updatedUser, error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update(updatePayload)
+    .eq('id', userId)
+    .select('id, email, first_name, last_name, role, pending_approval, created_at, updated_at')
+    .single()
+
+  if (updateError || !updatedUser) {
+    logger.error(`Failed to update profile ${userId}: ${updateError?.message}`)
+    throw new Error('Failed to update user profile')
+  }
+
+  await logAdminAction(
+    adminId,
+    'managed_user_updated',
+    userId,
+    {
+      role: existingUser.role,
+      before: {
+        email: existingUser.email,
+        first_name: existingUser.first_name,
+        last_name: existingUser.last_name,
+      },
+      after: {
+        email: updatedUser.email,
+        first_name: updatedUser.first_name,
+        last_name: updatedUser.last_name,
+      },
+    },
+    ipAddress,
+    userAgent
+  )
+
+  return updatedUser as ManagedUser
+}
+
+/**
+ * Delete a teacher or student account from admin panel
+ */
+export const deleteManagedUser = async (
+  userId: string,
+  adminId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  const existingUser = await getManageableUser(userId)
+
+  const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+
+  if (deleteError) {
+    logger.error(`Failed to delete managed user ${userId}: ${deleteError.message}`)
+    throw new Error('Failed to delete user')
+  }
+
+  await logAdminAction(
+    adminId,
+    'managed_user_deleted',
+    userId,
+    {
+      role: existingUser.role,
+      email: existingUser.email,
+      full_name: `${existingUser.first_name} ${existingUser.last_name}`,
+      pending_approval: existingUser.pending_approval || false,
+    },
+    ipAddress,
+    userAgent
+  )
 }
 
 /**
@@ -305,14 +522,32 @@ export const createStudentAccount = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<{ student: any; temporaryPassword: string }> => {
-  const { email, first_name, last_name, student_id } = studentData
+  const normalizedStudent = normalizeStudentInput(studentData)
+  const { email, first_name, last_name, student_id } = normalizedStudent
+
+  if (!email || !EMAIL_REGEX.test(email)) {
+    throw new Error('Invalid email address')
+  }
+
+  if (!first_name) {
+    throw new Error('First name is required')
+  }
+
+  if (!last_name) {
+    throw new Error('Last name is required')
+  }
 
   // Check if user already exists
-  const { data: existing } = await supabaseAdmin
+  const { data: existing, error: existingCheckError } = await supabaseAdmin
     .from('profiles')
     .select('id')
     .eq('email', email)
-    .single()
+    .maybeSingle()
+
+  if (existingCheckError) {
+    logger.error(`Error checking existing student ${email}: ${existingCheckError.message}`)
+    throw new Error('Failed to validate student email')
+  }
 
   if (existing) {
     throw new Error(`User with email ${email} already exists`)
@@ -336,6 +571,9 @@ export const createStudentAccount = async (
 
   if (authError || !authData.user) {
     logger.error(`Error creating student auth: ${authError?.message}`)
+    if (authError?.message?.toLowerCase().includes('already')) {
+      throw new Error(`User with email ${email} already exists`)
+    }
     throw new Error(`Failed to create student account: ${authError?.message}`)
   }
 
@@ -431,7 +669,29 @@ export const bulkCreateStudents = async (
   }
 
   for (let i = 0; i < studentsData.length; i++) {
-    const studentData = studentsData[i]
+    const rawStudentData = studentsData[i]
+    const studentData = normalizeStudentInput(rawStudentData)
+
+    if (!studentData.email || !EMAIL_REGEX.test(studentData.email)) {
+      result.failed++
+      result.errors.push({
+        row: i + 1,
+        email: studentData.email || 'N/A',
+        error: 'Invalid email address',
+      })
+      continue
+    }
+
+    if (!studentData.first_name || !studentData.last_name) {
+      result.failed++
+      result.errors.push({
+        row: i + 1,
+        email: studentData.email,
+        error: 'First name and last name are required',
+      })
+      continue
+    }
+
     try {
       await createStudentAccount(studentData, adminId, ipAddress, userAgent)
       result.created++

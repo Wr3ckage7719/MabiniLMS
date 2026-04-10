@@ -1,16 +1,44 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import * as adminService from '@/services/admin.service';
-import { GraduationCap, UserPlus, Upload, Loader2, Search } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
+import { GraduationCap, UserPlus, Upload, Loader2, Search, Pencil, Trash2 } from 'lucide-react';
 import CreateStudentModal from '@/components/admin/CreateStudentModal';
 import BulkImportStudentsModal from '@/components/admin/BulkImportStudentsModal';
 
+const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  const maybeError = error as any;
+  return maybeError?.response?.data?.error?.message || maybeError?.message || fallback;
+};
+
 export default function StudentManagementPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [bulkImportModalOpen, setBulkImportModalOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<adminService.AdminUser | null>(null);
+  const [editForm, setEditForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+  });
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 10;
@@ -22,6 +50,78 @@ export default function StudentManagementPage() {
 
   const students = studentsResponse?.users || [];
   const totalPages = studentsResponse?.totalPages || 1;
+
+  const updateStudentMutation = useMutation({
+    mutationFn: ({ userId, updates }: { userId: string; updates: adminService.ManagedUserUpdateInput }) =>
+      adminService.updateManagedUser(userId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      setEditDialogOpen(false);
+      setSelectedStudent(null);
+      toast({
+        title: 'Student Updated',
+        description: 'Student account details were updated successfully.',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Update Failed',
+        description: getApiErrorMessage(error, 'Failed to update student account.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const deleteStudentMutation = useMutation({
+    mutationFn: (userId: string) => adminService.deleteManagedUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      setDeleteDialogOpen(false);
+      setSelectedStudent(null);
+      toast({
+        title: 'Student Removed',
+        description: 'Student account has been deleted.',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Delete Failed',
+        description: getApiErrorMessage(error, 'Failed to delete student account.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const openEditDialog = (student: adminService.AdminUser) => {
+    setSelectedStudent(student);
+    setEditForm({
+      first_name: student.first_name || '',
+      last_name: student.last_name || '',
+      email: student.email,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const openDeleteDialog = (student: adminService.AdminUser) => {
+    setSelectedStudent(student);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
+
+    updateStudentMutation.mutate({
+      userId: selectedStudent.id,
+      updates: {
+        first_name: editForm.first_name.trim(),
+        last_name: editForm.last_name.trim(),
+        email: editForm.email.trim().toLowerCase(),
+      },
+    });
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 p-6">
@@ -139,7 +239,31 @@ export default function StudentManagementPage() {
                     </p>
                     <p className="text-sm text-slate-400">{student.email}</p>
                   </div>
-                  <p className="text-xs text-slate-500">Joined {new Date(student.created_at).toLocaleDateString()}</p>
+
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-slate-500 mr-2">
+                      Joined {new Date(student.created_at).toLocaleDateString()}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-600 hover:bg-slate-700"
+                      onClick={() => openEditDialog(student)}
+                    >
+                      <Pencil className="w-4 h-4 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => openDeleteDialog(student)}
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -174,6 +298,112 @@ export default function StudentManagementPage() {
       {/* Modals */}
       <CreateStudentModal open={createModalOpen} onOpenChange={setCreateModalOpen} />
       <BulkImportStudentsModal open={bulkImportModalOpen} onOpenChange={setBulkImportModalOpen} />
+
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open);
+          if (!open) {
+            setSelectedStudent(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Student</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Update the student account information.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-student-first-name">First Name</Label>
+              <Input
+                id="edit-student-first-name"
+                value={editForm.first_name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, first_name: e.target.value }))}
+                className="bg-slate-900 border-slate-700 text-white"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-student-last-name">Last Name</Label>
+              <Input
+                id="edit-student-last-name"
+                value={editForm.last_name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, last_name: e.target.value }))}
+                className="bg-slate-900 border-slate-700 text-white"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-student-email">Email</Label>
+              <Input
+                id="edit-student-email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                className="bg-slate-900 border-slate-700 text-white"
+                required
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditDialogOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={updateStudentMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {updateStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setSelectedStudent(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-slate-800 border-slate-700 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Student Account</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              This will permanently delete {selectedStudent?.email}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-700 hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => selectedStudent && deleteStudentMutation.mutate(selectedStudent.id)}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteStudentMutation.isPending}
+            >
+              {deleteStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Remove Student
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

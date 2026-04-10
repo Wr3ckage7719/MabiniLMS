@@ -82,9 +82,16 @@ export interface AdminUser {
   first_name: string | null;
   last_name: string | null;
   role: 'admin' | 'teacher' | 'student';
+  pending_approval?: boolean | null;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ManagedUserUpdateInput {
+  email?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface PaginatedUsersResponse {
@@ -135,6 +142,24 @@ export const listUsers = async (params?: {
 }): Promise<PaginatedUsersResponse> => {
   const response = await apiClient.get('/users', { params });
   return unwrapApiData<PaginatedUsersResponse>(response);
+};
+
+export const updateManagedUser = async (
+  userId: string,
+  updates: ManagedUserUpdateInput
+): Promise<AdminUser> => {
+  const response = await apiClient.patch(`/admin/users/${userId}`, updates);
+  const payload = unwrapApiData<{ user: AdminUser } | AdminUser>(response);
+
+  if (payload && typeof payload === 'object' && 'user' in payload) {
+    return payload.user;
+  }
+
+  return payload as AdminUser;
+};
+
+export const deleteManagedUser = async (userId: string): Promise<void> => {
+  await apiClient.delete(`/admin/users/${userId}`);
 };
 
 // System Settings

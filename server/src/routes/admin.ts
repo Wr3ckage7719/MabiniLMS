@@ -107,6 +107,40 @@ router.post(
   adminController.bulkCreateStudents
 )
 
+/**
+ * Update a teacher/student account
+ */
+router.patch(
+  '/users/:id',
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid user ID')
+    }),
+    body: z.object({
+      email: z.string().email('Invalid email address').optional(),
+      first_name: z.string().trim().min(1, 'First name is required').optional(),
+      last_name: z.string().trim().min(1, 'Last name is required').optional(),
+    }).refine(
+      (value) => Object.values(value).some((field) => field !== undefined),
+      { message: 'At least one field is required' }
+    )
+  }),
+  adminController.updateManagedUser
+)
+
+/**
+ * Delete a teacher/student account
+ */
+router.delete(
+  '/users/:id',
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid user ID')
+    })
+  }),
+  adminController.deleteManagedUser
+)
+
 // ========================================
 // System Settings Routes
 // ========================================
