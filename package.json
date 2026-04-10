@@ -15,6 +15,13 @@
     "build:client": "npm run build --workspace=client",
     "start:server": "npm run start --workspace=server",
     "preview:client": "npm run preview --workspace=client",
+    "db:migrate": "npm run db:migrate --workspace=server",
+    "db:migrate:status": "npm run db:migrate:status --workspace=server",
+    "db:migrate:bundle": "npm run db:migrate:bundle --workspace=server",
+    "db:migrate:up": "npm run db:migrate:up --workspace=server",
+    "db:migrate:down": "npm run db:migrate:down --workspace=server",
+    "db:migrate:create": "npm run db:migrate:create --workspace=server",
+    "db:migrate:reset": "npm run db:migrate:reset --workspace=server",
     "lint": "npm run lint --workspaces",
     "format": "prettier --write \"**/*.{js,ts,json,md}\""
   },
