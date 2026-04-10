@@ -39,16 +39,6 @@ const assertInstitutionalStudentEmail = (email: string, context: string): void =
   }
 };
 
-const getAllowStudentSelfSignup = async (): Promise<boolean> => {
-  const { data: selfSignupData } = await supabaseAdmin
-    .from('system_settings')
-    .select('value')
-    .eq('key', 'allow_student_self_signup')
-    .single();
-
-  return Boolean(selfSignupData?.value ?? false);
-};
-
 const toStudentNameFromEmail = (email: string): { firstName: string; lastName: string } => {
   const localPart = email.split('@')[0] || 'student';
   const segments = localPart
@@ -112,17 +102,6 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   // Check institutional email domain for students
   if (role === UserRole.STUDENT) {
     assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
-
-    // Check if student self-signup is allowed
-    const allowSelfSignup = await getAllowStudentSelfSignup();
-    
-    if (!allowSelfSignup) {
-      throw new ApiError(
-        ErrorCode.FORBIDDEN,
-        'Student accounts must be created by an administrator. Please contact your school admin.',
-        403
-      );
-    }
   }
 
   // Create user in Supabase Auth
@@ -141,18 +120,31 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 
   if (authError) {
     logger.error('Signup failed', { email, error: authError.message });
+    const normalizedAuthError = authError.message.toLowerCase();
     
-    if (authError.message.includes('already registered')) {
+    if (
+      normalizedAuthError.includes('already registered') ||
+      normalizedAuthError.includes('already exists') ||
+      normalizedAuthError.includes('duplicate')
+    ) {
       throw new ApiError(
         ErrorCode.CONFLICT,
         'A user with this email already exists',
         409
       );
     }
+
+    if (normalizedAuthError.includes('password') || normalizedAuthError.includes('email')) {
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        authError.message,
+        400
+      );
+    }
     
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
-      'Failed to create user account',
+      `Failed to create user account: ${authError.message}`,
       500
     );
   }
@@ -234,22 +226,39 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
     email: normalizedEmail,
   });
 
-  // Sign in the user to get tokens
-  const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-    email: normalizedEmail,
-    password,
-  });
+  // Teachers should wait for admin approval and are not auto-signed in.
+  const shouldAutoSignIn = !isPendingTeacher;
+  let session: AuthSession = {
+    access_token: '',
+    refresh_token: '',
+    expires_in: 0,
+    token_type: 'bearer',
+  };
 
-  if (signInError || !signInData.session) {
-    logger.error('Auto sign-in failed after signup', { 
-      userId: authData.user.id, 
-      error: signInError?.message 
+  if (shouldAutoSignIn) {
+    const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
     });
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'Account created but login failed. Please try logging in.',
-      500
-    );
+
+    if (signInError || !signInData.session) {
+      logger.error('Auto sign-in failed after signup', {
+        userId: authData.user.id,
+        error: signInError?.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Account created but login failed. Please try logging in.',
+        500
+      );
+    }
+
+    session = {
+      access_token: signInData.session.access_token,
+      refresh_token: signInData.session.refresh_token,
+      expires_in: signInData.session.expires_in || 3600,
+      token_type: 'bearer',
+    };
   }
 
   // Fetch the created profile
@@ -257,12 +266,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 
   return {
     user: profile,
-    session: {
-      access_token: signInData.session.access_token,
-      refresh_token: signInData.session.refresh_token,
-      expires_in: signInData.session.expires_in || 3600,
-      token_type: 'bearer',
-    },
+    session,
   };
 };
 
@@ -277,15 +281,6 @@ export const requestStudentCredentialSignup = async (
   const normalizedEmail = normalizeEmail(input.email);
 
   assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
-
-  const allowSelfSignup = await getAllowStudentSelfSignup();
-  if (!allowSelfSignup) {
-    throw new ApiError(
-      ErrorCode.FORBIDDEN,
-      'Student self-signup is currently disabled. Please contact your school administrator.',
-      403
-    );
-  }
 
   const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
     .from('profiles')

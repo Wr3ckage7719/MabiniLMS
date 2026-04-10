@@ -6,12 +6,14 @@ import { Input } from '@/components/ui/input';
 import { GraduationCap } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
 import { ForgotPasswordDialog } from '@/components/ForgotPasswordDialog';
+import { useToast } from '@/hooks/use-toast';
 
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, loginWithGoogle, isLoggedIn, user } = useAuth();
+  const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,9 +37,14 @@ export default function LoginPage() {
     const storedAuthError = sessionStorage.getItem(AUTH_ERROR_STORAGE_KEY);
     if (storedAuthError) {
       setError(storedAuthError);
+      toast({
+        title: 'Authentication blocked',
+        description: storedAuthError,
+        variant: 'destructive',
+      });
       sessionStorage.removeItem(AUTH_ERROR_STORAGE_KEY);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,7 +66,13 @@ export default function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      const message = err instanceof Error ? err.message : 'Login failed';
+      setError(message);
+      toast({
+        title: 'Login failed',
+        description: message,
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +88,13 @@ export default function LoginPage() {
     try {
       await loginWithGoogle(isTeacher ? 'teacher' : 'student');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google login failed');
+      const message = err instanceof Error ? err.message : 'Google login failed';
+      setError(message);
+      toast({
+        title: 'Google login failed',
+        description: message,
+        variant: 'destructive',
+      });
       setIsLoading(false);
     }
   };
