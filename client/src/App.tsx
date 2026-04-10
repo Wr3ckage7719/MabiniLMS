@@ -22,7 +22,7 @@ import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
-import TeacherDemoPage from "./pages/TeacherDemoPage";
+import TeacherDashboard from "./pages/TeacherDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
@@ -60,7 +60,7 @@ const AppRoutes = () => (
       path="/teacher"
       element={(
         <ProtectedRoute role="teacher">
-          <TeacherDemoPage />
+          <TeacherDashboard />
         </ProtectedRoute>
       )}
     />

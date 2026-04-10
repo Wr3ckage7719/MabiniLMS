@@ -77,12 +77,14 @@ export default function ClassDetail() {
     gradesQuery.isLoading;
 
   const dataError =
-    classQuery.error ||
-    assignmentsQuery.error ||
-    announcementsQuery.error ||
-    materialsQuery.error ||
-    studentsQuery.error ||
-    gradesQuery.error;
+    classQuery.error;
+
+  const hasSupplementaryError =
+    Boolean(assignmentsQuery.error) ||
+    Boolean(announcementsQuery.error) ||
+    Boolean(materialsQuery.error) ||
+    Boolean(studentsQuery.error) ||
+    Boolean(gradesQuery.error);
 
   const cls = classQuery.data;
   const assignments = assignmentsQuery.data || [];
@@ -255,6 +257,12 @@ export default function ClassDetail() {
       </div>
 
       <div className="p-3 md:p-6 lg:p-8 max-w-5xl mx-auto">
+        {hasSupplementaryError && (
+          <div className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+            Some class sections could not be loaded. You can still access available data and retry.
+          </div>
+        )}
+
         <Tabs defaultValue="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
           <TabsList className="bg-secondary/50 p-0.5 md:p-1 rounded-lg md:rounded-xl w-full justify-start md:justify-center overflow-x-auto flex-nowrap scrollbar-hide">
             <TabsTrigger value="stream" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Stream</TabsTrigger>

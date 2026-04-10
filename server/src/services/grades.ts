@@ -23,6 +23,15 @@ import { AuditEventType } from './audit.js'
 import { notifyGradeReleased } from './websocket.js'
 import logger from '../utils/logger.js'
 
+const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
+  const message = (error?.message || '').toLowerCase()
+  return (
+    error?.code === '42P01' ||
+    message.includes('could not find the table') ||
+    message.includes('does not exist')
+  )
+}
+
 // ============================================
 // Grade CRUD Operations
 // ============================================
@@ -628,6 +637,14 @@ export const getStudentGrades = async (studentId: string): Promise<any[]> => {
     .order('submitted_at', { ascending: false })
 
   if (error) {
+    if (isMissingRelationError(error)) {
+      logger.warn('Grades tables missing. Returning empty grade list for student.', {
+        studentId,
+        error: error.message,
+      })
+      return []
+    }
+
     logger.error('Failed to get student grades', { studentId, error: error.message })
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get grades', 500)
   }

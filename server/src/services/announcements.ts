@@ -37,6 +37,15 @@ type AuthorRow = {
   avatar_url: string | null;
 };
 
+const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
+  const message = (error?.message || '').toLowerCase();
+  return (
+    error?.code === '42P01' ||
+    message.includes('could not find the table') ||
+    message.includes('does not exist')
+  );
+};
+
 const toAnnouncementAuthor = (
   authorId: string,
   authorData?: AuthorRow
@@ -163,6 +172,18 @@ export const listAnnouncements = async (
     .range(query.offset, query.offset + query.limit - 1);
 
   if (error) {
+    if (isMissingRelationError(error)) {
+      logger.warn('Announcements table missing. Returning empty announcement list.', {
+        courseId,
+        error: error.message,
+      });
+
+      return {
+        announcements: [],
+        total: 0,
+      };
+    }
+
     logger.error('Failed to list announcements', { courseId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list announcements', 500);
   }

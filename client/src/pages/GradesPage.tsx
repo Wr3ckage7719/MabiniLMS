@@ -12,7 +12,8 @@ export default function GradesPage() {
   const { data: grades = [], isLoading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
 
   const isLoading = classesLoading || gradesLoading;
-  const error = classesError || gradesError;
+  const classError = classesError;
+  const gradesWarning = gradesError;
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -28,11 +29,11 @@ export default function GradesPage() {
         </div>
       )}
 
-      {!isLoading && error && (
+      {!isLoading && classError && (
         <div className="text-center py-12">
-          <p className="text-destructive mb-2">Failed to load grades</p>
+          <p className="text-destructive mb-2">Failed to load classes</p>
           <p className="text-sm text-muted-foreground">
-            {error instanceof Error ? error.message : 'Please try again later'}
+            {classError instanceof Error ? classError.message : 'Please try again later'}
           </p>
           <Button
             variant="outline"
@@ -49,8 +50,14 @@ export default function GradesPage() {
         </div>
       )}
 
+      {!isLoading && !classError && gradesWarning && (
+        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+          Grades could not be loaded right now. Class list is available, and you can retry in a moment.
+        </div>
+      )}
+
       {/* Content */}
-      {!isLoading && !error && (
+      {!isLoading && !classError && (
         <div className="space-y-4 animate-stagger">
           {classes.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
