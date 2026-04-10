@@ -36,6 +36,9 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Trust reverse proxy headers so req.ip is the real client IP on Render/Vercel.
+app.set('trust proxy', 1);
+
 const toOrigin = (value: string): string | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -164,7 +167,8 @@ app.use(express.urlencoded({
 }));
 app.use(express.raw({ 
   limit: '5mb',  // Max raw body (for file uploads)
-  type: ['application/octet-stream', 'multipart/form-data'],
+  // Do not parse multipart/form-data here; Multer handles multipart routes.
+  type: ['application/octet-stream'],
 }));
 
 // 4. Request logging with correlation IDs
