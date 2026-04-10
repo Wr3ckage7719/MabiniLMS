@@ -14,6 +14,7 @@ import {
   Folder,
   Upload,
   ListPlus,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -64,6 +65,8 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
   const [selectedTopic, setSelectedTopic] = useState<string>('all');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('assignments');
+  const [assignmentSort, setAssignmentSort] = useState<'due-soon' | 'due-latest' | 'title' | 'points'>('due-soon');
+  const [materialSort, setMaterialSort] = useState<'title' | 'newest' | 'downloads'>('newest');
 
   const { data: classAssignments = [], isLoading: assignmentsLoading } = useAssignments(classId);
   const { data: classMaterials = [], isLoading: materialsLoading } = useMaterials(classId);
@@ -90,20 +93,47 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
     )
   );
 
-  const filteredAssignments = classAssignments.filter((a) =>
-    a.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredAssignments = classAssignments
+    .filter((a) => a.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (assignmentSort === 'title') {
+        return a.title.localeCompare(b.title);
+      }
 
-  const filteredMaterials =
-    selectedTopic === 'all'
-      ? classMaterials.filter((m) =>
-          m.title.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      : classMaterials.filter(
-          (m) =>
-            m.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-            m.title.startsWith(selectedTopic)
-        );
+      if (assignmentSort === 'points') {
+        return b.points - a.points || a.title.localeCompare(b.title);
+      }
+
+      const aTime = new Date(a.dueDate || '').getTime();
+      const bTime = new Date(b.dueDate || '').getTime();
+      const safeATime = Number.isFinite(aTime) ? aTime : Number.MAX_SAFE_INTEGER;
+      const safeBTime = Number.isFinite(bTime) ? bTime : Number.MAX_SAFE_INTEGER;
+
+      if (assignmentSort === 'due-latest') {
+        return safeBTime - safeATime;
+      }
+
+      return safeATime - safeBTime;
+    });
+
+  const filteredMaterials = (selectedTopic === 'all'
+    ? classMaterials.filter((m) => m.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    : classMaterials.filter(
+        (m) =>
+          m.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          m.title.startsWith(selectedTopic)
+      )
+  ).sort((a, b) => {
+    if (materialSort === 'title') {
+      return a.title.localeCompare(b.title);
+    }
+
+    if (materialSort === 'downloads') {
+      return b.downloads - a.downloads || a.title.localeCompare(b.title);
+    }
+
+    return new Date(b.uploadedDate || '').getTime() - new Date(a.uploadedDate || '').getTime();
+  });
 
   const getAssignmentIcon = (type: string) => {
     const IconComponent = TYPE_ICONS[type] || FileText;
@@ -163,15 +193,30 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
 
         {/* Assignments Tab */}
         <TabsContent value="assignments" className="space-y-4 mt-6">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search assignments..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 rounded-lg"
-            />
+          {/* Search + Sort */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search assignments..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 rounded-lg"
+              />
+            </div>
+
+            <Select value={assignmentSort} onValueChange={(value) => setAssignmentSort(value as typeof assignmentSort)}>
+              <SelectTrigger className="w-full sm:w-52 rounded-lg">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="due-soon">Due Date (Soonest)</SelectItem>
+                <SelectItem value="due-latest">Due Date (Latest)</SelectItem>
+                <SelectItem value="title">Title (A to Z)</SelectItem>
+                <SelectItem value="points">Points (Highest)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Summary Cards */}
@@ -311,6 +356,18 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                 className="pl-9 rounded-lg"
               />
             </div>
+
+            <Select value={materialSort} onValueChange={(value) => setMaterialSort(value as typeof materialSort)}>
+              <SelectTrigger className="w-full sm:w-48 rounded-lg">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest Upload</SelectItem>
+                <SelectItem value="title">Title (A to Z)</SelectItem>
+                <SelectItem value="downloads">Most Downloaded</SelectItem>
+              </SelectContent>
+            </Select>
 
             <Select value={selectedTopic} onValueChange={setSelectedTopic}>
               <SelectTrigger className="w-full sm:w-40 rounded-lg">

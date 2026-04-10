@@ -21,6 +21,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   UserCheck,
   Search,
+  ArrowUpDown,
   Check,
   X,
   Mail,
@@ -30,6 +31,13 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const getApiErrorMessage = (error: unknown, fallback: string): string => {
   const maybeError = error as any;
@@ -40,6 +48,7 @@ export default function PendingTeachersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'newest' | 'oldest' | 'pending-first'>('pending-first');
   const [page, setPage] = useState(1);
   const limit = 10;
 
@@ -76,6 +85,38 @@ export default function PendingTeachersPage() {
     () => new Set(pendingTeachers.map((teacher) => teacher.id)),
     [pendingTeachers]
   );
+
+  const sortedTeachers = useMemo(() => {
+    return [...teachers].sort((a, b) => {
+      const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email;
+      const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim() || b.email;
+
+      if (sortBy === 'name-asc') {
+        return nameA.localeCompare(nameB);
+      }
+
+      if (sortBy === 'name-desc') {
+        return nameB.localeCompare(nameA);
+      }
+
+      if (sortBy === 'pending-first') {
+        const aPending = pendingTeacherIds.has(a.id) || a.pending_approval === true;
+        const bPending = pendingTeacherIds.has(b.id) || b.pending_approval === true;
+        if (aPending !== bPending) {
+          return aPending ? -1 : 1;
+        }
+        return nameA.localeCompare(nameB);
+      }
+
+      const createdA = new Date(a.created_at).getTime();
+      const createdB = new Date(b.created_at).getTime();
+      if (sortBy === 'oldest') {
+        return createdA - createdB;
+      }
+
+      return createdB - createdA;
+    });
+  }, [teachers, sortBy, pendingTeacherIds]);
 
   // Approve teacher mutation
   const approveMutation = useMutation({
@@ -235,18 +276,33 @@ export default function PendingTeachersPage() {
 
         {/* Search Bar */}
         <Card className="bg-slate-800 border-slate-700 p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Search by name or email..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setPage(1);
-              }}
-              className="pl-10 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
-            />
+          <div className="flex flex-col md:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Search by name or email..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-10 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+              <SelectTrigger className="w-full md:w-56 bg-slate-900 border-slate-700 text-white">
+                <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pending-first">Pending First</SelectItem>
+                <SelectItem value="newest">Newest Applied</SelectItem>
+                <SelectItem value="oldest">Oldest Applied</SelectItem>
+                <SelectItem value="name-asc">Name (A to Z)</SelectItem>
+                <SelectItem value="name-desc">Name (Z to A)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </Card>
 
@@ -258,9 +314,9 @@ export default function PendingTeachersPage() {
               <p>Loading teachers...</p>
             </div>
           </Card>
-        ) : teachers.length > 0 ? (
+        ) : sortedTeachers.length > 0 ? (
           <div className="space-y-4">
-            {teachers.map((teacher) => {
+            {sortedTeachers.map((teacher) => {
               const isPending = pendingTeacherIds.has(teacher.id) || teacher.pending_approval === true;
               const firstName = teacher.first_name || 'Unknown';
               const lastName = teacher.last_name || '';

@@ -4,7 +4,14 @@ import * as adminService from '@/services/admin.service';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { FileText, Search, Loader2 } from 'lucide-react';
+import { FileText, Search, Loader2, ArrowUpDown } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const prettifyKey = (value: string) =>
   value
@@ -91,6 +98,7 @@ const getLogSummary = (log: adminService.AuditLog): string => {
 
 export default function AuditLogsPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'action' | 'actor'>('newest');
   const [page, setPage] = useState(0);
   const limit = 20;
 
@@ -103,26 +111,42 @@ export default function AuditLogsPage() {
     const logs = data?.logs || [];
     const search = searchTerm.trim().toLowerCase();
 
-    if (!search) {
-      return logs;
-    }
+    const matched = search
+      ? logs.filter((log) => {
+          const action = getActionLabel(log.action_type).toLowerCase();
+          const actor = getPersonLabel(log.admin).toLowerCase();
+          const actorEmail = (log.admin?.email || '').toLowerCase();
+          const summary = getLogSummary(log).toLowerCase();
+          const target = getPersonLabel(log.target_user).toLowerCase();
 
-    return logs.filter((log) => {
-      const action = getActionLabel(log.action_type).toLowerCase();
-      const actor = getPersonLabel(log.admin).toLowerCase();
-      const actorEmail = (log.admin?.email || '').toLowerCase();
-      const summary = getLogSummary(log).toLowerCase();
-      const target = getPersonLabel(log.target_user).toLowerCase();
+          return (
+            action.includes(search) ||
+            actor.includes(search) ||
+            actorEmail.includes(search) ||
+            target.includes(search) ||
+            summary.includes(search)
+          );
+        })
+      : logs;
 
-      return (
-        action.includes(search) ||
-        actor.includes(search) ||
-        actorEmail.includes(search) ||
-        target.includes(search) ||
-        summary.includes(search)
-      );
+    return [...matched].sort((a, b) => {
+      if (sortBy === 'action') {
+        return getActionLabel(a.action_type).localeCompare(getActionLabel(b.action_type));
+      }
+
+      if (sortBy === 'actor') {
+        return getPersonLabel(a.admin).localeCompare(getPersonLabel(b.admin));
+      }
+
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      if (sortBy === 'oldest') {
+        return aTime - bTime;
+      }
+
+      return bTime - aTime;
     });
-  }, [data?.logs, searchTerm]);
+  }, [data?.logs, searchTerm, sortBy]);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('en-US', {
@@ -143,15 +167,29 @@ export default function AuditLogsPage() {
         </div>
 
         <Card className="bg-slate-800 border-slate-700 p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Search logs..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-slate-900 border-slate-700 text-white"
-            />
+          <div className="flex flex-col md:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Search logs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 bg-slate-900 border-slate-700 text-white"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+              <SelectTrigger className="w-full md:w-52 bg-slate-900 border-slate-700 text-white">
+                <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="action">Action (A to Z)</SelectItem>
+                <SelectItem value="actor">Actor (A to Z)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </Card>
 

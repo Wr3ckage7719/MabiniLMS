@@ -70,6 +70,53 @@ function getCourseColor(index: number): 'blue' | 'teal' | 'purple' | 'orange' | 
   return COURSE_COLORS[index % COURSE_COLORS.length];
 }
 
+function parseCourseMetadataFromDescription(description?: string): {
+  section?: string;
+  room?: string;
+  schedule?: string;
+  theme?: string;
+} {
+  if (!description) {
+    return {};
+  }
+
+  const lines = description
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const metadata: { section?: string; room?: string; schedule?: string; theme?: string } = {};
+
+  for (const line of lines) {
+    const separatorIndex = line.indexOf(':');
+    if (separatorIndex < 0) continue;
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!value) continue;
+
+    if (key === 'section') metadata.section = value;
+    if (key === 'room') metadata.room = value;
+    if (key === 'schedule') metadata.schedule = value;
+    if (key === 'theme') metadata.theme = value;
+  }
+
+  return metadata;
+}
+
+function resolveCourseColor(
+  requestedColor: string | undefined,
+  fallbackColor: 'blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green'
+): 'blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green' {
+  if (!requestedColor) {
+    return fallbackColor;
+  }
+
+  const normalized = requestedColor.trim().toLowerCase();
+  const knownColor = COURSE_COLORS.find((color) => normalized.includes(color));
+  return knownColor || fallbackColor;
+}
+
 function parseSection(section?: string): { section: string; block?: string; level?: string } {
   const fallback = section || 'Section A';
   const normalized = fallback.trim();
@@ -104,7 +151,10 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     .filter(Boolean)
     .join(' ')
     .trim();
-  const parsedSection = parseSection(course.section);
+  const metadata = parseCourseMetadataFromDescription(course.description);
+  const parsedSection = parseSection(course.section || metadata.section);
+  const fallbackColor = getCourseColor(index);
+  const resolvedColor = resolveCourseColor(course.cover_image || metadata.theme, fallbackColor);
 
   return {
     id: course.id,
@@ -113,11 +163,11 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     block: parsedSection.block,
     level: parsedSection.level,
     teacher: course.teacher_name || teacherFullName || course.teacher?.email || 'Teacher',
-    color: getCourseColor(index),
+    color: resolvedColor,
     students: course.enrollment_count || 0,
     pendingAssignments: course.pending_assignments_count || 0,
-    room: course.room || 'Room TBA',
-    schedule: course.schedule || 'Schedule TBA',
+    room: course.room || metadata.room || 'Room TBA',
+    schedule: course.schedule || metadata.schedule || 'Schedule TBA',
     coverImage: course.cover_image,
     archived: Boolean(course.archived || course.status === 'archived'),
   };

@@ -5,7 +5,6 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  CalendarDays,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
@@ -16,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { TeacherClassesView } from './TeacherClassesView';
 import { useTeacherDashboard } from '@/hooks/useTeacherData';
-import { useAssignments } from '@/hooks-api/useAssignments';
+import InteractiveCalendar from './InteractiveCalendar';
 import TeacherSettingsPage from '@/pages/TeacherSettingsPage';
 
 interface TeacherDashboardProps {
@@ -38,23 +37,6 @@ const formatDate = (value: string | null | undefined) => {
 
 export function TeacherDashboard({ currentView, classes, onClassesChange }: TeacherDashboardProps) {
   const { data, loading, error, refetch } = useTeacherDashboard();
-  const { data: assignments = [], isLoading: assignmentsLoading } = useAssignments();
-
-  const groupedAssignments = useMemo(() => {
-    const groups = assignments.reduce<Record<string, typeof assignments>>((acc, assignment) => {
-      const key = assignment.dueDate || 'No due date';
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(assignment);
-      return acc;
-    }, {});
-
-    return Object.entries(groups).sort((a, b) => {
-      const left = new Date(a[0]).getTime();
-      const right = new Date(b[0]).getTime();
-      if (!Number.isFinite(left) || !Number.isFinite(right)) return 0;
-      return left - right;
-    });
-  }, [assignments]);
 
   const renderDashboard = () => {
     if (loading) {
@@ -186,51 +168,10 @@ export function TeacherDashboard({ currentView, classes, onClassesChange }: Teac
   };
 
   const renderCalendar = () => {
-    if (assignmentsLoading) {
-      return (
-        <div className="p-8 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      );
-    }
-
     return (
       <div className="w-full h-full overflow-auto animate-fade-in">
-        <div className="p-4 md:p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold">Calendar</h1>
-            <p className="text-muted-foreground">Upcoming assignment schedule across your classes.</p>
-          </div>
-
-          {groupedAssignments.length === 0 ? (
-            <Card className="border-0 shadow-sm">
-              <CardContent className="p-12 text-center text-muted-foreground">
-                <CalendarDays className="h-8 w-8 mx-auto mb-3 opacity-50" />
-                No scheduled assignments.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {groupedAssignments.map(([date, items]) => (
-                <Card key={date} className="border-0 shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold">{formatDate(date)}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {items.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{item.title}</p>
-                          <p className="text-xs text-muted-foreground truncate">{item.description}</p>
-                        </div>
-                        <Badge variant="secondary" className="text-xs">{item.points} pts</Badge>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+        <div className="p-4 md:p-6 lg:p-8 max-w-6xl mx-auto">
+          <InteractiveCalendar />
         </div>
       </div>
     );

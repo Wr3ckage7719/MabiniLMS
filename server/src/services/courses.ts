@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
   Course,
+  CourseTeacher,
   CourseWithStats,
   CreateCourseInput,
   UpdateCourseInput,
@@ -16,21 +17,56 @@ import {
 import logger from '../utils/logger.js';
 
 // ============================================
-// Helper: Fix Supabase nested join arrays
+// Helpers
 // ============================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fixTeacherJoin = (data: any): Course => {
-  if (!data) return data;
-  return {
-    ...data,
-    teacher: Array.isArray(data.teacher) ? data.teacher[0] || null : data.teacher
-  };
+const COURSE_BASE_SELECT =
+  'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
+
+const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
+  if (!courses.length) {
+    return courses;
+  }
+
+  const teacherIds = Array.from(
+    new Set(
+      courses
+        .map((course) => course.teacher_id)
+        .filter((teacherId): teacherId is string => Boolean(teacherId))
+    )
+  );
+
+  if (teacherIds.length === 0) {
+    return courses.map((course) => ({ ...course, teacher: null }));
+  }
+
+  const { data: teacherRows, error: teacherError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, first_name, last_name')
+    .in('id', teacherIds);
+
+  if (teacherError) {
+    logger.warn('Failed to fetch teacher profiles for courses', {
+      error: teacherError.message,
+      teacherCount: teacherIds.length,
+    });
+    return courses.map((course) => ({ ...course, teacher: null }));
+  }
+
+  const teacherById = new Map<string, CourseTeacher>();
+  for (const row of teacherRows || []) {
+    teacherById.set(row.id, row as CourseTeacher);
+  }
+
+  return courses.map((course) => ({
+    ...course,
+    teacher: course.teacher_id ? teacherById.get(course.teacher_id) || null : null,
+  }));
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fixTeacherJoinArray = (dataArray: any[]): Course[] => {
-  return (dataArray || []).map(fixTeacherJoin);
+const attachTeacherToCourse = async (course: Course): Promise<Course> => {
+  const [result] = await attachTeachersToCourses([course]);
+  return result;
 };
 
 // ============================================
@@ -52,10 +88,7 @@ export const createCourse = async (
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .single();
 
   if (error) {
@@ -67,7 +100,7 @@ export const createCourse = async (
     );
   }
 
-  return fixTeacherJoin(data);
+  return attachTeacherToCourse(data as Course);
 };
 
 /**
@@ -79,10 +112,7 @@ export const getCourseById = async (
 ): Promise<CourseWithStats> => {
   const query = supabaseAdmin
     .from('courses')
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .eq('id', courseId)
     .single();
 
@@ -104,7 +134,7 @@ export const getCourseById = async (
     );
   }
 
-  const course = fixTeacherJoin(data) as CourseWithStats;
+  const course = (await attachTeacherToCourse(data as Course)) as CourseWithStats;
 
   // Optionally include stats
   if (includeStats) {
@@ -140,10 +170,7 @@ export const listCourses = async (
 
   let queryBuilder = supabaseAdmin
     .from('courses')
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `, { count: 'exact' });
+    .select(COURSE_BASE_SELECT, { count: 'exact' });
 
   // Role-based filtering
   if (userRole === UserRole.STUDENT) {
@@ -198,7 +225,7 @@ export const listCourses = async (
   const totalPages = Math.ceil(total / limit);
 
   return {
-    courses: fixTeacherJoinArray(data || []),
+    courses: await attachTeachersToCourses((data || []) as Course[]),
     total,
     page,
     limit,
@@ -242,10 +269,7 @@ export const updateCourse = async (
     .from('courses')
     .update(updateData)
     .eq('id', courseId)
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .single();
 
   if (error) {
@@ -257,7 +281,7 @@ export const updateCourse = async (
     );
   }
 
-  return fixTeacherJoin(data);
+  return attachTeacherToCourse(data as Course);
 };
 
 /**
@@ -303,10 +327,7 @@ export const updateCourseStatus = async (
       updated_at: new Date().toISOString(),
     })
     .eq('id', courseId)
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .single();
 
   if (error) {
@@ -318,7 +339,7 @@ export const updateCourseStatus = async (
     );
   }
 
-  return fixTeacherJoin(data);
+  return attachTeacherToCourse(data as Course);
 };
 
 /**
@@ -577,10 +598,7 @@ export const archiveCourse = async (
       updated_at: new Date().toISOString(),
     })
     .eq('id', courseId)
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .single();
 
   if (error) {
@@ -588,7 +606,7 @@ export const archiveCourse = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to archive course', 500);
   }
 
-  return fixTeacherJoin(data);
+  return attachTeacherToCourse(data as Course);
 };
 
 /**
@@ -625,10 +643,7 @@ export const unarchiveCourse = async (
       updated_at: new Date().toISOString(),
     })
     .eq('id', courseId)
-    .select(`
-      id, teacher_id, title, description, syllabus, status, created_at, updated_at,
-      teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
-    `)
+    .select(COURSE_BASE_SELECT)
     .single();
 
   if (error) {
@@ -636,7 +651,7 @@ export const unarchiveCourse = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to unarchive course', 500);
   }
 
-  return fixTeacherJoin(data);
+  return attachTeacherToCourse(data as Course);
 };
 
 // ============================================

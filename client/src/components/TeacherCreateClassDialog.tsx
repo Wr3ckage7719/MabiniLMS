@@ -90,6 +90,30 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
     return `${selectedDays.join('-')} ${startTime} - ${endTime}`;
   };
 
+  const buildCourseDescription = () => {
+    const sectionValue = [section.trim(), level.trim()].filter(Boolean).join(' • ');
+    const scheduleValue = formatSchedule();
+    const themeValue =
+      themeMode === 'image'
+        ? uploadedImage
+          ? 'custom image'
+          : ''
+        : showCustomColor && selectedColor === 'custom'
+          ? `custom color ${customColor}`
+          : selectedColor;
+
+    const summaryParts = [
+      sectionValue ? `Section: ${sectionValue}` : '',
+      room.trim() ? `Room: ${room.trim()}` : '',
+      scheduleValue ? `Schedule: ${scheduleValue}` : '',
+      themeValue ? `Theme: ${themeValue}` : '',
+    ].filter(Boolean);
+
+    return summaryParts.length > 0
+      ? `Class setup details\n${summaryParts.join('\n')}`
+      : undefined;
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -115,17 +139,9 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
   const handleCreateClass = async () => {
     setIsCreating(true);
     try {
-      const sectionValue = [section.trim(), level.trim()].filter(Boolean).join(' • ');
-      const coverImage = themeMode === 'image'
-        ? uploadedImage || undefined
-        : (showCustomColor && selectedColor === 'custom' ? customColor : selectedColor);
-
       await coursesService.createCourse({
         title: className.trim(),
-        section: sectionValue || undefined,
-        room: room.trim() || undefined,
-        schedule: formatSchedule() || undefined,
-        cover_image: coverImage,
+        description: buildCourseDescription(),
       });
 
       toast({

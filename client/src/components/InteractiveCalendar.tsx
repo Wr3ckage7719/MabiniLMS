@@ -25,6 +25,22 @@ interface CalendarDay {
   assignments: CalendarAssignment[];
 }
 
+const toDateKey = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+
+  // Fast-path for plain YYYY-MM-DD values.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return new Date(timestamp).toISOString().split('T')[0];
+};
+
 export default function InteractiveCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -53,7 +69,7 @@ export default function InteractiveCalendar() {
     while (current <= lastDay || current.getDay() !== 0) {
       const isCurrentMonth = current.getMonth() === month;
       const dateStr = current.toISOString().split('T')[0];
-      const dayAssignments = allAssignments.filter((a) => a.dueDate === dateStr);
+      const dayAssignments = allAssignments.filter((a) => toDateKey(a.dueDate) === dateStr);
 
       days.push({
         date: new Date(current),
@@ -70,22 +86,30 @@ export default function InteractiveCalendar() {
   const selectedDateAssignments = useMemo(() => {
     if (!selectedDate) return [];
     const dateStr = selectedDate.toISOString().split('T')[0];
-    return allAssignments.filter((a) => a.dueDate === dateStr);
+    return allAssignments.filter((a) => toDateKey(a.dueDate) === dateStr);
   }, [selectedDate, allAssignments]);
 
   const pastAssignments = useMemo(() => {
     return allAssignments
       .filter((a) => {
-        const due = new Date(a.dueDate);
+        const dueKey = toDateKey(a.dueDate);
+        if (!dueKey) return false;
+
+        const due = new Date(dueKey);
         due.setHours(0, 0, 0, 0);
         return due < today;
       })
-      .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+      .sort((a, b) => {
+        const aTs = new Date(toDateKey(a.dueDate) || '').getTime();
+        const bTs = new Date(toDateKey(b.dueDate) || '').getTime();
+        return bTs - aTs;
+      });
   }, [allAssignments, today]);
 
   const groupedPastAssignments = useMemo(() => {
     return pastAssignments.reduce<Record<string, CalendarAssignment[]>>((acc, assignment) => {
-      const key = assignment.dueDate;
+      const key = toDateKey(assignment.dueDate);
+      if (!key) return acc;
       if (!acc[key]) acc[key] = [];
       acc[key].push(assignment);
       return acc;

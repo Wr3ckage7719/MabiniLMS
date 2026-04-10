@@ -51,11 +51,14 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
     setError(null);
 
     try {
+      const detailLines = [
+        section.trim() ? `Section: ${section.trim()}` : '',
+        selectedColor ? `Theme: ${selectedColor}` : '',
+      ].filter(Boolean);
+
       await coursesService.createCourse({
         title: className.trim(),
-        section: section.trim() || undefined,
-        description: description.trim() || undefined,
-        cover_image: selectedColor,
+        description: [description.trim(), ...detailLines].filter(Boolean).join('\n') || undefined,
       });
 
       toast({

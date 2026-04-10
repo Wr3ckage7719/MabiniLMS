@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -16,8 +16,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { GraduationCap, UserPlus, Upload, Loader2, Search, Pencil, Trash2 } from 'lucide-react';
+import { GraduationCap, UserPlus, Upload, Loader2, Search, Pencil, Trash2, ArrowUpDown } from 'lucide-react';
 import CreateStudentModal from '@/components/admin/CreateStudentModal';
 import BulkImportStudentsModal from '@/components/admin/BulkImportStudentsModal';
 
@@ -40,6 +47,7 @@ export default function StudentManagementPage() {
     email: '',
   });
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
   const limit = 10;
 
@@ -50,6 +58,29 @@ export default function StudentManagementPage() {
 
   const students = studentsResponse?.users || [];
   const totalPages = studentsResponse?.totalPages || 1;
+
+  const sortedStudents = useMemo(() => {
+    return [...students].sort((a, b) => {
+      const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email;
+      const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim() || b.email;
+
+      if (sortBy === 'name-asc') {
+        return nameA.localeCompare(nameB);
+      }
+
+      if (sortBy === 'name-desc') {
+        return nameB.localeCompare(nameA);
+      }
+
+      const createdA = new Date(a.created_at).getTime();
+      const createdB = new Date(b.created_at).getTime();
+      if (sortBy === 'oldest') {
+        return createdA - createdB;
+      }
+
+      return createdB - createdA;
+    });
+  }, [students, sortBy]);
 
   const updateStudentMutation = useMutation({
     mutationFn: ({ userId, updates }: { userId: string; updates: adminService.ManagedUserUpdateInput }) =>
@@ -203,17 +234,31 @@ export default function StudentManagementPage() {
         <Card className="bg-slate-800 border-slate-700 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <h3 className="text-lg font-semibold text-white">Students</h3>
-            <div className="relative w-full md:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search by name or email"
-                className="pl-9 bg-slate-900 border-slate-700 text-white"
-              />
+            <div className="flex w-full md:w-auto flex-col md:flex-row gap-2">
+              <div className="relative w-full md:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search by name or email"
+                  className="pl-9 bg-slate-900 border-slate-700 text-white"
+                />
+              </div>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+                <SelectTrigger className="w-full md:w-52 bg-slate-900 border-slate-700 text-white">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest Joined</SelectItem>
+                  <SelectItem value="oldest">Oldest Joined</SelectItem>
+                  <SelectItem value="name-asc">Name (A to Z)</SelectItem>
+                  <SelectItem value="name-desc">Name (Z to A)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -221,14 +266,14 @@ export default function StudentManagementPage() {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
             </div>
-          ) : students.length === 0 ? (
+          ) : sortedStudents.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <GraduationCap className="w-14 h-14 mx-auto mb-3 opacity-40" />
               <p>No students found</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {students.map((student) => (
+              {sortedStudents.map((student) => (
                 <div
                   key={student.id}
                   className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-3"

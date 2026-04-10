@@ -4,6 +4,7 @@ import {
   Search,
   Grid2X2,
   List,
+  ArrowUpDown,
   Pencil,
   MoreVertical,
   Archive,
@@ -14,6 +15,13 @@ import { ClassItem } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { EditClassDialog } from '@/components/EditClassDialog';
 import { coursesService } from '@/services/courses.service';
 import { useToast } from '@/hooks/use-toast';
@@ -42,6 +50,7 @@ interface TeacherClassesSectionProps {
 export function TeacherClassesSection({ onSelectClass, classes, onClassesChange }: TeacherClassesSectionProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'students' | 'pending'>('name-asc');
   const [editOpen, setEditOpen] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | 'restore' | null>(null);
@@ -51,19 +60,26 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
   // Filter classes
   const activeClasses = classes.filter((cls) => !cls.archived);
   const archivedClasses = classes.filter((cls) => cls.archived);
-  
-  const filteredClasses = activeClasses.filter((cls) => {
-    const block = cls.block || '';
-    const level = cls.level || '';
-    const matchesSearch =
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
 
-  const filteredArchivedClasses = archivedClasses.filter((cls) => {
+  const sortClassItems = (items: ClassItem[]) => {
+    return [...items].sort((a, b) => {
+      if (sortBy === 'name-desc') {
+        return b.name.localeCompare(a.name);
+      }
+
+      if (sortBy === 'students') {
+        return b.students - a.students || a.name.localeCompare(b.name);
+      }
+
+      if (sortBy === 'pending') {
+        return b.pendingAssignments - a.pendingAssignments || a.name.localeCompare(b.name);
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+  };
+  
+  const filteredClasses = sortClassItems(activeClasses.filter((cls) => {
     const block = cls.block || '';
     const level = cls.level || '';
     const matchesSearch =
@@ -72,7 +88,18 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
       level.toLowerCase().includes(searchQuery.toLowerCase()) ||
       cls.room.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
-  });
+  }));
+
+  const filteredArchivedClasses = sortClassItems(archivedClasses.filter((cls) => {
+    const block = cls.block || '';
+    const level = cls.level || '';
+    const matchesSearch =
+      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
+  }));
 
   const handleEditClass = (classItem: ClassItem) => {
     setSelectedClass(classItem);
@@ -219,6 +246,22 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 rounded-lg border-border"
             />
+          </div>
+
+          {/* Sort */}
+          <div className="w-full md:w-56 md:ml-4">
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+              <SelectTrigger className="rounded-lg">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Sort classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name-asc">Name (A to Z)</SelectItem>
+                <SelectItem value="name-desc">Name (Z to A)</SelectItem>
+                <SelectItem value="students">Most Students</SelectItem>
+                <SelectItem value="pending">Most Pending Work</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* View Mode Toggle */}
