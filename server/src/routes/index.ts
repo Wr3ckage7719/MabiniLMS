@@ -14,3 +14,4 @@ export { default as analyticsRoutes } from './analytics.js';
 export { default as batchRoutes } from './batch.js';
 export { default as twoFactorRoutes } from './twoFactor.js';
 export { default as announcementRoutes } from './announcements.js';
+export { default as invitationRoutes } from './invitations.js';

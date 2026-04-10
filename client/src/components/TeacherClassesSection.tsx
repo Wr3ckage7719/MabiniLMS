@@ -4,44 +4,186 @@ import {
   Search,
   Grid2X2,
   List,
-  Loader2,
-  AlertCircle,
+  Pencil,
+  MoreVertical,
+  Archive,
+  Trash2,
+  RotateCcw,
 } from 'lucide-react';
-import { useTeacherCourses } from '@/hooks/useTeacherData';
+import { ClassItem } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EditClassDialog } from '@/components/EditClassDialog';
+import { coursesService } from '@/services/courses.service';
+import { useToast } from '@/hooks/use-toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface TeacherClassesSectionProps {
   onSelectClass: (classId: string) => void;
+  classes: ClassItem[];
+  onClassesChange: (classes: ClassItem[]) => void;
 }
 
-// Color mapping for courses (assign colors based on index or title hash)
-const COURSE_COLORS = ['blue', 'teal', 'purple', 'orange', 'pink', 'green'] as const;
-
-function getCourseColor(courseId: string, index: number): string {
-  // Use a simple hash of the ID to get consistent colors
-  const hash = courseId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return COURSE_COLORS[(hash + index) % COURSE_COLORS.length];
-}
-
-export function TeacherClassesSection({ onSelectClass }: TeacherClassesSectionProps) {
+export function TeacherClassesSection({ onSelectClass, classes, onClassesChange }: TeacherClassesSectionProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  
-  // Fetch real courses from API
-  const { courses, loading, error, refetch } = useTeacherCourses({ 
-    status: 'published',
-    includeEnrollmentCount: true,
-  });
+  const [editOpen, setEditOpen] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
+  const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | 'restore' | null>(null);
+  const [actionClass, setActionClass] = useState<ClassItem | null>(null);
+  const { toast } = useToast();
 
-  // Filter classes based on search
-  const filteredClasses = courses.filter((course) => {
+  // Filter classes
+  const activeClasses = classes.filter((cls) => !cls.archived);
+  const archivedClasses = classes.filter((cls) => cls.archived);
+  
+  const filteredClasses = activeClasses.filter((cls) => {
+    const block = cls.block || '';
+    const level = cls.level || '';
     const matchesSearch =
-      course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (course.section?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
   });
+
+  const filteredArchivedClasses = archivedClasses.filter((cls) => {
+    const block = cls.block || '';
+    const level = cls.level || '';
+    const matchesSearch =
+      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
+  });
+
+  const handleEditClass = (classItem: ClassItem) => {
+    setSelectedClass(classItem);
+    setEditOpen(true);
+  };
+
+  const handleEditSave = (updatedClass: Partial<ClassItem>) => {
+    if (!selectedClass) return;
+    const updatedClasses = classes.map((cls) =>
+      cls.id === selectedClass.id ? { ...cls, ...updatedClass } : cls
+    );
+    onClassesChange(updatedClasses);
+    setEditOpen(false);
+  };
+
+  const handleArchive = (classItem: ClassItem) => {
+    setActionClass(classItem);
+    setConfirmAction('archive');
+  };
+
+  const handleDelete = (classItem: ClassItem) => {
+    setActionClass(classItem);
+    setConfirmAction('delete');
+  };
+
+  const handleRestore = (classItem: ClassItem) => {
+    setActionClass(classItem);
+    setConfirmAction('restore');
+  };
+
+  const confirmArchive = async () => {
+    if (!actionClass) return;
+
+    try {
+      await coursesService.archiveCourse(actionClass.id);
+      const updatedClasses = classes.map((cls) =>
+        cls.id === actionClass.id ? { ...cls, archived: true } : cls
+      );
+      onClassesChange(updatedClasses);
+      toast({
+        title: 'Class archived',
+        description: 'The class has been moved to archived.',
+      });
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to archive class';
+      toast({
+        title: 'Archive failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setConfirmAction(null);
+      setActionClass(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!actionClass) return;
+
+    try {
+      await coursesService.deleteCourse(actionClass.id);
+      const updatedClasses = classes.filter((cls) => cls.id !== actionClass.id);
+      onClassesChange(updatedClasses);
+      toast({
+        title: 'Class deleted',
+        description: 'The class has been permanently deleted.',
+      });
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to delete class';
+      toast({
+        title: 'Delete failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setConfirmAction(null);
+      setActionClass(null);
+    }
+  };
+
+  const confirmRestore = async () => {
+    if (!actionClass) return;
+
+    try {
+      await coursesService.unarchiveCourse(actionClass.id);
+      const updatedClasses = classes.map((cls) =>
+        cls.id === actionClass.id ? { ...cls, archived: false } : cls
+      );
+      onClassesChange(updatedClasses);
+      toast({
+        title: 'Class restored',
+        description: 'The class is active again.',
+      });
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to restore class';
+      toast({
+        title: 'Restore failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setConfirmAction(null);
+      setActionClass(null);
+    }
+  };
+
+  const formatSchedule = (schedule: string) => {
+    // Just extract the day part and time, keeping it compact
+    // e.g., "MWF 9:00 AM - 10:30 AM" stays as is
+    return schedule;
+  };
 
   const getClassColorGradient = (color: string) => {
     const gradients: Record<string, string> = {
@@ -54,33 +196,6 @@ export function TeacherClassesSection({ onSelectClass }: TeacherClassesSectionPr
     };
     return gradients[color] || gradients.blue;
   };
-
-  // Loading state
-  if (loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Loading your classes...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="w-full h-full flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <AlertCircle className="h-8 w-8 mx-auto text-destructive" />
-          <p className="text-destructive">{error}</p>
-          <Button variant="outline" onClick={() => refetch()}>
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="w-full h-full overflow-auto animate-fade-in">
@@ -132,27 +247,71 @@ export function TeacherClassesSection({ onSelectClass }: TeacherClassesSectionPr
           <>
             {/* Class Count */}
             <div className="text-sm text-muted-foreground">
-              Showing {filteredClasses.length} of {courses.length} classes
+              Showing {filteredClasses.length} of {activeClasses.length} active classes
             </div>
 
             {/* Grid View */}
             {viewMode === 'grid' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-stagger">
-                {filteredClasses.map((course, idx) => {
-                  const color = getCourseColor(course.id, idx);
-                  return (
-                    <Card
-                      key={course.id}
-                      className="border-0 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden group cursor-pointer"
-                      style={{
-                        animation: `fade-in 0.5s ease-out ${idx * 50}ms both`,
-                      }}
-                      onClick={() => onSelectClass(course.id)}
+                {filteredClasses.map((cls, idx) => (
+                  <Card
+                    key={cls.id}
+                    className="border-0 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden group relative"
+                    style={{
+                      animation: `fade-in 0.5s ease-out ${idx * 50}ms both`,
+                    }}
+                  >
+                    {/* Edit Button */}
+                    <div 
+                      className="absolute top-3 right-3 z-20 opacity-100 transition-opacity"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-white/90 hover:bg-white shadow-sm hover:shadow-md transition-all active:bg-white/80"
+                            title="Class options"
+                          >
+                            <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="rounded-lg">
+                          <DropdownMenuItem
+                            onClick={() => handleEditClass(cls)}
+                            className="rounded-md cursor-pointer"
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit Class
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleArchive(cls)}
+                            className="rounded-md cursor-pointer"
+                          >
+                            <Archive className="h-4 w-4 mr-2" />
+                            Archive
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDelete(cls)}
+                            className="rounded-md cursor-pointer text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete Class
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    {/* Clickable Card Area */}
+                    <div 
+                      className="cursor-pointer"
+                      onClick={() => onSelectClass(cls.id)}
                     >
                       {/* Class Header Image */}
                       <div
                         className={`h-32 bg-gradient-to-br ${getClassColorGradient(
-                          color
+                          cls.color
                         )} relative overflow-hidden group-hover:opacity-90 transition-opacity`}
                       >
                         {/* Decorative elements */}
@@ -166,81 +325,104 @@ export function TeacherClassesSection({ onSelectClass }: TeacherClassesSectionPr
                         {/* Class Information */}
                         <div className="space-y-1">
                           <h3 className="text-lg font-semibold line-clamp-2 group-hover:text-primary transition-colors">
-                            {course.title}
+                            {cls.name}
                           </h3>
-                          <p className="text-sm text-muted-foreground">{course.section || 'No section'}</p>
+                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
                         </div>
 
                         {/* Room and Schedule */}
                         <div className="space-y-1 text-xs text-muted-foreground">
                           <div>
-                            <span className="font-medium text-gray-900">{course.room || 'No room assigned'}</span>
+                            <span className="font-medium text-gray-900">{cls.room}</span>
                           </div>
                           <div>
-                            {course.schedule || 'No schedule set'}
+                            {formatSchedule(cls.schedule)}
                           </div>
                         </div>
-
-                        {/* Student Count at Bottom */}
-                        <div className="pt-3 border-t border-border/50">
-                          <p className="text-xs text-muted-foreground">
-                            {course.enrollment_count || 0} {(course.enrollment_count || 0) === 1 ? 'student' : 'students'}
-                          </p>
-                        </div>
                       </CardContent>
-                    </Card>
-                  );
-                })}
+                    </div>
+                  </Card>
+                ))}
               </div>
             )}
 
             {/* List View */}
             {viewMode === 'list' && (
               <div className="space-y-3 animate-stagger">
-                {filteredClasses.map((course, idx) => {
-                  const color = getCourseColor(course.id, idx);
-                  return (
-                    <Card
-                      key={course.id}
-                      className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden cursor-pointer"
-                      style={{
-                        animation: `fade-in 0.5s ease-out ${idx * 40}ms both`,
-                      }}
-                      onClick={() => onSelectClass(course.id)}
-                    >
-                      <CardContent className="p-4 md:p-5">
-                        <div className="flex items-center gap-4">
-                          {/* Color Badge */}
-                          <div
-                            className={`h-12 w-12 rounded-lg bg-gradient-to-br ${getClassColorGradient(
-                              color
-                            )} flex-shrink-0`}
-                          />
+                {filteredClasses.map((cls, idx) => (
+                  <Card
+                    key={cls.id}
+                    className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group"
+                    style={{
+                      animation: `fade-in 0.5s ease-out ${idx * 40}ms both`,
+                    }}
+                  >
+                    <CardContent className="p-4 md:p-5">
+                      <div className="flex items-center gap-4">
+                        {/* Color Badge */}
+                        <div
+                          className={`h-12 w-12 rounded-lg bg-gradient-to-br ${getClassColorGradient(
+                            cls.color
+                          )} flex-shrink-0 cursor-pointer`}
+                          onClick={() => onSelectClass(cls.id)}
+                        />
 
-                          {/* Class Info */}
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">
-                              {course.title}
-                            </h3>
-                            <p className="text-sm text-muted-foreground">{course.section || 'No section'}</p>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {course.room || 'No room'} • {course.schedule || 'No schedule'}
-                            </div>
+                        {/* Class Info */}
+                        <div 
+                          className="flex-1 min-w-0 cursor-pointer"
+                          onClick={() => onSelectClass(cls.id)}
+                        >
+                          <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">
+                            {cls.name}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {cls.room} • {formatSchedule(cls.schedule)}
                           </div>
-
-                          {/* Student Count */}
-                          <div className="hidden md:flex items-center flex-col gap-1 text-sm">
-                            <span className="font-medium">{course.enrollment_count || 0}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {(course.enrollment_count || 0) === 1 ? 'student' : 'students'}
-                            </span>
-                          </div>
-
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+
+                        {/* Edit Button */}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70"
+                                title="Class options"
+                              >
+                                <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="rounded-lg">
+                              <DropdownMenuItem
+                                onClick={() => handleEditClass(cls)}
+                                className="rounded-md cursor-pointer"
+                              >
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit Class
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleArchive(cls)}
+                                className="rounded-md cursor-pointer"
+                              >
+                                <Archive className="h-4 w-4 mr-2" />
+                                Archive
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(cls)}
+                                className="rounded-md cursor-pointer text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Class
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             )}
           </>
@@ -250,17 +432,185 @@ export function TeacherClassesSection({ onSelectClass }: TeacherClassesSectionPr
             <div className="w-16 h-16 mx-auto mb-4 bg-primary/10 rounded-2xl flex items-center justify-center">
               <BookOpen className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="text-xl font-semibold mb-2">
-              {searchQuery ? 'No classes found' : 'No classes yet'}
-            </h3>
+            <h3 className="text-xl font-semibold mb-2">No classes found</h3>
             <p className="text-muted-foreground max-w-sm">
-              {searchQuery 
-                ? 'Try adjusting your search query.'
-                : 'Create your first class to start teaching and engaging with students.'}
+              Try adjusting your search filters or create a new class to get started.
             </p>
           </div>
         )}
+
+        {/* Archived Classes Section */}
+        {filteredArchivedClasses.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-border">
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold">Archived Classes</h2>
+              <p className="text-muted-foreground">
+                {filteredArchivedClasses.length} archived {filteredArchivedClasses.length === 1 ? 'class' : 'classes'}
+              </p>
+
+              {/* Grid View - Archived */}
+              {viewMode === 'grid' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-stagger">
+                  {filteredArchivedClasses.map((cls, idx) => (
+                    <Card
+                      key={cls.id}
+                      className="border-0 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden group relative opacity-60"
+                      style={{
+                        animation: `fade-in 0.5s ease-out ${idx * 50}ms both`,
+                      }}
+                    >
+                      {/* Restore Button */}
+                      <div className="absolute top-3 right-3 z-20 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="rounded-lg"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRestore(cls);
+                          }}
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Restore
+                        </Button>
+                      </div>
+
+                      {/* Class Header Image */}
+                      <div
+                        className={`h-32 bg-gradient-to-br ${getClassColorGradient(
+                          cls.color
+                        )} relative overflow-hidden group-hover:opacity-90 transition-opacity`}
+                      >
+                        {/* Decorative elements */}
+                        <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-white/10" />
+                        <div className="absolute -left-8 -bottom-8 w-32 h-32 rounded-full bg-white/5" />
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/20" />
+                        <div className="absolute inset-0 bg-black/40" />
+                      </div>
+
+                      {/* Content */}
+                      <CardContent className="p-5 space-y-4">
+                        {/* Class Information */}
+                        <div className="space-y-1">
+                          <h3 className="text-lg font-semibold line-clamp-2">
+                            {cls.name}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                        </div>
+
+                        {/* Room and Schedule */}
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                          <div>
+                            <span className="font-medium text-gray-900">{cls.room}</span>
+                          </div>
+                          <div>
+                            {formatSchedule(cls.schedule)}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* List View - Archived */}
+              {viewMode === 'list' && (
+                <div className="space-y-3 animate-stagger">
+                  {filteredArchivedClasses.map((cls, idx) => (
+                    <Card
+                      key={cls.id}
+                      className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group opacity-60"
+                      style={{
+                        animation: `fade-in 0.5s ease-out ${idx * 40}ms both`,
+                      }}
+                    >
+                      <CardContent className="p-4 md:p-5">
+                        <div className="flex items-center gap-4">
+                          {/* Color Badge */}
+                          <div
+                            className={`h-12 w-12 rounded-lg bg-gradient-to-br ${getClassColorGradient(
+                              cls.color
+                            )} flex-shrink-0`}
+                          />
+
+                          {/* Class Info */}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold line-clamp-1">
+                              {cls.name}
+                            </h3>
+                            <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {cls.room} • {formatSchedule(cls.schedule)}
+                            </div>
+                          </div>
+
+                          {/* Restore Button */}
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="rounded-lg"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRestore(cls);
+                            }}
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            Restore
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Edit Class Dialog */}
+      {selectedClass && (
+        <EditClassDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          classItem={selectedClass}
+          onSave={handleEditSave}
+        />
+      )}
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmAction !== null} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <AlertDialogContent className="rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction === 'archive' && 'Archive Class?'}
+              {confirmAction === 'delete' && 'Delete Class Permanently?'}
+              {confirmAction === 'restore' && 'Restore Class?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction === 'archive' &&
+                `Are you sure you want to archive "${actionClass?.name}"? You can restore it later.`}
+              {confirmAction === 'delete' &&
+                `Are you sure you want to permanently delete "${actionClass?.name}"? This action cannot be undone.`}
+              {confirmAction === 'restore' &&
+                `Are you sure you want to restore "${actionClass?.name}"? It will appear in your active classes.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (confirmAction === 'archive') confirmArchive();
+              else if (confirmAction === 'delete') confirmDelete();
+              else if (confirmAction === 'restore') confirmRestore();
+            }}
+            className={`rounded-lg ${(confirmAction === 'delete') ? 'bg-destructive hover:bg-destructive/90' : ''}`}
+          >
+            {confirmAction === 'archive' && 'Archive'}
+            {confirmAction === 'delete' && 'Delete'}
+            {confirmAction === 'restore' && 'Restore'}
+          </AlertDialogAction>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

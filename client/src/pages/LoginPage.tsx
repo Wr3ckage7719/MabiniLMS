@@ -3,20 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { GraduationCap, AlertCircle } from 'lucide-react';
+import { GraduationCap } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
-import { authService } from '@/services/auth.service';
+import { ForgotPasswordDialog } from '@/components/ForgotPasswordDialog';
 
-const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
 export default function LoginPage() {
@@ -29,28 +19,17 @@ export default function LoginPage() {
   const [isTeacher, setIsTeacher] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotLoading, setForgotLoading] = useState(false);
-  const [forgotError, setForgotError] = useState('');
-  const [forgotSuccess, setForgotSuccess] = useState('');
   const [showAnimation, setShowAnimation] = useState(false);
-  const [showPendingApproval, setShowPendingApproval] = useState(false);
-
-  // Redirect to dashboard if already logged in
-  useEffect(() => {
-    if (isLoggedIn && user) {
-      // Check if teacher account is pending approval
-      if (user.role === 'teacher' && user.pending_approval) {
-        setShowPendingApproval(true);
-      } else {
-        navigate('/dashboard');
-      }
-    }
-  }, [isLoggedIn, user, navigate]);
 
   useEffect(() => {
     setShowAnimation(true);
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn && user) {
+      navigate('/dashboard');
+    }
+  }, [isLoggedIn, user, navigate]);
 
   useEffect(() => {
     const storedAuthError = sessionStorage.getItem(AUTH_ERROR_STORAGE_KEY);
@@ -74,18 +53,11 @@ export default function LoginPage() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setShowPendingApproval(false);
     setIsLoading(true);
 
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-
-      if (!isTeacher && !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
-        throw new Error(`Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
-      }
-
-      await login(normalizedEmail, password);
-      // The useEffect will handle navigation or showing pending message
+      await login(email, password);
+      navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -97,55 +69,33 @@ export default function LoginPage() {
     setIsTeacher(!isTeacher);
   };
 
-  const handleForgotPasswordOpen = () => {
-    setForgotPasswordOpen(true);
-    setForgotError('');
-    setForgotSuccess('');
-    setForgotEmail(email.trim().toLowerCase());
-  };
-
-  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    setForgotError('');
-    setForgotSuccess('');
-
-    const normalizedEmail = forgotEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      setForgotError('Email is required.');
-      return;
-    }
-
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailPattern.test(normalizedEmail)) {
-      setForgotError('Please enter a valid email address.');
-      return;
-    }
-
-    setForgotLoading(true);
-
+  const handleGoogleLogin = async () => {
+    setError('');
+    setIsLoading(true);
     try {
-      await authService.forgotPassword(normalizedEmail);
-      setForgotSuccess('If an account exists for this email, a password reset link has been sent.');
-    } catch (submitError: any) {
-      const responseMessage = submitError?.response?.data?.error?.message || submitError?.response?.data?.message;
-      setForgotError(responseMessage || submitError?.message || 'Failed to send reset email. Please try again.');
-    } finally {
-      setForgotLoading(false);
+      await loginWithGoogle(isTeacher ? 'teacher' : 'student');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google login failed');
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-secondary/10 flex flex-col lg:flex-row">
+    <div className="relative min-h-screen flex flex-col lg:flex-row overflow-hidden">
+      <div className="absolute inset-0" aria-hidden="true">
+        <img
+          src="/backgroundlms.jpg"
+          alt=""
+          className="h-full w-full object-cover object-center sm:object-[center_35%]"
+        />
+        <div className="absolute inset-0 bg-slate-950/72" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/70 to-emerald-950/60" />
+      </div>
+
       {/* Left Side - Branding (Hidden on Mobile) */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center p-8 relative overflow-hidden">
-        {/* Decorative Elements */}
-        <div className="absolute top-10 left-10 w-20 h-20 rounded-full bg-primary/10 blur-2xl" />
-        <div className="absolute bottom-20 right-12 w-32 h-32 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute top-1/2 right-20 w-24 h-24 rounded-full bg-primary/5 blur-2xl" />
-        
+      <div className="relative z-10 hidden lg:flex lg:w-1/2 flex-col items-center justify-center p-8">
         {/* Content */}
-        <div className="relative z-10 text-center max-w-sm">
+        <div className="text-center max-w-sm px-8 py-10">
           {/* Logo */}
           <div className={`flex justify-center mb-8 transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
             <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
@@ -154,32 +104,36 @@ export default function LoginPage() {
           </div>
           
           {/* Title */}
-          <h1 className={`text-5xl font-bold mb-4 transition-all duration-700 ${showAnimation ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+          <h1 className={`text-5xl font-bold text-white mb-4 transition-all duration-700 ${showAnimation ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
             Mabini Classroom
           </h1>
           
           {/* Subtitle */}
-          <p className={`text-lg text-muted-foreground mb-8 transition-all duration-700 ${showAnimation ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{transitionDelay: '100ms'}}>
+          <p className={`text-lg text-slate-200 mb-8 transition-all duration-700 ${showAnimation ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`} style={{transitionDelay: '100ms'}}>
             Collaborate, learn, and grow together
           </p>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex flex-col items-center justify-center p-4 lg:p-8 min-h-screen lg:min-h-auto">{/* Logo on Mobile */}
-        <div className={`lg:hidden mb-8 transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
+      <div className="relative z-10 w-full lg:w-1/2 flex flex-col items-center justify-center p-4 lg:p-8 min-h-screen lg:min-h-auto">{/* Logo on Mobile */}
+        <div className={`lg:hidden mb-8 flex items-center gap-3 transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
+          <div className="h-12 w-12 shrink-0 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
             <GraduationCap className="h-6 w-6 text-primary-foreground" />
           </div>
+          <span className="text-xl font-bold tracking-tight text-white">Mabini Classroom</span>
         </div>
 
         <div className={`w-full max-w-md transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} style={{transitionDelay: '100ms'}}>
-          <div className="glass rounded-2xl border p-6 lg:p-8 space-y-6 shadow-lg">{/* Header */}
+          <div className="rounded-2xl border border-white/20 bg-background/90 p-6 lg:p-8 space-y-6 shadow-2xl backdrop-blur-md">{/* Header */}
             <div>
               <h2 className="text-2xl lg:text-3xl font-bold">Welcome back</h2>
               <p className="text-sm text-muted-foreground mt-2">
                 Sign in to your account to continue
               </p>
+              <span className="mt-3 inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                {isTeacher ? 'Teacher Portal' : 'Student Portal'}
+              </span>
             </div>
 
             {/* Email/Password Form */}
@@ -208,26 +162,13 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                className="text-xs text-primary hover:underline"
-                onClick={handleForgotPasswordOpen}
+                onClick={() => setForgotPasswordOpen(true)}
+                className="ml-auto block text-xs font-medium text-primary transition-colors hover:text-primary/80 hover:underline underline-offset-4"
               >
                 Forgot password?
               </button>
 
               {error && <div className="text-sm text-destructive text-center bg-destructive/10 p-3 rounded-lg">{error}</div>}
-
-              {/* Pending Approval Alert for Teachers */}
-              {showPendingApproval && (
-                <Alert className="bg-amber-500/10 border-amber-500/30 text-amber-700">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <strong>Account Pending Approval</strong>
-                    <p className="mt-1 text-sm">
-                      Your teacher account is awaiting admin verification. You will receive an email once approved.
-                    </p>
-                  </AlertDescription>
-                </Alert>
-              )}
 
               <Button
                 type="submit"
@@ -241,14 +182,13 @@ export default function LoginPage() {
             {/* Switch Role */}
             <div className="text-center">
               <p className="text-xs text-muted-foreground">
-                Logging in as a{' '}
+                You are in <span className="font-semibold text-foreground">{isTeacher ? 'Teacher' : 'Student'}</span> mode.{' '}
                 <button
                   onClick={toggleRole}
-                  className="text-primary font-semibold cursor-pointer hover:underline transition-colors"
+                  className="text-primary font-semibold cursor-pointer hover:underline transition-colors underline-offset-4"
                 >
-                  {isTeacher ? 'Student' : 'Teacher'}
+                  Switch to {isTeacher ? 'Student' : 'Teacher'}
                 </button>
-                ?
               </p>
             </div>
 
@@ -264,16 +204,7 @@ export default function LoginPage() {
 
             {/* Google Login */}
             <Button
-              onClick={async () => {
-                setIsLoading(true);
-                setError('');
-                try {
-                  await loginWithGoogle(isTeacher ? 'teacher' : 'student');
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Google login failed');
-                  setIsLoading(false);
-                }
-              }}
+              onClick={handleGoogleLogin}
               disabled={isLoading}
               variant="outline"
               className="w-full h-11 rounded-xl border font-medium gap-2.5"
@@ -299,25 +230,13 @@ export default function LoginPage() {
               Continue with Google
             </Button>
 
-            {/* Demo Account - Removed for production */}
-            {/* 
-            <Button
-              onClick={handleDemoLogin}
-              disabled={isLoading}
-              variant="ghost"
-              className="w-full h-11 rounded-xl transition-all duration-300 text-muted-foreground hover:text-foreground hover:bg-secondary/30"
-            >
-              Try {isTeacher ? 'Teacher' : 'Student'} Demo
-            </Button>
-            */}
-
             {/* Sign Up Link */}
             <div className="text-center">
               <p className="text-xs text-muted-foreground">
                 Don't have an account?{' '}
                 <button
                   onClick={() => setSignupOpen(true)}
-                  className="text-primary font-semibold hover:underline transition-colors"
+                  className="text-primary font-semibold hover:underline transition-colors underline-offset-4"
                 >
                   Sign up
                 </button>
@@ -327,65 +246,11 @@ export default function LoginPage() {
         </div>
 
         <SignupDialog open={signupOpen} onOpenChange={setSignupOpen} isTeacher={isTeacher} />
-
-        <Dialog
+        <ForgotPasswordDialog
           open={forgotPasswordOpen}
-          onOpenChange={(open) => {
-            setForgotPasswordOpen(open);
-            if (!open) {
-              setForgotError('');
-              setForgotSuccess('');
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Reset your password</DialogTitle>
-              <DialogDescription>
-                Enter your email and we will send a password reset link.
-              </DialogDescription>
-            </DialogHeader>
-
-            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
-              <Input
-                type="email"
-                placeholder="Email address"
-                value={forgotEmail}
-                onChange={(e) => setForgotEmail(e.target.value)}
-                disabled={forgotLoading}
-                autoFocus
-              />
-
-              {forgotError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{forgotError}</AlertDescription>
-                </Alert>
-              )}
-
-              {forgotSuccess && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{forgotSuccess}</AlertDescription>
-                </Alert>
-              )}
-
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setForgotPasswordOpen(false)}
-                  disabled={forgotLoading}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={forgotLoading}>
-                  {forgotLoading ? 'Sending...' : 'Send Reset Link'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+          onOpenChange={setForgotPasswordOpen}
+          initialEmail={email}
+        />
       </div>
     </div>
   );

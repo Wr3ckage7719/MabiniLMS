@@ -68,6 +68,18 @@ export const assignmentSubmissionsParamSchema = z.object({
 });
 
 // ============================================
+// Assignment Comment Schemas
+// ============================================
+
+export const createAssignmentCommentSchema = z.object({
+  content: z.string().trim().min(1, 'Comment content is required').max(5000),
+});
+
+export const assignmentCommentsParamSchema = z.object({
+  assignmentId: z.string().uuid('Invalid assignment ID'),
+});
+
+// ============================================
 // TypeScript Types
 // ============================================
 
@@ -77,6 +89,7 @@ export type ListAssignmentsQuery = z.infer<typeof listAssignmentsQuerySchema>;
 
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
 export type UpdateSubmissionInput = z.infer<typeof updateSubmissionSchema>;
+export type CreateAssignmentCommentInput = z.infer<typeof createAssignmentCommentSchema>;
 
 export interface Assignment {
   id: string;
@@ -135,5 +148,24 @@ export interface SubmissionWithGrade extends SubmissionWithStudent {
     feedback: string | null;
     graded_by: string;
     graded_at: string;
+  };
+}
+
+export interface AssignmentComment {
+  id: string;
+  assignment_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignmentCommentWithAuthor extends AssignmentComment {
+  author: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    role?: string;
   };
 }

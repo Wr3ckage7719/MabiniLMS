@@ -7,6 +7,7 @@ import { JoinClassDialog } from '@/components/JoinClassDialog';
 import FirstLoginPasswordChange from '@/components/FirstLoginPasswordChange';
 import PendingApprovalOverlay from '@/components/PendingApprovalOverlay';
 import { RoleProvider } from '@/contexts/RoleContext';
+import { ClassesProvider } from '@/contexts/ClassesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeNotifications } from '@/hooks/useWebSocket';
 import { supabase } from '@/lib/supabase';
@@ -71,35 +72,42 @@ export default function AppLayout() {
     return <Navigate to="/login" replace />;
   }
 
+  // Teacher users should use the dedicated teacher panel experience.
+  if ((user?.role || '').toLowerCase() === 'teacher') {
+    return <Navigate to="/teacher" replace />;
+  }
+
   return (
     <RoleProvider>
-      <div className="min-h-screen flex flex-col">
-        <Header
-          onCreateClass={() => setCreateOpen(true)}
-          onJoinClass={() => setJoinOpen(true)}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        />
-        <div className="flex flex-1">
-          <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-          <main className="flex-1 min-w-0">
-            <Outlet />
-          </main>
-        </div>
-        <CreateClassDialog open={createOpen} onOpenChange={setCreateOpen} />
-        <JoinClassDialog open={joinOpen} onOpenChange={setJoinOpen} />
-        
-        {/* Force password change for students with temporary passwords */}
-        {user && (
-          <FirstLoginPasswordChange
-            open={mustChangePassword}
-            userId={user.id}
-            onComplete={handlePasswordChanged}
+      <ClassesProvider>
+        <div className="min-h-screen flex flex-col">
+          <Header
+            onCreateClass={() => setCreateOpen(true)}
+            onJoinClass={() => setJoinOpen(true)}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
-        )}
+          <div className="flex flex-1">
+            <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+            <main className="flex-1 min-w-0">
+              <Outlet />
+            </main>
+          </div>
+          <CreateClassDialog open={createOpen} onOpenChange={setCreateOpen} />
+          <JoinClassDialog open={joinOpen} onOpenChange={setJoinOpen} />
+          
+          {/* Force password change for students with temporary passwords */}
+          {user && (
+            <FirstLoginPasswordChange
+              open={mustChangePassword}
+              userId={user.id}
+              onComplete={handlePasswordChanged}
+            />
+          )}
 
-        {/* Pending approval overlay for teachers */}
-        <PendingApprovalOverlay />
-      </div>
+          {/* Pending approval overlay for teachers */}
+          <PendingApprovalOverlay />
+        </div>
+      </ClassesProvider>
     </RoleProvider>
   );
 }

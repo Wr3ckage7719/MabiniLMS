@@ -462,3 +462,48 @@ export const getSubmission = async (
     next(error);
   }
 };
+
+export const listComments = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { assignmentId } = req.params;
+    const comments = await assignmentService.listAssignmentComments(
+      assignmentId,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: comments,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createComment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { assignmentId } = req.params;
+    const comment = await assignmentService.createAssignmentComment(
+      assignmentId,
+      req.body,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.status(201).json({
+      success: true,
+      data: comment,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

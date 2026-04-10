@@ -129,7 +129,9 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email: normalizedEmail,
     password,
-    email_confirm: false, // Require email verification
+    // Use explicit confirmation here because the app enforces access by role/approval policy.
+    // Keeping this false causes immediate sign-in to fail right after account creation.
+    email_confirm: true,
     user_metadata: {
       first_name,
       last_name,
@@ -214,7 +216,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   }
 
   // Send email verification
-  const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173'
+  const baseUrl = emailService.getClientUrl()
   try {
     await emailVerificationService.sendEmailVerificationToken(authData.user.id, normalizedEmail, baseUrl)
     logger.info('Verification email sent', { userId: authData.user.id, email: normalizedEmail })
@@ -654,8 +656,9 @@ export const refreshToken = async (input: RefreshTokenInput): Promise<AuthSessio
  * Send password reset email
  */
 export const forgotPassword = async (email: string): Promise<void> => {
+  const clientUrl = emailService.getClientUrl();
   const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/reset-password`,
+    redirectTo: `${clientUrl}/auth/reset-password`,
   });
 
   if (error) {

@@ -15,6 +15,8 @@ import {
   updateSubmissionSchema,
   assignmentSubmissionsParamSchema,
   submissionIdParamSchema,
+  createAssignmentCommentSchema,
+  assignmentCommentsParamSchema,
   SubmissionStatus,
 } from '../../src/types/assignments.js'
 
@@ -355,6 +357,54 @@ describe('Assignment Schemas', () => {
     it('should reject invalid submission UUID', () => {
       const result = submissionIdParamSchema.safeParse({
         id: 'not-a-uuid',
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
+  // ============================================
+  // Comment Schemas
+  // ============================================
+
+  describe('createAssignmentCommentSchema', () => {
+    it('should accept valid comment content', () => {
+      const result = createAssignmentCommentSchema.safeParse({
+        content: 'Great work everyone. Keep going!',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject empty content', () => {
+      const result = createAssignmentCommentSchema.safeParse({
+        content: '   ',
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    it('should reject very long content', () => {
+      const result = createAssignmentCommentSchema.safeParse({
+        content: 'a'.repeat(5001),
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('assignmentCommentsParamSchema', () => {
+    it('should accept valid assignmentId', () => {
+      const result = assignmentCommentsParamSchema.safeParse({
+        assignmentId: '123e4567-e89b-12d3-a456-426614174000',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject invalid assignmentId', () => {
+      const result = assignmentCommentsParamSchema.safeParse({
+        assignmentId: 'invalid-id',
       })
 
       expect(result.success).toBe(false)

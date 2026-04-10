@@ -2,6 +2,8 @@ export interface ClassItem {
   id: string;
   name: string;
   section: string;
+  block?: string;
+  level?: string;
   teacher: string;
   color: 'blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green';
   students: number;

@@ -1,18 +1,17 @@
 import { ArrowLeft } from 'lucide-react';
-import { mockClasses } from '@/lib/data';
+import { ClassItem } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { TeacherClassStream } from './TeacherClassStream';
 
 interface TeacherClassDetailProps {
   classId?: string;
+  classItem?: ClassItem | null;
   onBack?: () => void;
 }
 
 export function TeacherClassDetail(props: TeacherClassDetailProps) {
-  const { classId: propClassId, onBack } = props;
-  const id = propClassId;
-
-  const cls = id ? mockClasses.find((c) => c.id === id) : null;
+  const { classId: propClassId, classItem, onBack } = props;
+  const cls = classItem ?? null;
 
   if (!cls) {
     return (
@@ -41,10 +40,11 @@ export function TeacherClassDetail(props: TeacherClassDetailProps) {
 
         <div className="max-w-7xl mx-auto space-y-6">
           <TeacherClassStream
-            classId={cls.id}
+            classId={propClassId || cls.id}
             className={cls.name}
-            classColor="blue"
-            section={cls.section}
+            classColor={cls.color}
+            block={cls.block}
+            level={cls.level}
             room={cls.room}
             schedule={cls.schedule}
           />

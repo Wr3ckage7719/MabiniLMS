@@ -3,6 +3,8 @@ import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
   Assignment,
   AssignmentWithCourse,
+  AssignmentCommentWithAuthor,
+  CreateAssignmentCommentInput,
   CreateAssignmentInput,
   UpdateAssignmentInput,
   ListAssignmentsQuery,
@@ -16,6 +18,15 @@ import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import { notifyAssignmentCreated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
+  const author = Array.isArray(comment.author) ? comment.author[0] || null : comment.author;
+  return {
+    ...comment,
+    author,
+  } as AssignmentCommentWithAuthor;
+};
 
 // ============================================
 // Assignment Operations
@@ -505,4 +516,108 @@ export const getMySubmission = async (
   }
 
   return data as Submission | null;
+};
+
+const ensureAssignmentCommentAccess = async (
+  assignmentId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<AssignmentWithCourse> => {
+  const assignment = await getAssignmentById(assignmentId);
+
+  if (userRole === UserRole.ADMIN) {
+    return assignment;
+  }
+
+  if (assignment.course.teacher.id === userId) {
+    return assignment;
+  }
+
+  if (userRole === UserRole.STUDENT) {
+    const { data: enrollment, error } = await supabaseAdmin
+      .from('enrollments')
+      .select('id')
+      .eq('course_id', assignment.course_id)
+      .eq('student_id', userId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (error) {
+      logger.error('Failed to verify enrollment for assignment comments', {
+        assignmentId,
+        userId,
+        error: error.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate assignment access', 500);
+    }
+
+    if (enrollment) {
+      return assignment;
+    }
+  }
+
+  throw new ApiError(
+    ErrorCode.FORBIDDEN,
+    'You do not have access to comments for this assignment',
+    403
+  );
+};
+
+export const listAssignmentComments = async (
+  assignmentId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<AssignmentCommentWithAuthor[]> => {
+  await ensureAssignmentCommentAccess(assignmentId, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('assignment_comments')
+    .select(`
+      id, assignment_id, author_id, content, created_at, updated_at,
+      author:profiles!assignment_comments_author_id_fkey(id, email, first_name, last_name, role)
+    `)
+    .eq('assignment_id', assignmentId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('Failed to list assignment comments', { assignmentId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load assignment comments', 500);
+  }
+
+  return (data || []).map(fixCommentAuthorJoin);
+};
+
+export const createAssignmentComment = async (
+  assignmentId: string,
+  input: CreateAssignmentCommentInput,
+  userId: string,
+  userRole: UserRole
+): Promise<AssignmentCommentWithAuthor> => {
+  await ensureAssignmentCommentAccess(assignmentId, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('assignment_comments')
+    .insert({
+      assignment_id: assignmentId,
+      author_id: userId,
+      content: input.content,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select(`
+      id, assignment_id, author_id, content, created_at, updated_at,
+      author:profiles!assignment_comments_author_id_fkey(id, email, first_name, last_name, role)
+    `)
+    .single();
+
+  if (error || !data) {
+    logger.error('Failed to create assignment comment', {
+      assignmentId,
+      userId,
+      error: error?.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create assignment comment', 500);
+  }
+
+  return fixCommentAuthorJoin(data);
 };

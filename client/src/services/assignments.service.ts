@@ -72,6 +72,14 @@ export const assignmentsService = {
     return apiClient.get(`/assignments/${assignmentId}/my-submission`);
   },
 
+  async getComments(assignmentId: string) {
+    return apiClient.get(`/assignments/${assignmentId}/comments`);
+  },
+
+  async createComment(assignmentId: string, content: string) {
+    return apiClient.post(`/assignments/${assignmentId}/comments`, { content });
+  },
+
   async gradeSubmission(courseId: string, assignmentId: string, submissionId: string, grade: number, feedback?: string) {
     return apiClient.post('/grades', {
       submission_id: submissionId,

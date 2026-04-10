@@ -48,6 +48,7 @@ const EMAIL_SETTING_KEYS = [
 let cachedSettings: Record<string, unknown> = {};
 let settingsLoadedAt = 0;
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+const DEV_CLIENT_URL = 'http://localhost:8080';
 
 export const invalidateEmailSettingsCache = (): void => {
   cachedSettings = {};
@@ -56,8 +57,85 @@ export const invalidateEmailSettingsCache = (): void => {
   transporterConfigKey = null;
 };
 
-const getClientUrl = (): string => {
-  return process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+const normalizeClientUrl = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+};
+
+export const getClientUrl = (): string => {
+  const configured = process.env.CLIENT_URL || process.env.FRONTEND_URL;
+  const normalizedConfigured = configured ? normalizeClientUrl(configured) : null;
+
+  if (normalizedConfigured) {
+    return normalizedConfigured;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'CLIENT_URL is not configured. Set CLIENT_URL to your public frontend URL before sending production emails.'
+    );
+  }
+
+  return DEV_CLIENT_URL;
+};
+
+const stripHtml = (value: string): string => {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const wrapWithEmailLayout = (subject: string, bodyHtml: string): string => {
+  const previewText = stripHtml(bodyHtml).slice(0, 140) || 'You have an update from MabiniLMS.';
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${subject}</title>
+  </head>
+  <body style="margin:0; padding:0; background:#f4f7fb; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+    <span style="display:none!important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">${previewText}</span>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb; padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px; background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
+            <tr>
+              <td style="padding:18px 24px; background:#0f172a; color:#ffffff;">
+                <div style="font-size:18px; font-weight:700; letter-spacing:0.2px;">MabiniLMS</div>
+                <div style="margin-top:4px; font-size:12px; color:#cbd5e1;">Reliable updates for your learning workspace</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px; line-height:1.6; font-size:15px;">
+                ${bodyHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#64748b; background:#f8fafc;">
+                <div style="font-weight:600; color:#334155; margin-bottom:6px;">${subject}</div>
+                <div>If you did not expect this email, you can safely ignore it.</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+  `.trim();
 };
 
 const parseBoolean = (value: unknown, defaultValue: boolean): boolean => {
@@ -259,10 +337,13 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
   const config = getEmailConfig();
   assertEmailConfig(config);
   const { to, subject, html, text, attachments } = options;
+  const hasHtmlDocument = /<html[\s>]/i.test(html);
+  const normalizedHtml = hasHtmlDocument ? html : wrapWithEmailLayout(subject, html);
+  const normalizedText = text && text.trim().length > 0 ? text.trim() : stripHtml(normalizedHtml);
   
   // In mock mode, just log the email
   if (config.provider === 'mock') {
-    const preview = text || html.substring(0, 100).replace(/<[^>]*>/g, '');
+    const preview = normalizedText || normalizedHtml.substring(0, 100).replace(/<[^>]*>/g, '');
     
     logger.info('[EMAIL MOCK] Email would be sent', { to, subject, preview: preview.substring(0, 50) });
     
@@ -289,8 +370,8 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
         from: `"${config.fromName}" <${config.from}>`,
         to,
         subject,
-        html,
-        text: text || html.replace(/<[^>]*>/g, ''),
+        html: normalizedHtml,
+        text: normalizedText,
         attachments,
       };
       
@@ -355,29 +436,79 @@ export const verifyEmailConfig = async (): Promise<boolean> => {
 /**
  * Send email verification
  */
+const PRIMARY_BUTTON_STYLE = [
+  'display:inline-block',
+  'padding:12px 18px',
+  'border-radius:8px',
+  'background:#2563eb',
+  'color:#ffffff',
+  'font-weight:600',
+  'text-decoration:none',
+].join(';');
+
+const SUCCESS_BUTTON_STYLE = [
+  'display:inline-block',
+  'padding:12px 18px',
+  'border-radius:8px',
+  'background:#16a34a',
+  'color:#ffffff',
+  'font-weight:600',
+  'text-decoration:none',
+].join(';');
+
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const escapeMultiline = (value: string): string => escapeHtml(value).replace(/\n/g, '<br>');
+
+const supportEmail = (): string => process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@mabinilms.edu.ph';
+
+const toSingleLine = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const formatDateTime = (value: Date): string =>
+  value.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
 export const sendVerificationEmail = async (
   email: string,
   verificationLink: string
 ): Promise<void> => {
-  const subject = 'Verify Your Email - MabiniLMS'
+  const subject = 'Verify Your MabiniLMS Email Address';
+  const safeLink = escapeHtml(verificationLink);
 
   const html = `
-    <h2>Welcome to MabiniLMS!</h2>
-    <p>Please verify your email to complete your registration.</p>
-    <p><a href="${verificationLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Verify Email</a></p>
-    <p>Or copy this link: ${verificationLink}</p>
-    <p>This link expires in 24 hours.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Confirm your email address</h2>
+    <p style="margin:0 0 12px;">Welcome to MabiniLMS. Please verify your email to activate your account securely.</p>
+    <p style="margin:16px 0 20px;">
+      <a href="${safeLink}" style="${PRIMARY_BUTTON_STYLE}">Verify Email Address</a>
+    </p>
+    <p style="margin:0 0 8px;"><strong>This link expires in 24 hours.</strong></p>
+    <p style="margin:0 0 6px; color:#475569;">If the button does not work, copy and paste this URL into your browser:</p>
+    <p style="margin:0; word-break:break-all; color:#1d4ed8;">${safeLink}</p>
+  `;
 
   const text = `
-Welcome to MabiniLMS!
-Please verify your email to complete your registration.
+Welcome to MabiniLMS.
+
+Please verify your email to activate your account.
 Verification link: ${verificationLink}
 This link expires in 24 hours.
-  `.trim()
 
-  await sendEmail({ to: email, subject, html, text })
-}
+If you did not create this account, you can ignore this email.
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send password reset email
@@ -386,16 +517,20 @@ export const sendPasswordResetEmail = async (
   email: string,
   resetLink: string
 ): Promise<void> => {
-  const subject = 'Reset Your Password - MabiniLMS'
+  const subject = 'Reset Your MabiniLMS Password';
+  const safeLink = escapeHtml(resetLink);
 
   const html = `
-    <h2>Password Reset Request</h2>
-    <p>We received a request to reset your password.</p>
-    <p><a href="${resetLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Reset Password</a></p>
-    <p>Or copy this link: ${resetLink}</p>
-    <p>This link expires in 1 hour.</p>
-    <p>If you didn't request this, ignore this email.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Password reset requested</h2>
+    <p style="margin:0 0 12px;">We received a request to reset your password. Use the secure link below to continue.</p>
+    <p style="margin:16px 0 20px;">
+      <a href="${safeLink}" style="${PRIMARY_BUTTON_STYLE}">Reset Password</a>
+    </p>
+    <p style="margin:0 0 8px;"><strong>This link expires in 1 hour.</strong></p>
+    <p style="margin:0 0 6px; color:#475569;">If the button does not work, copy and paste this URL:</p>
+    <p style="margin:0; word-break:break-all; color:#1d4ed8;">${safeLink}</p>
+    <p style="margin:14px 0 0; color:#475569;">If you did not request a password reset, no action is required.</p>
+  `;
 
   const text = `
 Password Reset Request
@@ -405,10 +540,10 @@ Reset link: ${resetLink}
 This link expires in 1 hour.
 
 If you didn't request this, ignore this email.
-  `.trim()
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send enrollment confirmation email
@@ -418,26 +553,35 @@ export const sendEnrollmentConfirmationEmail = async (
   studentName: string,
   courseName: string
 ): Promise<void> => {
-  const subject = `Enrollment Confirmation - ${courseName} - MabiniLMS`
+  const clientUrl = getClientUrl();
+  const safeStudentName = escapeHtml(studentName);
+  const safeCourseName = escapeHtml(courseName);
+  const courseLabel = toSingleLine(courseName);
+  const subject = `Enrollment Confirmed: ${courseLabel} - MabiniLMS`;
 
   const html = `
-    <h2>Enrollment Confirmation</h2>
-    <p>Dear ${studentName},</p>
-    <p>You have been successfully enrolled in <strong>${courseName}</strong>.</p>
-    <p>You can now access the course materials and assignments through your MabiniLMS dashboard.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Enrollment confirmed</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName},</p>
+    <p style="margin:0 0 12px;">You are successfully enrolled in <strong>${safeCourseName}</strong>.</p>
+    <p style="margin:0 0 14px;">You can now access class announcements, materials, and assignments.</p>
+    <p style="margin:16px 0 0;">
+      <a href="${escapeHtml(`${clientUrl}/dashboard`)}" style="${PRIMARY_BUTTON_STYLE}">Open Dashboard</a>
+    </p>
+  `;
 
   const text = `
 Enrollment Confirmation
 
-Dear ${studentName},
+Hello ${studentName},
 
 You have been successfully enrolled in ${courseName}.
-You can now access the course materials and assignments through your MabiniLMS dashboard.
-  `.trim()
+You can now access announcements, materials, and assignments from your dashboard.
 
-  await sendEmail({ to: email, subject, html, text })
-}
+Open dashboard: ${clientUrl}/dashboard
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send assignment due reminder email
@@ -449,37 +593,41 @@ export const sendAssignmentDueReminderEmail = async (
   courseName: string,
   dueDate: Date
 ): Promise<void> => {
-  const subject = `Reminder: Assignment Due in 24 Hours - ${assignmentTitle}`
+  const clientUrl = getClientUrl();
+  const safeStudentName = escapeHtml(studentName);
+  const safeAssignmentTitle = escapeHtml(assignmentTitle);
+  const safeCourseName = escapeHtml(courseName);
+  const assignmentLabel = toSingleLine(assignmentTitle);
+  const subject = `Reminder: "${assignmentLabel}" is due in 24 hours`;
 
-  const dueDateStr = dueDate.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  const dueDateStr = formatDateTime(dueDate);
 
   const html = `
-    <h2>Assignment Due Reminder</h2>
-    <p>Dear ${studentName},</p>
-    <p>This is a reminder that your assignment <strong>${assignmentTitle}</strong> in <strong>${courseName}</strong> is due in 24 hours.</p>
-    <p><strong>Due Date:</strong> ${dueDateStr}</p>
-    <p>Submit your assignment through the MabiniLMS dashboard.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Assignment due reminder</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName}, this is a reminder that your assignment is due soon.</p>
+    <div style="padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; margin:0 0 14px;">
+      <p style="margin:0 0 6px;"><strong>Assignment:</strong> ${safeAssignmentTitle}</p>
+      <p style="margin:0 0 6px;"><strong>Course:</strong> ${safeCourseName}</p>
+      <p style="margin:0;"><strong>Due:</strong> ${escapeHtml(dueDateStr)}</p>
+    </div>
+    <p style="margin:16px 0 0;">
+      <a href="${escapeHtml(`${clientUrl}/dashboard`)}" style="${PRIMARY_BUTTON_STYLE}">Submit Assignment</a>
+    </p>
+  `;
 
   const text = `
 Assignment Due Reminder
 
-Dear ${studentName},
+Hello ${studentName},
 
-This is a reminder that your assignment "${assignmentTitle}" in "${courseName}" is due in 24 hours.
+Your assignment "${assignmentTitle}" in "${courseName}" is due in 24 hours.
 Due Date: ${dueDateStr}
 
-Submit your assignment through the MabiniLMS dashboard.
-  `.trim()
+Submit now: ${clientUrl}/dashboard
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send submission received confirmation
@@ -491,37 +639,42 @@ export const sendSubmissionReceivedEmail = async (
   courseName: string,
   submittedAt: Date
 ): Promise<void> => {
-  const subject = `Submission Received - ${assignmentTitle}`
+  const clientUrl = getClientUrl();
+  const safeStudentName = escapeHtml(studentName);
+  const safeAssignmentTitle = escapeHtml(assignmentTitle);
+  const safeCourseName = escapeHtml(courseName);
+  const assignmentLabel = toSingleLine(assignmentTitle);
+  const subject = `Submission Received: ${assignmentLabel}`;
 
-  const submittedAtStr = submittedAt.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  const submittedAtStr = formatDateTime(submittedAt);
 
   const html = `
-    <h2>Submission Received</h2>
-    <p>Dear ${studentName},</p>
-    <p>Your submission for <strong>${assignmentTitle}</strong> in <strong>${courseName}</strong> has been received.</p>
-    <p><strong>Submitted At:</strong> ${submittedAtStr}</p>
-    <p>Your instructor will review and grade your submission soon.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Submission received</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName}, your work has been successfully submitted.</p>
+    <div style="padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; margin:0 0 14px;">
+      <p style="margin:0 0 6px;"><strong>Assignment:</strong> ${safeAssignmentTitle}</p>
+      <p style="margin:0 0 6px;"><strong>Course:</strong> ${safeCourseName}</p>
+      <p style="margin:0;"><strong>Submitted:</strong> ${escapeHtml(submittedAtStr)}</p>
+    </div>
+    <p style="margin:0 0 14px;">Your instructor will review your submission and release grading updates in MabiniLMS.</p>
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/dashboard`)}" style="${PRIMARY_BUTTON_STYLE}">View Dashboard</a>
+    </p>
+  `;
 
   const text = `
 Submission Received
 
-Dear ${studentName},
+Hello ${studentName},
 
 Your submission for "${assignmentTitle}" in "${courseName}" has been received.
 Submitted At: ${submittedAtStr}
 
-Your instructor will review and grade your submission soon.
-  `.trim()
+View updates: ${clientUrl}/dashboard
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send grade released notification
@@ -535,32 +688,44 @@ export const sendGradeReleasedEmail = async (
   pointsPossible: number,
   feedback?: string
 ): Promise<void> => {
-  const percentage = Math.round((pointsEarned / pointsPossible) * 100)
-  const subject = `Grade Released - ${assignmentTitle}`
+  const clientUrl = getClientUrl();
+  const safeStudentName = escapeHtml(studentName);
+  const safeAssignmentTitle = escapeHtml(assignmentTitle);
+  const safeCourseName = escapeHtml(courseName);
+  const assignmentLabel = toSingleLine(assignmentTitle);
+  const normalizedPointsPossible = pointsPossible > 0 ? pointsPossible : 1;
+  const percentage = Math.round((pointsEarned / normalizedPointsPossible) * 100);
+  const subject = `Grade Released: ${assignmentLabel}`;
+  const feedbackHtml = feedback ? escapeMultiline(feedback) : '';
 
   const html = `
-    <h2>Your Grade is Ready</h2>
-    <p>Dear ${studentName},</p>
-    <p>Your grade for <strong>${assignmentTitle}</strong> in <strong>${courseName}</strong> is now available.</p>
-    <p><strong>Score:</strong> ${pointsEarned}/${pointsPossible} (${percentage}%)</p>
-    ${feedback ? `<p><strong>Feedback:</strong></p><p>${feedback.replace(/\n/g, '<br>')}</p>` : ''}
-    <p>View detailed feedback and comments in your MabiniLMS dashboard.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Your grade is now available</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName}, your instructor has released grading for the assignment below.</p>
+    <div style="padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; margin:0 0 14px;">
+      <p style="margin:0 0 6px;"><strong>Assignment:</strong> ${safeAssignmentTitle}</p>
+      <p style="margin:0 0 6px;"><strong>Course:</strong> ${safeCourseName}</p>
+      <p style="margin:0;"><strong>Score:</strong> ${pointsEarned}/${pointsPossible} (${percentage}%)</p>
+    </div>
+    ${feedbackHtml ? `<p style="margin:0 0 6px;"><strong>Instructor feedback:</strong></p><p style="margin:0 0 14px;">${feedbackHtml}</p>` : ''}
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/grades`)}" style="${PRIMARY_BUTTON_STYLE}">View Grades</a>
+    </p>
+  `;
 
   const text = `
 Your Grade is Ready
 
-Dear ${studentName},
+Hello ${studentName},
 
 Your grade for "${assignmentTitle}" in "${courseName}" is now available.
 Score: ${pointsEarned}/${pointsPossible} (${percentage}%)
 ${feedback ? `\nFeedback:\n${feedback}` : ''}
 
-View detailed feedback and comments in your MabiniLMS dashboard.
-  `.trim()
+View grades: ${clientUrl}/grades
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send course announcement email
@@ -572,30 +737,41 @@ export const sendCourseAnnouncementEmail = async (
   title: string,
   content: string
 ): Promise<void> => {
-  const subject = `Announcement - ${courseName}: ${title}`
+  const clientUrl = getClientUrl();
+  const safeStudentName = escapeHtml(studentName);
+  const safeCourseName = escapeHtml(courseName);
+  const safeTitle = escapeHtml(title);
+  const safeContent = escapeMultiline(content);
+  const subject = `Course Announcement: ${toSingleLine(courseName)} - ${toSingleLine(title)}`;
 
   const html = `
-    <h2>Course Announcement</h2>
-    <p>Dear ${studentName},</p>
-    <p>New announcement in <strong>${courseName}</strong>:</p>
-    <h3>${title}</h3>
-    <p>${content.replace(/\n/g, '<br>')}</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">New course announcement</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName}, an update has been posted in <strong>${safeCourseName}</strong>.</p>
+    <div style="padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; margin:0 0 14px;">
+      <p style="margin:0 0 8px; font-size:17px; font-weight:700; color:#0f172a;">${safeTitle}</p>
+      <p style="margin:0; color:#1f2937;">${safeContent}</p>
+    </div>
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/dashboard`)}" style="${PRIMARY_BUTTON_STYLE}">Open Course Dashboard</a>
+    </p>
+  `;
 
   const text = `
 Course Announcement
 
-Dear ${studentName},
+Hello ${studentName},
 
 New announcement in ${courseName}:
 
 ${title}
 
 ${content}
-  `.trim()
 
-  await sendEmail({ to: email, subject, html, text })
-}
+Open dashboard: ${clientUrl}/dashboard
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send teacher approval notification email
@@ -605,28 +781,31 @@ export const sendTeacherApprovalEmail = async (
   teacherName: string
 ): Promise<void> => {
   const clientUrl = getClientUrl();
-  const subject = 'Your Teacher Account Has Been Approved - MabiniLMS'
+  const safeTeacherName = escapeHtml(teacherName);
+  const subject = 'Teacher Access Approved - MabiniLMS';
 
   const html = `
-    <h2>Account Approved!</h2>
-    <p>Dear ${teacherName},</p>
-    <p>Great news! Your teacher account has been approved by an administrator.</p>
-    <p>You now have full access to all teacher features, including:</p>
-    <ul>
-      <li>Create and manage courses</li>
-      <li>Create assignments and grade submissions</li>
-      <li>Manage course materials</li>
-      <li>View analytics and student progress</li>
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Your teacher account is approved</h2>
+    <p style="margin:0 0 12px;">Hello ${safeTeacherName},</p>
+    <p style="margin:0 0 12px;">Your teacher access has been approved by an administrator. You can now sign in and manage your classes.</p>
+    <p style="margin:0 0 6px;"><strong>You now have access to:</strong></p>
+    <ul style="margin:0 0 14px 18px; padding:0; color:#1f2937;">
+      <li>Create and organize courses</li>
+      <li>Publish assignments and materials</li>
+      <li>Review submissions and release grades</li>
+      <li>Monitor class progress and engagement</li>
     </ul>
-    <p><a href="${clientUrl}/login" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Go to Dashboard</a></p>
-  `
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/login`)}" style="${SUCCESS_BUTTON_STYLE}">Sign In to Teacher Portal</a>
+    </p>
+  `;
 
   const text = `
-Account Approved!
+Teacher Access Approved
 
-Dear ${teacherName},
+Hello ${teacherName},
 
-Great news! Your teacher account has been approved by an administrator.
+Your teacher account has been approved by an administrator.
 
 You now have full access to all teacher features, including:
 - Create and manage courses
@@ -635,10 +814,12 @@ You now have full access to all teacher features, including:
 - View analytics and student progress
 
 Visit: ${clientUrl}/login
-  `.trim()
 
-  await sendEmail({ to: email, subject, html, text })
-}
+Need help? Contact: ${supportEmail()}
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send teacher rejection notification email
@@ -648,32 +829,34 @@ export const sendTeacherRejectionEmail = async (
   teacherName: string,
   reason?: string
 ): Promise<void> => {
-  const subject = 'Teacher Account Application Update - MabiniLMS'
+  const safeTeacherName = escapeHtml(teacherName);
+  const safeReason = reason ? escapeHtml(reason) : '';
+  const subject = 'Teacher Application Update - MabiniLMS';
 
   const html = `
-    <h2>Account Application Update</h2>
-    <p>Dear ${teacherName},</p>
-    <p>Thank you for your interest in becoming a teacher on MabiniLMS.</p>
-    <p>After review, we are unable to approve your teacher account at this time.</p>
-    ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-    <p>If you believe this is an error or have questions, please contact the administrator.</p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Update on your teacher application</h2>
+    <p style="margin:0 0 12px;">Hello ${safeTeacherName},</p>
+    <p style="margin:0 0 12px;">Thank you for your interest in joining MabiniLMS as a teacher.</p>
+    <p style="margin:0 0 12px;">After review, we are unable to approve your teacher account request at this time.</p>
+    ${safeReason ? `<p style="margin:0 0 12px;"><strong>Reason provided:</strong> ${safeReason}</p>` : ''}
+    <p style="margin:0; color:#475569;">If you believe this decision is in error, please contact support at ${escapeHtml(supportEmail())}.</p>
+  `;
 
   const text = `
-Account Application Update
+Teacher Application Update
 
-Dear ${teacherName},
+Hello ${teacherName},
 
 Thank you for your interest in becoming a teacher on MabiniLMS.
 
 After review, we are unable to approve your teacher account at this time.
 ${reason ? `\nReason: ${reason}` : ''}
 
-If you believe this is an error or have questions, please contact the administrator.
-  `.trim()
+If you believe this is an error, contact support at ${supportEmail()}.
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send student credentials email
@@ -685,40 +868,45 @@ export const sendStudentCredentialsEmail = async (
   temporaryPassword: string
 ): Promise<void> => {
   const clientUrl = getClientUrl();
-  const subject = 'Your MabiniLMS Student Account - Login Credentials'
+  const safeStudentName = escapeHtml(studentName);
+  const safeUsername = escapeHtml(username);
+  const safeTemporaryPassword = escapeHtml(temporaryPassword);
+  const subject = 'Your MabiniLMS Student Account Credentials';
 
   const html = `
-    <h2>Welcome to MabiniLMS!</h2>
-    <p>Dear ${studentName},</p>
-    <p>An administrator has created a student account for you. Below are your login credentials:</p>
-    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 15px 0;">
-      <p style="margin: 5px 0;"><strong>Username/Email:</strong> ${username}</p>
-      <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background-color: #e9ecef; padding: 2px 6px; border-radius: 3px;">${temporaryPassword}</code></p>
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Your student account is ready</h2>
+    <p style="margin:0 0 12px;">Hello ${safeStudentName}, your student account has been prepared by your administrator.</p>
+    <p style="margin:0 0 10px;">Use the credentials below for your first sign-in:</p>
+    <div style="padding:14px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; margin:0 0 14px;">
+      <p style="margin:0 0 6px;"><strong>Username / Email:</strong> ${safeUsername}</p>
+      <p style="margin:0;"><strong>Temporary Password:</strong> <code style="background:#e2e8f0; padding:2px 6px; border-radius:4px;">${safeTemporaryPassword}</code></p>
     </div>
-    <p><strong>⚠️ Important:</strong> You will be required to change your password on first login for security purposes.</p>
-    <p><a href="${clientUrl}/login" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Login to Your Account</a></p>
-    <p style="color: #666; font-size: 12px; margin-top: 20px;">For security, do not share these credentials with anyone.</p>
-  `
+    <p style="margin:0 0 8px;"><strong>Security reminder:</strong> You will be required to set a new password after first login.</p>
+    <p style="margin:0 0 14px; color:#475569;">Do not share your temporary password with anyone.</p>
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/login`)}" style="${PRIMARY_BUTTON_STYLE}">Sign In to MabiniLMS</a>
+    </p>
+  `;
 
   const text = `
 Welcome to MabiniLMS!
 
-Dear ${studentName},
+Hello ${studentName},
 
 An administrator has created a student account for you. Below are your login credentials:
 
 Username/Email: ${username}
 Temporary Password: ${temporaryPassword}
 
-⚠️ Important: You will be required to change your password on first login for security purposes.
+Important: You will be required to change your password on first login.
 
 Login at: ${clientUrl}/login
 
 For security, do not share these credentials with anyone.
-  `.trim()
+  `.trim();
 
-  await sendEmail({ to: email, subject, html, text })
-}
+  await sendEmail({ to: email, subject, html, text });
+};
 
 /**
  * Send admin notification for pending teacher approvals
@@ -730,29 +918,33 @@ export const sendAdminNotificationEmail = async (
   teacherNames: string[]
 ): Promise<void> => {
   const clientUrl = getClientUrl();
-  const subject = `${pendingCount} Teacher Account${pendingCount > 1 ? 's' : ''} Awaiting Approval - MabiniLMS`
+  const safeAdminName = escapeHtml(adminName);
+  const subject = `${pendingCount} Teacher Account${pendingCount > 1 ? 's' : ''} Awaiting Approval - MabiniLMS`;
 
-  const teacherList = teacherNames.slice(0, 5).join(', ') + (teacherNames.length > 5 ? `, and ${teacherNames.length - 5} more` : '')
+  const teacherList = teacherNames.slice(0, 5).join(', ') + (teacherNames.length > 5 ? `, and ${teacherNames.length - 5} more` : '');
+  const safeTeacherList = escapeHtml(teacherList);
 
   const html = `
-    <h2>Pending Teacher Approvals</h2>
-    <p>Dear ${adminName},</p>
-    <p>There ${pendingCount === 1 ? 'is' : 'are'} currently <strong>${pendingCount}</strong> teacher account${pendingCount > 1 ? 's' : ''} waiting for your approval.</p>
-    <p><strong>Recent applicants:</strong> ${teacherList}</p>
-    <p><a href="${clientUrl}/admin/teachers/pending" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Review Pending Teachers</a></p>
-  `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Pending teacher approvals</h2>
+    <p style="margin:0 0 12px;">Hello ${safeAdminName},</p>
+    <p style="margin:0 0 12px;">There ${pendingCount === 1 ? 'is' : 'are'} currently <strong>${pendingCount}</strong> teacher account${pendingCount > 1 ? 's' : ''} awaiting review.</p>
+    <p style="margin:0 0 14px;"><strong>Recent applicants:</strong> ${safeTeacherList}</p>
+    <p style="margin:0;">
+      <a href="${escapeHtml(`${clientUrl}/admin/teachers/pending`)}" style="${PRIMARY_BUTTON_STYLE}">Review Pending Teachers</a>
+    </p>
+  `;
 
   const text = `
 Pending Teacher Approvals
 
-Dear ${adminName},
+Hello ${adminName},
 
 There ${pendingCount === 1 ? 'is' : 'are'} currently ${pendingCount} teacher account${pendingCount > 1 ? 's' : ''} waiting for your approval.
 
 Recent applicants: ${teacherList}
 
 Review at: ${clientUrl}/admin/teachers/pending
-  `.trim()
+  `.trim();
 
-  await sendEmail({ to: adminEmail, subject, html, text })
-}
+  await sendEmail({ to: adminEmail, subject, html, text });
+};

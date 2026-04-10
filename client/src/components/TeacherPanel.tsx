@@ -1,13 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TeacherSidebar } from './TeacherSidebar';
 import { TeacherHeader } from './TeacherHeader';
 import { TeacherDashboard } from './TeacherDashboard';
 import { TeacherCreateClassDialog } from './TeacherCreateClassDialog';
+import { ClassItem } from '@/lib/data';
+import { useClasses as useApiClasses } from '@/hooks-api/useClasses';
 
 export function TeacherPanel() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings'>('dashboard');
   const [createClassOpen, setCreateClassOpen] = useState(false);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const { data: classesData = [], refetch: refetchClasses } = useApiClasses();
+
+  useEffect(() => {
+    setClasses(classesData);
+  }, [classesData]);
 
   const handleViewChange = (view: 'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings') => {
     setCurrentView(view);
@@ -43,7 +51,11 @@ export function TeacherPanel() {
 
           {/* Main content */}
           <main className="flex-1 overflow-auto">
-            <TeacherDashboard currentView={currentView} />
+            <TeacherDashboard 
+              currentView={currentView} 
+              classes={classes}
+              onClassesChange={setClasses}
+            />
           </main>
         </div>
       </div>
@@ -52,6 +64,9 @@ export function TeacherPanel() {
       <TeacherCreateClassDialog 
         open={createClassOpen}
         onOpenChange={setCreateClassOpen}
+        onSuccess={() => {
+          void refetchClasses();
+        }}
       />
     </div>
   );

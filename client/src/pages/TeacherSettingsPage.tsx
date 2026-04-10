@@ -5,8 +5,16 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { useRole } from '@/contexts/RoleContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function TeacherSettingsPage() {
+  const { currentUserName, currentUserAvatar } = useRole();
+  const { user } = useAuth();
+  const nameParts = currentUserName.trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts.slice(1).join(' ');
+
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('theme') === 'dark' || document.documentElement.classList.contains('dark');
@@ -33,7 +41,7 @@ export default function TeacherSettingsPage() {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <Avatar className="h-16 w-16">
-              <AvatarFallback className="bg-primary text-primary-foreground text-xl">SC</AvatarFallback>
+              <AvatarFallback className="bg-primary text-primary-foreground text-xl">{currentUserAvatar}</AvatarFallback>
             </Avatar>
             <div>
               <Button variant="outline" size="sm" className="rounded-xl">Change avatar</Button>
@@ -42,20 +50,20 @@ export default function TeacherSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>First name</Label>
-              <Input defaultValue="Sarah" className="rounded-xl" />
+              <Input defaultValue={firstName} className="rounded-xl" />
             </div>
             <div className="space-y-2">
               <Label>Last name</Label>
-              <Input defaultValue="Chen" className="rounded-xl" />
+              <Input defaultValue={lastName} className="rounded-xl" />
             </div>
           </div>
           <div className="space-y-2">
             <Label>Email</Label>
-            <Input defaultValue="sarah.chen@school.edu" className="rounded-xl" disabled />
+            <Input defaultValue={user?.email || ''} className="rounded-xl" disabled />
           </div>
           <div className="space-y-2">
             <Label>Department</Label>
-            <Input defaultValue="Mathematics" className="rounded-xl" />
+            <Input defaultValue="" placeholder="Department" className="rounded-xl" />
           </div>
         </CardContent>
       </Card>

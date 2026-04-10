@@ -1,26 +1,46 @@
 import { useState } from 'react';
 import { TeacherClassesSection } from './TeacherClassesSection';
 import { TeacherClassDetail } from './TeacherClassDetail';
+import { ClassItem } from '@/lib/data';
 
-export function TeacherClassesView() {
+interface TeacherClassesViewProps {
+  classes: ClassItem[];
+  onClassesChange: (classes: ClassItem[]) => void;
+}
+
+export function TeacherClassesView({ classes, onClassesChange }: TeacherClassesViewProps) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
   if (selectedClassId) {
-    return <TeacherClassDetailWrapper classId={selectedClassId} onBack={() => setSelectedClassId(null)} />;
+    const selectedClass = classes.find((item) => item.id === selectedClassId) || null;
+    return (
+      <TeacherClassDetailWrapper
+        classId={selectedClassId}
+        classItem={selectedClass}
+        onBack={() => setSelectedClassId(null)}
+      />
+    );
   }
 
-  return <TeacherClassesSection onSelectClass={setSelectedClassId} />;
+  return (
+    <TeacherClassesSection 
+      onSelectClass={setSelectedClassId} 
+      classes={classes}
+      onClassesChange={onClassesChange}
+    />
+  );
 }
 
 interface TeacherClassDetailWrapperProps {
   classId: string;
+  classItem: ClassItem | null;
   onBack: () => void;
 }
 
-function TeacherClassDetailWrapper({ classId, onBack }: TeacherClassDetailWrapperProps) {
+function TeacherClassDetailWrapper({ classId, classItem, onBack }: TeacherClassDetailWrapperProps) {
   return (
     <div>
-      <TeacherClassDetail classId={classId} onBack={onBack} />
+      <TeacherClassDetail classId={classId} classItem={classItem} onBack={onBack} />
     </div>
   );
 }

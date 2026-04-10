@@ -15,12 +15,15 @@ import GradesPage from "./pages/GradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
+import TeacherDemoPage from "./pages/TeacherDemoPage";
+import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -49,7 +52,18 @@ const AppRoutes = () => (
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+    <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+    {/* Teacher Routes */}
+    <Route
+      path="/teacher"
+      element={(
+        <ProtectedRoute role="teacher">
+          <TeacherDemoPage />
+        </ProtectedRoute>
+      )}
+    />
     
     {/* Admin Routes */}
     <Route path="/admin/login" element={<AdminLoginPage />} />

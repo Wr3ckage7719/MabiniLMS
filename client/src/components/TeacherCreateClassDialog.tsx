@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Sparkles, Plus } from 'lucide-react';
+import { Sparkles, Plus, Upload, X } from 'lucide-react';
 import { coursesService } from '@/services/courses.service';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface TeacherCreateClassDialogProps {
   open: boolean;
@@ -61,54 +62,85 @@ const levels = [
 export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: TeacherCreateClassDialogProps) {
   const [className, setClassName] = useState('');
   const [section, setSection] = useState('');
-  const [schedule, setSchedule] = useState('');
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('10:30');
   const [level, setLevel] = useState('');
-  const [subject, setSubject] = useState('');
   const [room, setRoom] = useState('');
   const [selectedColor, setSelectedColor] = useState('blue');
   const [isCreating, setIsCreating] = useState(false);
   const [showCustomColor, setShowCustomColor] = useState(false);
   const [customColor, setCustomColor] = useState('#3b82f6');
-  const [error, setError] = useState<string | null>(null);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [themeMode, setThemeMode] = useState<'color' | 'image'>('color');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const toggleDay = (day: string) => {
+    setSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
+  const formatSchedule = () => {
+    if (selectedDays.length === 0) return '';
+    return `${selectedDays.join('-')} ${startTime} - ${endTime}`;
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setUploadedImage(result);
+        setThemeMode('image');
+        setShowCustomColor(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearImage = () => {
+    setUploadedImage(null);
+    setThemeMode('color');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleCreateClass = async () => {
-    if (!className.trim()) {
-      setError('Please enter a class name');
-      return;
-    }
-
     setIsCreating(true);
-    setError(null);
-
     try {
-      const color = showCustomColor && selectedColor === 'custom' ? customColor : selectedColor;
-      
-      // Build description from subject and level
-      const description = [subject, level].filter(Boolean).join(' - ');
-      
+      const sectionValue = [section.trim(), level.trim()].filter(Boolean).join(' • ');
+      const coverImage = themeMode === 'image'
+        ? uploadedImage || undefined
+        : (showCustomColor && selectedColor === 'custom' ? customColor : selectedColor);
+
       await coursesService.createCourse({
         title: className.trim(),
-        section: section.trim() || undefined,
-        description: description || undefined,
+        section: sectionValue || undefined,
         room: room.trim() || undefined,
-        schedule: schedule.trim() || undefined,
-        cover_image: color,
+        schedule: formatSchedule() || undefined,
+        cover_image: coverImage,
       });
 
       toast({
-        title: 'Success!',
-        description: 'Class created successfully.',
+        title: 'Class created',
+        description: 'Your class has been created successfully.',
       });
-      
+      await queryClient.invalidateQueries({ queryKey: ['classes'] });
+
       resetForm();
       onOpenChange(false);
       onSuccess?.();
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to create class';
-      setError(message);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to create class';
       toast({
-        title: 'Error',
+        title: 'Unable to create class',
         description: message,
         variant: 'destructive',
       });
@@ -120,22 +152,18 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
   const resetForm = () => {
     setClassName('');
     setSection('');
-    setSchedule('');
+    setSelectedDays([]);
+    setStartTime('09:00');
+    setEndTime('10:30');
     setLevel('');
-    setSubject('');
     setRoom('');
     setSelectedColor('blue');
     setShowCustomColor(false);
     setCustomColor('#3b82f6');
-    setError(null);
+    clearImage();
   };
 
-  const handleClose = () => {
-    resetForm();
-    onOpenChange(false);
-  };
-
-  const isComplete = className && section && schedule && level && subject && room;
+  const isComplete = className && section && selectedDays.length > 0 && level && room;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -199,16 +227,65 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Schedule */}
             <div className="space-y-2 animate-in fade-in slide-in-from-bottom-1 duration-300 delay-150">
-              <Label htmlFor="schedule" className="text-sm font-semibold text-foreground">
+              <Label className="text-sm font-semibold text-foreground">
                 Schedule
               </Label>
-              <Input
-                id="schedule"
-                placeholder="e.g. Mon-Wed-Fri, 9:00 AM"
-                value={schedule}
-                onChange={(e) => setSchedule(e.target.value)}
-                className="rounded-lg h-10 border-1 border-input bg-secondary/30 focus:bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/60"
-              />
+              {/* Days Selection */}
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Select days</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {days.map((day) => (
+                    <button
+                      key={day}
+                      onClick={() => toggleDay(day)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        selectedDays.includes(day)
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-secondary/50 text-foreground hover:bg-secondary'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+              </div>              {/* Time Selection */}
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Time (optional)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="startTime" className="text-xs text-muted-foreground">
+                      Start
+                    </Label>
+                    <input
+                      id="startTime"
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-max h-9 rounded-lg text-sm font-medium text-foreground bg-secondary/30 focus:bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all px-2"
+                      placeholder="09:00"
+                      style={{
+                        colorScheme: 'light',
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="endTime" className="text-xs text-muted-foreground">
+                      End
+                    </Label>
+                    <input
+                      id="endTime"
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-max h-9 rounded-lg text-sm font-medium text-foreground bg-secondary/30 focus:bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all px-2"
+                      placeholder="10:30"
+                      style={{
+                        colorScheme: 'light',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Level */}
@@ -226,93 +303,125 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
             </div>
           </div>
 
-          {/* Subject */}
-          <div className="space-y-2 animate-in fade-in slide-in-from-bottom-1 duration-300 delay-200">
-            <Label htmlFor="subject" className="text-sm font-semibold text-foreground">
-              Subject
-            </Label>
-            <Input
-              id="subject"
-              placeholder="e.g. Mathematics, Computer Science"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="rounded-lg h-10 border-1 border-input bg-secondary/30 focus:bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/60"
-            />
-          </div>
-
           {/* Theme Color */}
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-1 duration-300 delay-225">
-            <Label className="text-sm font-semibold text-foreground">Choose Theme Color</Label>
-            <div className="flex flex-wrap gap-3">
-              {colorOptions.map((c) => (
-                <button
-                  key={c.value}
-                  onClick={() => {
-                    setSelectedColor(c.value);
-                    setShowCustomColor(false);
-                  }}
-                  className={`group w-11 h-11 rounded-full ${c.bg} transition-all duration-200 hover:scale-110 active:scale-95 ${
-                    selectedColor === c.value && !showCustomColor
-                      ? 'ring-2 ring-offset-2 ring-primary shadow-lg scale-110'
-                      : 'shadow-md hover:shadow-lg'
-                  }`}
-                  title={c.label}
-                  style={{
-                    animation: selectedColor === c.value && !showCustomColor ? `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite` : 'none',
-                  }}
-                />
-              ))}
-              
-              {/* Custom Color Button */}
-              <button
-                onClick={() => {
-                  setShowCustomColor(!showCustomColor);
-                  setSelectedColor('custom');
-                }}
-                className={`w-11 h-11 rounded-full border-2 border-dashed transition-all duration-200 hover:scale-110 active:scale-95 flex items-center justify-center ${
-                  showCustomColor
-                    ? 'border-primary bg-primary/10 shadow-lg scale-110'
-                    : 'border-secondary-foreground/30 hover:border-primary/50 shadow-md hover:shadow-lg'
-                }`}
-                title="Custom Color"
-              >
-                <Plus className="h-5 w-5 text-foreground/70" />
-              </button>
-            </div>
+            <Label className="text-sm font-semibold text-foreground">Customize Theme</Label>
             
-            {/* Custom Color Input */}
-            {showCustomColor && (
-              <div className="mt-3 p-3 bg-secondary/30 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-1 duration-200">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={customColor}
-                    onChange={(e) => setCustomColor(e.target.value)}
-                    className="w-12 h-10 rounded-lg cursor-pointer border border-input"
+            {/* Color Theme Section */}
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pick a color</p>
+              <div className="flex flex-wrap gap-3">
+                {colorOptions.map((c) => (
+                  <button
+                    key={c.value}
+                    onClick={() => {
+                      setSelectedColor(c.value);
+                      setShowCustomColor(false);
+                      clearImage();
+                    }}
+                    className={`group w-11 h-11 rounded-full ${c.bg} transition-all duration-200 hover:scale-110 active:scale-95 ${
+                      selectedColor === c.value && themeMode === 'color' && !showCustomColor
+                        ? 'ring-2 ring-offset-2 ring-primary shadow-lg scale-110'
+                        : 'shadow-md hover:shadow-lg'
+                    }`}
+                    title={c.label}
+                    style={{
+                      animation: selectedColor === c.value && themeMode === 'color' && !showCustomColor ? `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite` : 'none',
+                    }}
                   />
-                  <div className="flex-1">
-                    <Input
-                      type="text"
+                ))}
+                
+                {/* Custom Color Button */}
+                <button
+                  onClick={() => {
+                    setShowCustomColor(!showCustomColor);
+                    setSelectedColor('custom');
+                    clearImage();
+                  }}
+                  className={`w-11 h-11 rounded-full border-2 border-dashed transition-all duration-200 hover:scale-110 active:scale-95 flex items-center justify-center ${
+                    showCustomColor && themeMode === 'color'
+                      ? 'border-primary bg-primary/10 shadow-lg scale-110'
+                      : 'border-secondary-foreground/30 hover:border-primary/50 shadow-md hover:shadow-lg'
+                  }`}
+                  title="Custom Color"
+                >
+                  <Plus className="h-5 w-5 text-foreground/70" />
+                </button>
+              </div>
+              
+              {/* Custom Color Input */}
+              {showCustomColor && themeMode === 'color' && (
+                <div className="mt-3 p-3 bg-secondary/30 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-1 duration-200">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
                       value={customColor}
                       onChange={(e) => setCustomColor(e.target.value)}
-                      placeholder="#3b82f6"
-                      className="h-10 border-1 border-input bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-sm"
+                      className="w-12 h-10 rounded-lg cursor-pointer border border-input"
                     />
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        value={customColor}
+                        onChange={(e) => setCustomColor(e.target.value)}
+                        placeholder="#3b82f6"
+                        className="h-10 border-1 border-input bg-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* Image Upload Section */}
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Or upload a picture</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className={`w-full border-2 border-dashed rounded-lg py-3 px-4 hover:border-primary/50 transition-colors flex items-center justify-center gap-2 ${
+                  themeMode === 'image'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-muted-foreground/30 hover:bg-secondary/30'
+                }`}
+              >
+                <Upload className="w-4 h-4" />
+                <span className="text-sm font-medium">Click to upload image</span>
+              </button>
+
+              {/* Image Preview */}
+              {uploadedImage && (
+                <div className="relative w-full group animate-in fade-in slide-in-from-bottom-1 duration-200">
+                  <img
+                    src={uploadedImage}
+                    alt="Theme preview"
+                    className="w-full h-24 object-cover rounded-lg shadow-md"
+                  />
+                  <button
+                    onClick={clearImage}
+                    className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="border-t bg-secondary/20 px-6 py-4 flex flex-col-reverse sm:flex-row gap-3 sm:justify-end">
-          {error && (
-            <p className="text-sm text-destructive self-center mr-auto">{error}</p>
-          )}
           <Button 
             variant="outline" 
-            onClick={handleClose}
-            disabled={isCreating}
+            onClick={() => {
+              resetForm();
+              onOpenChange(false);
+            }}
             className="rounded-lg h-10 font-medium hover:bg-secondary transition-all"
           >
             Cancel

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { enrollmentsService } from '@/services/enrollments.service';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface JoinClassDialogProps {
   open: boolean;
@@ -17,6 +18,7 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleJoin = async () => {
     if (!courseId.trim()) {
@@ -33,6 +35,7 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
         title: 'Success!',
         description: 'You have successfully joined the class.',
       });
+      await queryClient.invalidateQueries({ queryKey: ['classes'] });
       setCourseId('');
       onOpenChange(false);
       onSuccess?.();

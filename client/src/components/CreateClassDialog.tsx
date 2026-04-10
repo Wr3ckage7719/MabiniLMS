@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { coursesService } from '@/services/courses.service';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface CreateClassDialogProps {
   open: boolean;
@@ -30,6 +31,7 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const resetForm = () => {
     setClassName('');
@@ -60,6 +62,7 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
         title: 'Success!',
         description: 'Class created successfully.',
       });
+      await queryClient.invalidateQueries({ queryKey: ['classes'] });
       resetForm();
       onOpenChange(false);
       onSuccess?.();

@@ -154,7 +154,7 @@ export const handleGoogleCallback = async (
 
     // For SPA: Return JSON response
     // For traditional web: Could redirect with token in URL fragment
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
     const redirectUrl = `${clientUrl}/auth/callback?token=${session.session.access_token}`;
 
     // Check if request wants JSON or redirect

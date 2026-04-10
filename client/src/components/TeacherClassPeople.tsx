@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Users,
   Search,
   MoreVertical,
   Mail,
   MessageSquare,
-  Edit2,
   Download,
   ArrowUpDown,
+  Clock,
+  Check,
 } from 'lucide-react';
-import { mockStudents, mockStudentSubmissions } from '@/lib/data';
+import { Student } from '@/lib/data';
+import { useClasses } from '@/contexts/ClassesContext';
+import { InviteStudentDialog } from '@/components/InviteStudentDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -36,8 +39,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { useStudents } from '@/hooks-api/useStudents';
+import { useCourseSubmissions } from '@/hooks/useTeacherData';
 
-type SortOption = 'name' | 'submissions' | 'grade';
+type SortOption = 'name' | 'submissions';
 
 interface TeacherClassPeopleProps {
   classId: string;
@@ -46,25 +51,61 @@ interface TeacherClassPeopleProps {
 export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('name');
-  const [selectedStudent, setSelectedStudent] = useState<(typeof mockStudents)[0] | null>(null);
-  const [editingGrade, setEditingGrade] = useState<string | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const {
+    getClassInvitations,
+    getPendingInvitations,
+    refreshInvitations,
+    invitationsLoading,
+  } = useClasses();
+  const { data: students = [], isLoading: studentsLoading } = useStudents(classId);
+  const { submissions, loading: submissionsLoading } = useCourseSubmissions(classId);
+
+  useEffect(() => {
+    void refreshInvitations(classId);
+  }, [classId, refreshInvitations]);
+
+  const classInvitations = getClassInvitations(classId);
+  const pendingInvitations = getPendingInvitations(classId);
+  const acceptedInvitations = classInvitations.filter((invitation) => invitation.status === 'accepted');
+
+  const getDisplaySubmissions = (studentId: string) => {
+    return submissions
+      .filter((submission) => submission.student_id === studentId)
+      .map((submission) => ({
+        id: submission.id,
+        assignmentTitle: submission.assignment?.title || 'Assignment',
+        submittedDate: new Date(submission.submitted_at).toLocaleString(),
+        grade:
+          typeof submission.grade?.points_earned === 'number'
+            ? String(submission.grade.points_earned)
+            : undefined,
+        status: submission.grade ? 'graded' : 'submitted',
+      }));
+  };
+
+  if (studentsLoading || submissionsLoading) {
+    return (
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-8 text-center text-muted-foreground">
+          Loading students...
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Count submissions per student
   const getStudentSubmissionCount = (studentId: string) => {
-    return mockStudentSubmissions.filter(
-      (s) => s.classId === classId && s.studentName === mockStudents.find(st => st.id === studentId)?.name
-    ).length;
+    return submissions.filter((submission) => submission.student_id === studentId).length;
   };
 
   const getStudentSubmissions = (studentId: string) => {
-    const studentName = mockStudents.find(st => st.id === studentId)?.name;
-    return mockStudentSubmissions.filter(
-      (s) => s.classId === classId && s.studentName === studentName
-    );
+    return getDisplaySubmissions(studentId);
   };
 
   // Filter and sort students
-  let filteredStudents = mockStudents.filter((student) =>
+  const filteredStudents = students.filter((student) =>
     student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     student.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -74,81 +115,12 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
       (a, b) =>
         getStudentSubmissionCount(b.id) - getStudentSubmissionCount(a.id)
     );
-  } else if (sortBy === 'grade') {
-    filteredStudents.sort((a, b) => {
-      const gradeOrder: Record<string, number> = {
-        'A+': 10,
-        A: 9,
-        'A-': 8,
-        'B+': 7,
-        B: 6,
-        'B-': 5,
-        'C+': 4,
-        C: 3,
-        'C-': 2,
-        D: 1,
-        F: 0,
-      };
-      return (gradeOrder[b.grade || 'F'] || 0) - (gradeOrder[a.grade || 'F'] || 0);
-    });
   } else if (sortBy === 'name') {
     filteredStudents.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  const getGradeColor = (grade: string) => {
-    if (grade.startsWith('A')) return 'bg-green-50 text-green-700 border-green-200';
-    if (grade.startsWith('B')) return 'bg-blue-50 text-blue-700 border-blue-200';
-    if (grade.startsWith('C')) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-    if (grade.startsWith('D')) return 'bg-orange-50 text-orange-700 border-orange-200';
-    return 'bg-red-50 text-red-700 border-red-200';
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Students
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{mockStudents.length}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Average Submissions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">
-              {mockStudents.length > 0
-                ? Math.round(
-                    mockStudentSubmissions.filter((s) => s.classId === classId)
-                      .length / mockStudents.length
-                  )
-                : 0}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Class Average Grade
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">
-              {mockStudents.length > 0 ? 'B+' : 'N/A'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-3 items-end">
@@ -172,14 +144,89 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
           <SelectContent>
             <SelectItem value="name">Sort by Name</SelectItem>
             <SelectItem value="submissions">Sort by Submissions</SelectItem>
-            <SelectItem value="grade">Sort by Grade</SelectItem>
           </SelectContent>
         </Select>
+
+        {/* Invite Student Button */}
+        <Button
+          onClick={() => setInviteDialogOpen(true)}
+          className="rounded-lg w-full sm:w-auto bg-primary hover:bg-primary/90"
+        >
+          <Mail className="h-4 w-4 mr-2" />
+          Invite Student
+        </Button>
       </div>
+
+      {/* Pending Invitations Section */}
+      {pendingInvitations.length > 0 && (
+        <Card className="border-0 shadow-sm bg-amber-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-5 w-5 text-amber-600" />
+              Pending Invitations ({pendingInvitations.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {pendingInvitations.map((invitation) => (
+                <div
+                  key={invitation.id}
+                  className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-100 text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-amber-500" />
+                    <span className="text-muted-foreground">{invitation.studentEmail}</span>
+                  </div>
+                  <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200 rounded-full">
+                    Pending
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {invitationsLoading && classInvitations.length === 0 && (
+        <p className="text-sm text-muted-foreground">Loading invitations...</p>
+      )}
+
+      {/* Recently Joined Section */}
+      {acceptedInvitations.length > 0 && (
+        <Card className="border-0 shadow-sm bg-green-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Check className="h-5 w-5 text-green-600" />
+              Recently Joined ({acceptedInvitations.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {acceptedInvitations
+                .map((invitation) => (
+                  <div
+                    key={invitation.id}
+                    className="flex items-center justify-between p-3 bg-white rounded-lg border border-green-100 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Check className="h-4 w-4 text-green-500" />
+                      <span className="text-muted-foreground">{invitation.studentEmail}</span>
+                    </div>
+                    <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 rounded-full">
+                      Joined
+                    </Badge>
+                  </div>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Students List */}
       {filteredStudents.length > 0 ? (
-        <div className="space-y-2 animate-stagger">
+        <>
+          <h3 className="font-semibold text-sm">Students ({filteredStudents.length})</h3>
+          <div className="space-y-2 animate-stagger">
           {filteredStudents.map((student, idx) => {
             const submissionCount = getStudentSubmissionCount(student.id);
             const submissions = getStudentSubmissions(student.id);
@@ -222,16 +269,6 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                       </Badge>
                     </div>
 
-                    {/* Grade */}
-                    <div className="hidden md:block">
-                      <Badge
-                        variant="outline"
-                        className={`rounded-full font-semibold ${getGradeColor(student.grade || 'N/A')}`}
-                      >
-                        {student.grade || 'N/A'}
-                      </Badge>
-                    </div>
-
                     {/* Actions */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -251,21 +288,6 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                           <MessageSquare className="h-4 w-4 mr-2" />
                           View Submissions
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSelectedStudent(student);
-                            setEditingGrade(student.id);
-                          }}
-                          className="cursor-pointer"
-                        >
-                          <Edit2 className="h-4 w-4 mr-2" />
-                          Edit Grade
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="cursor-pointer">
-                          <Mail className="h-4 w-4 mr-2" />
-                          Send Email
-                        </DropdownMenuItem>
                         <DropdownMenuItem className="cursor-pointer">
                           <Download className="h-4 w-4 mr-2" />
                           Download Work
@@ -274,23 +296,13 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                     </DropdownMenu>
                   </div>
 
-                  {/* Mobile Grade Display */}
-                  <div className="md:hidden mt-3 flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      Submissions: {submissionCount} | Grade:
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={`rounded-full font-semibold ${getGradeColor(student.grade || 'N/A')}`}
-                    >
-                      {student.grade || 'N/A'}
-                    </Badge>
-                  </div>
+
                 </CardContent>
               </Card>
             );
           })}
         </div>
+        </>
       ) : (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-8 text-center">
@@ -302,43 +314,49 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
         </Card>
       )}
 
+      {/* Invite Student Dialog */}
+      <InviteStudentDialog
+        open={inviteDialogOpen}
+        onOpenChange={setInviteDialogOpen}
+        classId={classId}
+      />
+
       {/* Student Details Dialog */}
       <StudentDetailsDialog
         student={selectedStudent}
         classId={classId}
+        getStudentSubmissions={getStudentSubmissions}
         onClose={() => {
           setSelectedStudent(null);
-          setEditingGrade(null);
         }}
-        isEditingGrade={editingGrade === selectedStudent?.id}
-        onEditGrade={() => selectedStudent && setEditingGrade(selectedStudent.id)}
       />
     </div>
   );
 }
 
 interface StudentDetailDialogProps {
-  student: (typeof mockStudents)[0] | null;
+  student: Student | null;
   classId: string;
+  getStudentSubmissions: (studentId: string) => Array<{
+    id: string;
+    assignmentTitle: string;
+    submittedDate: string;
+    grade?: string;
+    status: 'submitted' | 'graded';
+  }>;
   onClose: () => void;
-  isEditingGrade: boolean;
-  onEditGrade: () => void;
 }
 
 function StudentDetailsDialog({
   student,
-  classId,
+  classId: _classId,
+  getStudentSubmissions,
   onClose,
-  isEditingGrade,
-  onEditGrade,
 }: StudentDetailDialogProps) {
-  const [newGrade, setNewGrade] = useState(student?.grade || '');
 
   if (!student) return null;
 
-  const submissions = mockStudentSubmissions.filter(
-    (s) => s.classId === classId && s.studentName === student.name
-  );
+  const submissions = getStudentSubmissions(student.id);
 
   return (
     <Dialog open={!!student} onOpenChange={onClose}>
@@ -358,69 +376,6 @@ function StudentDetailsDialog({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Grade Section */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Current Grade</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Overall Grade:</span>
-                {isEditingGrade ? (
-                  <Select value={newGrade} onValueChange={setNewGrade}>
-                    <SelectTrigger className="w-24 rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="A+">A+</SelectItem>
-                      <SelectItem value="A">A</SelectItem>
-                      <SelectItem value="A-">A-</SelectItem>
-                      <SelectItem value="B+">B+</SelectItem>
-                      <SelectItem value="B">B</SelectItem>
-                      <SelectItem value="B-">B-</SelectItem>
-                      <SelectItem value="C+">C+</SelectItem>
-                      <SelectItem value="C">C</SelectItem>
-                      <SelectItem value="D">D</SelectItem>
-                      <SelectItem value="F">F</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className="rounded-full font-semibold text-base px-3"
-                  >
-                    {student.grade || 'N/A'}
-                  </Badge>
-                )}
-              </div>
-              {isEditingGrade ? (
-                <div className="flex gap-2">
-                  <Button size="sm" className="rounded-lg">
-                    Save Grade
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-lg"
-                    onClick={() => setNewGrade(student.grade || '')}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-lg"
-                  onClick={onEditGrade}
-                >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Edit Grade
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Submissions */}
           <Card className="border-0 shadow-sm">
             <CardHeader>

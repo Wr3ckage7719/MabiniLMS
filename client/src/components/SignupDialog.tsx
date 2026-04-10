@@ -101,7 +101,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
       
       toast({
         title: 'Account Created',
-        description: 'Your teacher account was created. Login access depends on admin approval.',
+        description: 'Your teacher account was created. You can sign in only after an admin approves your account.',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import * as emailVerificationService from '../services/email-verification.js'
+import * as emailService from '../services/email.js'
 import { ApiResponse } from '../types/index.js'
 import { VerificationResponse } from '../types/email.js'
 
@@ -95,7 +96,7 @@ export const resendVerificationEmail = async (
 ): Promise<void> => {
   try {
     const { email } = req.body
-    const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173'
+    const baseUrl = emailService.getClientUrl()
 
     await emailVerificationService.resendVerificationEmail(email, baseUrl)
 
@@ -140,7 +141,7 @@ export const forgotPassword = async (
 ): Promise<void> => {
   try {
     const { email } = req.body
-    const baseUrl = process.env.CLIENT_URL || 'http://localhost:5173'
+    const baseUrl = emailService.getClientUrl()
 
     await emailVerificationService.sendPasswordResetToken(email, baseUrl)
 

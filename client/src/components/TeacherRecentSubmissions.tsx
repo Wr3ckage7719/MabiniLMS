@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import {
   CheckCircle2,
-  Clock,
   AlertCircle,
   Download,
   MoreVertical,
   Search,
   Filter,
+  DateRange,
   TrendingUp,
-  Loader2,
 } from 'lucide-react';
-import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,37 +28,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useCourseSubmissions } from '@/hooks/useTeacherData';
 
 interface TeacherRecentSubmissionsProps {
   classId: string;
 }
 
-// Helper to get initials from name
-function getInitials(firstName: string | null, lastName: string | null): string {
-  const first = firstName?.charAt(0)?.toUpperCase() || '';
-  const last = lastName?.charAt(0)?.toUpperCase() || '';
-  return first + last || '??';
-}
-
-// Helper to get full name
-function getFullName(firstName: string | null, lastName: string | null): string {
-  return [firstName, lastName].filter(Boolean).join(' ') || 'Unknown Student';
-}
-
-// Helper to format date
-function formatSubmittedDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  return date.toLocaleDateString();
+interface DisplaySubmission {
+  id: string;
+  assignmentId: string;
+  studentName: string;
+  studentAvatar: string;
+  assignmentTitle: string;
+  submittedDate: string;
+  submittedAt: string;
+  dueDate: string | null;
+  grade?: string;
+  status: 'submitted' | 'graded';
 }
 
 export function TeacherRecentSubmissions({
@@ -69,68 +53,95 @@ export function TeacherRecentSubmissions({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'assignment'>('recent');
+  const { submissions: apiSubmissions, loading } = useCourseSubmissions(classId);
 
-  // Fetch real submissions from API
-  const { submissions, loading, error, refetch } = useCourseSubmissions(classId);
+  const classSubmissions: DisplaySubmission[] = apiSubmissions.map((submission) => {
+    const firstName = submission.student?.first_name?.trim() || '';
+    const lastName = submission.student?.last_name?.trim() || '';
+    const fullName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
+    const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || fullName.slice(0, 2).toUpperCase();
 
-  // Determine if submission is early, on-time, or late
+    return {
+      id: submission.id,
+      assignmentId: submission.assignment_id,
+      studentName: fullName,
+      studentAvatar: avatar,
+      assignmentTitle: submission.assignment?.title || 'Assignment',
+      submittedDate: new Date(submission.submitted_at).toLocaleString(),
+      submittedAt: submission.submitted_at,
+      dueDate: submission.assignment?.due_date || null,
+      grade: typeof submission.grade?.points_earned === 'number' ? String(submission.grade.points_earned) : undefined,
+      status: submission.grade ? 'graded' : 'submitted',
+    };
+  });
+
+  if (loading) {
+    return (
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-8 text-center text-muted-foreground">
+          Loading submissions...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Determine if submission is early, on-time, or late based on real timestamps.
   const getSubmissionTiming = (
     submittedAt: string,
     dueDate: string | null
   ): 'early' | 'on-time' | 'late' => {
     if (!dueDate) return 'on-time';
-    
-    const submitted = new Date(submittedAt);
-    const due = new Date(dueDate);
-    const diffHours = (due.getTime() - submitted.getTime()) / (1000 * 60 * 60);
-    
-    if (diffHours > 24) return 'early'; // More than 24 hours before due
-    if (diffHours >= 0) return 'on-time'; // Before or exactly at due date
-    return 'late'; // After due date
+
+    const submittedTs = new Date(submittedAt).getTime();
+    const dueTs = new Date(dueDate).getTime();
+    if (!Number.isFinite(submittedTs) || !Number.isFinite(dueTs)) return 'on-time';
+
+    if (submittedTs < dueTs) return 'early';
+    if (submittedTs === dueTs) return 'on-time';
+    if (submittedTs > dueTs) return 'late';
+
+    return 'on-time';
   };
 
   // Filter submissions
-  let filteredSubmissions = submissions.filter((s) => {
-    const studentName = getFullName(s.student?.first_name, s.student?.last_name);
-    const assignmentTitle = s.assignment?.title || '';
-    
+  const filteredSubmissions = classSubmissions.filter((s) => {
     const matchesSearch =
-      studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      assignmentTitle.toLowerCase().includes(searchQuery.toLowerCase());
+      s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.assignmentTitle.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (filterStatus === 'all') return matchesSearch;
 
-    const timing = getSubmissionTiming(s.submitted_at, s.assignment?.due_date || null);
+    const timing = getSubmissionTiming(s.submittedAt, s.dueDate);
     return matchesSearch && timing === filterStatus;
   });
 
   // Sort submissions
   if (sortBy === 'name') {
-    filteredSubmissions = [...filteredSubmissions].sort((a, b) => {
-      const nameA = getFullName(a.student?.first_name, a.student?.last_name);
-      const nameB = getFullName(b.student?.first_name, b.student?.last_name);
-      return nameA.localeCompare(nameB);
-    });
+    filteredSubmissions.sort((a, b) => a.studentName.localeCompare(b.studentName));
   } else if (sortBy === 'assignment') {
-    filteredSubmissions = [...filteredSubmissions].sort((a, b) =>
-      (a.assignment?.title || '').localeCompare(b.assignment?.title || '')
+    filteredSubmissions.sort((a, b) =>
+      a.assignmentTitle.localeCompare(b.assignmentTitle)
+    );
+  } else {
+    filteredSubmissions.sort(
+      (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
     );
   }
-  // 'recent' keeps the default order (already sorted by date)
+  // 'recent' is default order
 
   // Calculate statistics
   const stats = {
-    total: submissions.length,
-    early: submissions.filter(
-      (s) => getSubmissionTiming(s.submitted_at, s.assignment?.due_date || null) === 'early'
+    total: classSubmissions.length,
+    early: classSubmissions.filter(
+      (s) => getSubmissionTiming(s.submittedAt, s.dueDate) === 'early'
     ).length,
-    onTime: submissions.filter(
-      (s) => getSubmissionTiming(s.submitted_at, s.assignment?.due_date || null) === 'on-time'
+    onTime: classSubmissions.filter(
+      (s) => getSubmissionTiming(s.submittedAt, s.dueDate) === 'on-time'
     ).length,
-    late: submissions.filter(
-      (s) => getSubmissionTiming(s.submitted_at, s.assignment?.due_date || null) === 'late'
+    late: classSubmissions.filter(
+      (s) => getSubmissionTiming(s.submittedAt, s.dueDate) === 'late'
     ).length,
-    graded: submissions.filter((s) => s.status === 'graded' || s.grade).length,
+    graded: classSubmissions.filter((s) => s.status === 'graded').length,
   };
 
   const getTimingColor = (
@@ -163,40 +174,12 @@ export function TeacherRecentSubmissions({
     switch (status) {
       case 'graded':
         return 'bg-green-50 text-green-700 border-green-200';
-      case 'returned':
+      case 'reviewed':
         return 'bg-blue-50 text-blue-700 border-blue-200';
       default:
         return 'bg-gray-50 text-gray-700 border-gray-200';
     }
   };
-
-  // Loading state
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-8 text-center">
-            <AlertCircle className="h-8 w-8 mx-auto text-destructive mb-3" />
-            <p className="text-destructive">{error}</p>
-            <Button variant="outline" onClick={() => refetch()} className="mt-4">
-              Try Again
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -286,9 +269,12 @@ export function TeacherRecentSubmissions({
         </Select>
 
         {/* Sort */}
-        <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+        <Select
+          value={sortBy}
+          onValueChange={(value: 'recent' | 'name' | 'assignment') => setSortBy(value)}
+        >
           <SelectTrigger className="w-full sm:w-40 rounded-lg">
-            <Clock className="h-4 w-4 mr-2" />
+            <DateRange className="h-4 w-4 mr-2" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -303,11 +289,9 @@ export function TeacherRecentSubmissions({
       {filteredSubmissions.length > 0 ? (
         <div className="space-y-3 animate-stagger">
           {filteredSubmissions.map((submission, idx) => {
-            const studentName = getFullName(submission.student?.first_name, submission.student?.last_name);
-            const studentInitials = getInitials(submission.student?.first_name, submission.student?.last_name);
             const timing = getSubmissionTiming(
-              submission.submitted_at,
-              submission.assignment?.due_date || null
+              submission.submittedAt,
+              submission.dueDate
             );
 
             return (
@@ -326,15 +310,15 @@ export function TeacherRecentSubmissions({
                       <div className="flex items-start gap-3 flex-1 min-w-0">
                         <Avatar className="h-10 w-10 flex-shrink-0">
                           <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                            {studentInitials}
+                            {submission.studentAvatar}
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
                           <h4 className="font-semibold text-sm line-clamp-1">
-                            {studentName}
+                            {submission.studentName}
                           </h4>
                           <p className="text-xs md:text-sm text-muted-foreground line-clamp-1">
-                            {submission.assignment?.title || 'Assignment'}
+                            {submission.assignmentTitle}
                           </p>
                         </div>
                       </div>
@@ -385,7 +369,7 @@ export function TeacherRecentSubmissions({
 
                       {/* Submission Date */}
                       <Badge variant="outline" className="rounded-full text-xs">
-                        {formatSubmittedDate(submission.submitted_at)}
+                        {submission.submittedDate}
                       </Badge>
 
                       {/* Status */}
@@ -404,7 +388,7 @@ export function TeacherRecentSubmissions({
                           variant="outline"
                           className="rounded-full text-xs bg-amber-50 text-amber-700 border-amber-200"
                         >
-                          {submission.grade.points_earned}/{submission.assignment?.max_points || '?'}
+                          {submission.grade}%
                         </Badge>
                       )}
                     </div>

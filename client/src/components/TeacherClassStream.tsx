@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   Copy,
-  Settings,
   Palette,
   Plus,
   Send,
@@ -10,7 +9,6 @@ import {
   Heart,
   MessageCircle,
   Repeat2,
-  Sparkles,
   Clock,
   BookOpen,
   Upload,
@@ -20,7 +18,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,137 +28,153 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { announcementsService, Announcement } from '@/services/announcements.service';
+import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
+import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
+import { StudentDetailDialog } from '@/components/StudentDetailDialog';
+import { TeacherClassPeople } from '@/components/TeacherClassPeople';
+import { useAnnouncements } from '@/hooks-api/useAnnouncements';
+import { useAssignments } from '@/hooks-api/useAssignments';
+import { useCourseSubmissions } from '@/hooks/useTeacherData';
+import { announcementsService } from '@/services/announcements.service';
+import { assignmentsService } from '@/services/assignments.service';
 import { useToast } from '@/hooks/use-toast';
 
 interface TeacherClassStreamProps {
   classId: string;
   className: string;
   classColor: string;
-  section?: string;
+  block?: string;
+  level?: string;
   room?: string;
   schedule?: string;
 }
 
-interface ClassAssignment {
-  id: number;
+interface ClassworkAssignment {
+  id: string;
   title: string;
   description: string;
   dueDate: string;
   dueSoon: boolean;
   submitted: number;
   total: number;
-  status: string;
+  status: 'active' | 'completed';
   type: 'activity' | 'material';
-  topic: string;
+  topic?: string;
   createdAt: Date;
+}
+
+interface RecentSubmissionItem {
+  id: string;
+  student: string;
+  avatar: string;
+  assignment: string;
+  submittedAt: string;
+  dueDate: string;
+  onTime: boolean;
+  submissionContent?: string;
+  points?: number;
+  description?: string;
 }
 
 export function TeacherClassStream({
   classId,
   className,
   classColor,
-  section,
+  block,
+  level,
   room,
   schedule,
 }: TeacherClassStreamProps) {
-  const { toast } = useToast();
   const [announcementText, setAnnouncementText] = useState('');
-  const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(true);
-  const [isPostingAnnouncement, setIsPostingAnnouncement] = useState(false);
-  const [classCode] = useState(classId.slice(0, 8).toUpperCase());
+  const { toast } = useToast();
+  const {
+    data: apiAnnouncements = [],
+    isLoading: announcementsLoading,
+    refetch: refetchAnnouncements,
+  } = useAnnouncements(classId);
+  const { data: apiAssignments = [] } = useAssignments(classId);
+  const { submissions: apiSubmissions = [] } = useCourseSubmissions(classId);
+  const [announcements, setAnnouncements] = useState(apiAnnouncements);
+  const [classCode] = useState(() => classId.toUpperCase().slice(0, 8));
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState(classColor);
   const [copied, setCopied] = useState(false);
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('stream');
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
-  const [assignmentTitle, setAssignmentTitle] = useState('');
-  const [assignmentDescription, setAssignmentDescription] = useState('');
-  const [assignmentDueDate, setAssignmentDueDate] = useState('');
-  const [assignmentType, setAssignmentType] = useState<'activity' | 'material'>('activity');
-  const [assignmentTopic, setAssignmentTopic] = useState('');
-  const [topics, setTopics] = useState(['Functions', 'Derivatives', 'Integration']);
-  const [showNewTopic, setShowNewTopic] = useState(false);
-  const [newTopicName, setNewTopicName] = useState('');
-  const [assignments, setAssignments] = useState<ClassAssignment[]>([
-    {
-      id: 1,
-      title: 'Chapter 3: Functions & Graphs',
-      description: 'Complete the exercises on pages 45-52 in your textbook',
-      dueDate: 'Today',
-      dueSoon: true,
-      submitted: 18,
-      total: 32,
-      status: 'active',
-      type: 'activity' as const,
-      topic: 'Functions',
-      createdAt: new Date(),
-    },
-    {
-      id: 2,
-      title: 'Practice Problem Set #5',
-      description: 'Solve problems 1-20 from the worksheet provided in class',
-      dueDate: 'Tomorrow',
-      dueSoon: true,
-      submitted: 5,
-      total: 32,
-      status: 'active',
-      type: 'activity' as const,
-      topic: 'Functions',
-      createdAt: new Date(),
-    },
-    {
-      id: 3,
-      title: 'Quiz: Derivatives',
-      description: 'Online quiz covering derivatives, integrals, and applications',
-      dueDate: 'Mar 15',
-      dueSoon: false,
-      submitted: 32,
-      total: 32,
-      status: 'completed',
-      type: 'activity' as const,
-      topic: 'Derivatives',
-      createdAt: new Date(),
-    },
-  ]);
-
-  // Load announcements from API
-  const loadAnnouncements = useCallback(async () => {
-    try {
-      setIsLoadingAnnouncements(true);
-      const response = await announcementsService.getAnnouncements(classId);
-      const apiAnnouncements = response.data?.map((a: Announcement) => ({
-        id: a.id,
-        classId: a.course_id,
-        author: a.author ? `${a.author.first_name} ${a.author.last_name}` : 'Unknown',
-        avatar: a.author?.first_name?.[0] || 'T',
-        content: a.content,
-        title: a.title,
-        timestamp: new Date(a.created_at).toLocaleDateString(),
-        comments: 0,
-        pinned: a.pinned,
-      })) || [];
-      setAnnouncements(apiAnnouncements);
-    } catch (error) {
-      console.error('Failed to load announcements:', error);
-      // Fallback to empty array on error
-      setAnnouncements([]);
-    } finally {
-      setIsLoadingAnnouncements(false);
-    }
-  }, [classId]);
+  const [selectedAssignment, setSelectedAssignment] = useState<ClassworkAssignment | null>(null);
+  const [showAssignmentDetail, setShowAssignmentDetail] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<{
+    name: string;
+    avatar: string;
+    submitted: number;
+    total: number;
+    percentage: number;
+  } | null>(null);
+  const [showStudentDetail, setShowStudentDetail] = useState(false);
+  const [selectedSubmission, setSelectedSubmission] = useState<RecentSubmissionItem | null>(null);
+  const [showSubmissionDetail, setShowSubmissionDetail] = useState(false);
+  const [submissionGrade, setSubmissionGrade] = useState('');
+  const [submissionFeedback, setSubmissionFeedback] = useState('');
+  const [assignments, setAssignments] = useState<ClassworkAssignment[]>([]);
 
   useEffect(() => {
-    loadAnnouncements();
-  }, [loadAnnouncements]);
+    setAnnouncements(apiAnnouncements);
+  }, [apiAnnouncements]);
+
+  useEffect(() => {
+    const assignmentSubmissions = apiSubmissions.reduce<Record<string, number>>((acc, submission) => {
+      acc[submission.assignment_id] = (acc[submission.assignment_id] || 0) + 1;
+      return acc;
+    }, {});
+
+    const mappedAssignments: ClassworkAssignment[] = apiAssignments.map((assignment) => ({
+      id: assignment.id,
+      title: assignment.title,
+      description: assignment.description,
+      dueDate: assignment.dueDate,
+      dueSoon: new Date(assignment.dueDate).getTime() - Date.now() <= 48 * 60 * 60 * 1000,
+      submitted: assignmentSubmissions[assignment.id] || 0,
+      total: Math.max(assignmentSubmissions[assignment.id] || 0, 1),
+      status: assignment.status === 'graded' ? 'completed' : 'active',
+      type: assignment.type === 'discussion' ? 'material' : 'activity',
+      createdAt: new Date(assignment.dueDate),
+    }));
+
+    setAssignments(mappedAssignments);
+  }, [apiAssignments, apiSubmissions]);
+
+  const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
+    return apiSubmissions
+      .map((submission) => {
+        const firstName = submission.student?.first_name?.trim() || '';
+        const lastName = submission.student?.last_name?.trim() || '';
+        const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
+        const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || studentName.slice(0, 2).toUpperCase();
+
+        return {
+          id: submission.id,
+          student: studentName,
+          avatar,
+          assignment: submission.assignment?.title || 'Assignment',
+          submittedAt: new Date(submission.submitted_at).toLocaleString(),
+          dueDate: submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date',
+          onTime: submission.assignment?.due_date
+            ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
+            : true,
+          points: submission.assignment?.max_points,
+          submissionContent: submission.submission_text || submission.submission_url || undefined,
+          description: submission.assignment?.title,
+        };
+      })
+      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+      .slice(0, 10);
+  }, [apiSubmissions]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -180,103 +193,51 @@ export function TeacherClassStream({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePostAnnouncement = async () => {
-    if (!announcementText.trim()) return;
-    
-    setIsPostingAnnouncement(true);
-    try {
-      await announcementsService.createAnnouncement(classId, {
-        title: announcementText.slice(0, 100), // Use first 100 chars as title
-        content: announcementText,
-      });
-      
-      toast({
-        title: 'Success',
-        description: 'Announcement posted successfully',
-      });
-      
-      setAnnouncementText('');
-      // Reload announcements to get the new one with proper data
-      await loadAnnouncements();
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error?.message || 'Failed to post announcement',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsPostingAnnouncement(false);
-    }
+  const handlePostAnnouncement = () => {
+    const content = announcementText.trim();
+    if (!content) return;
+
+    void (async () => {
+      try {
+        await announcementsService.createAnnouncement(classId, {
+          title: content.slice(0, 80),
+          content,
+        });
+        setAnnouncementText('');
+        await refetchAnnouncements();
+        toast({
+          title: 'Announcement posted',
+          description: 'Your announcement is now visible to students.',
+        });
+      } catch (error: any) {
+        const message = error?.response?.data?.message || error?.message || 'Failed to post announcement';
+        toast({
+          title: 'Unable to post announcement',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    })();
   };
 
-  const handleCreateAssignment = () => {
-    if (assignmentTitle.trim() && assignmentDueDate.trim() && assignmentTopic) {
-      const newAssignment = {
-        id: Math.max(...assignments.map(a => a.id), 0) + 1,
-        title: assignmentTitle,
-        description: assignmentDescription,
-        dueDate: assignmentDueDate,
-        dueSoon: true,
-        submitted: 0,
-        total: 32,
-        status: 'active',
-        type: assignmentType,
-        topic: assignmentTopic,
-        createdAt: new Date(),
-      };
-      setAssignments([newAssignment, ...assignments]);
-      setAssignmentTitle('');
-      setAssignmentDescription('');
-      setAssignmentDueDate('');
-      setAssignmentType('activity');
-      setAssignmentTopic('');
-      setShowCreateAssignment(false);
-    }
-  };
-
-  const handleCreateTopic = () => {
-    if (newTopicName.trim() && !topics.includes(newTopicName)) {
-      setTopics([...topics, newTopicName]);
-      setAssignmentTopic(newTopicName);
-      setNewTopicName('');
-      setShowNewTopic(false);
-    }
-  };
-
-  const handleDeleteAssignment = (id: number) => {
-    setAssignments(assignments.filter(a => a.id !== id));
-  };
-
-  const getThemeColors = (color: string) => {
-    const colors: Record<string, { bg: string; text: string; light: string }> = {
-      blue: {
-        bg: 'bg-blue-500',
-        text: 'text-blue-500',
-        light: 'bg-blue-50',
-      },
-      teal: {
-        bg: 'bg-teal-500',
-        text: 'text-teal-500',
-        light: 'bg-teal-50',
-      },
-      purple: {
-        bg: 'bg-purple-500',
-        text: 'text-purple-500',
-        light: 'bg-purple-50',
-      },
-      orange: {
-        bg: 'bg-orange-500',
-        text: 'text-orange-500',
-        light: 'bg-orange-50',
-      },
-      pink: { bg: 'bg-pink-500', text: 'text-pink-500', light: 'bg-pink-50' },
-      green: {
-        bg: 'bg-green-500',
-        text: 'text-green-500',
-        light: 'bg-green-50',
-      },
-    };
-    return colors[color] || colors.blue;
+  const handleDeleteAssignment = (id: string) => {
+    void (async () => {
+      try {
+        await assignmentsService.deleteAssignment(classId, id);
+        setAssignments(assignments.filter((assignment) => assignment.id !== id));
+        toast({
+          title: 'Classwork removed',
+          description: 'The selected classwork item has been deleted.',
+        });
+      } catch (error: any) {
+        const message = error?.response?.data?.message || error?.message || 'Failed to delete classwork';
+        toast({
+          title: 'Delete failed',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    })();
   };
 
   const gradients: Record<string, string> = {
@@ -317,8 +278,8 @@ export function TeacherClassStream({
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">{className}</h2>
-              {section && (
-                <p className="text-white/80 text-sm">{section}</p>
+              {block && level && (
+                <p className="text-white/80 text-sm">Block {block} • {level}</p>
               )}
             </div>
             <Button
@@ -445,11 +406,15 @@ export function TeacherClassStream({
             <CardContent className="p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="text-center p-2 rounded-lg bg-blue-50">
-                  <p className="text-lg font-bold text-blue-600">28</p>
+                  <p className="text-lg font-bold text-blue-600">
+                    {new Set(recentSubmissions.map((item) => item.student)).size}
+                  </p>
                   <p className="text-xs text-muted-foreground">Students</p>
                 </div>
                 <div className="text-center p-2 rounded-lg bg-green-50">
-                  <p className="text-lg font-bold text-green-600">12</p>
+                  <p className="text-lg font-bold text-green-600">
+                    {assignments.filter((item) => item.status === 'active').length}
+                  </p>
                   <p className="text-xs text-muted-foreground">Active</p>
                 </div>
               </div>
@@ -599,7 +564,13 @@ export function TeacherClassStream({
 
               {/* Announcements List */}
               <div className="space-y-4">
-                {announcements.length > 0 ? (
+                {announcementsLoading ? (
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-12 text-center text-muted-foreground">
+                      Loading announcements...
+                    </CardContent>
+                  </Card>
+                ) : announcements.length > 0 ? (
                   <div className="space-y-3">
                     {announcements.map((announcement, idx) => (
                       <Card
@@ -707,134 +678,11 @@ export function TeacherClassStream({
           {activeTab === 'classwork' && (
             <div className="space-y-4">
               {/* Create Assignment Dialog */}
-              <Dialog open={showCreateAssignment} onOpenChange={setShowCreateAssignment}>
-                <DialogContent className="w-full max-w-md rounded-xl">
-                  <DialogHeader>
-                    <DialogTitle className="text-left">Create assignment</DialogTitle>
-                  </DialogHeader>
-                  
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {/* Type Selection */}
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-2 block">Type</label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setAssignmentType('activity')}
-                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
-                            assignmentType === 'activity'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                          }`}
-                        >
-                          Activity
-                        </button>
-                        <button
-                          onClick={() => setAssignmentType('material')}
-                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
-                            assignmentType === 'material'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                          }`}
-                        >
-                          Material
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Topic Selection */}
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-2 block">Topic</label>
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-2">
-                          {topics.map((topic) => (
-                            <button
-                              key={topic}
-                              onClick={() => setAssignmentTopic(topic)}
-                              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                                assignmentTopic === topic
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                              }`}
-                            >
-                              {topic}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => setShowNewTopic(!showNewTopic)}
-                            className="px-3 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 transition-all"
-                          >
-                            + New
-                          </button>
-                        </div>
-                        
-                        {showNewTopic && (
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="Topic name..."
-                              value={newTopicName}
-                              onChange={(e) => setNewTopicName(e.target.value)}
-                              className="rounded-lg text-xs"
-                            />
-                            <Button
-                              size="sm"
-                              onClick={handleCreateTopic}
-                              disabled={!newTopicName.trim()}
-                              className="rounded-lg"
-                            >
-                              Add
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Title</label>
-                      <Input
-                        placeholder="Assignment title..."
-                        value={assignmentTitle}
-                        onChange={(e) => setAssignmentTitle(e.target.value)}
-                        className="rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Description</label>
-                      <Textarea
-                        placeholder="Add instructions or details..."
-                        value={assignmentDescription}
-                        onChange={(e) => setAssignmentDescription(e.target.value)}
-                        className="min-h-20 resize-none rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1 block">Due Date</label>
-                      <Input
-                        placeholder="e.g., Tomorrow, Mar 15, etc."
-                        value={assignmentDueDate}
-                        onChange={(e) => setAssignmentDueDate(e.target.value)}
-                        className="rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <DialogFooter className="flex gap-2 justify-end pt-4">
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => setShowCreateAssignment(false)}
-                      className="rounded-lg"
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      onClick={handleCreateAssignment}
-                      disabled={!assignmentTitle.trim() || !assignmentDueDate.trim() || !assignmentTopic}
-                      className="rounded-lg"
-                    >
-                      Create
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <CreateAssignmentDialog
+                open={showCreateAssignment}
+                onOpenChange={setShowCreateAssignment}
+                classId={classId}
+              />
 
               {/* Create Classwork Button */}
               <div className="flex justify-end">
@@ -853,6 +701,10 @@ export function TeacherClassStream({
                     <Card
                       key={item.id}
                       className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group cursor-pointer"
+                      onClick={() => {
+                        setSelectedAssignment(item);
+                        setShowAssignmentDetail(true);
+                      }}
                       style={{
                         animation: `slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 50}ms both`,
                       }}
@@ -915,12 +767,22 @@ export function TeacherClassStream({
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-lg">
-                              <DropdownMenuItem>Edit</DropdownMenuItem>
-                              <DropdownMenuItem>View Submissions</DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedAssignment(item);
+                                  setShowAssignmentDetail(true);
+                                }}
+                              >
+                                View Details
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem 
                                 className="text-destructive"
-                                onClick={() => handleDeleteAssignment(item.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteAssignment(item.id);
+                                }}
                               >
                                 Delete
                               </DropdownMenuItem>
@@ -945,20 +807,62 @@ export function TeacherClassStream({
 
           {/* People Tab Content */}
           {activeTab === 'people' && (
-            <Card className="border-0 shadow-sm">
-              <CardContent className="p-12 text-center">
-                <p className="text-muted-foreground font-medium">People coming soon</p>
-              </CardContent>
-            </Card>
+            <TeacherClassPeople classId={classId} />
           )}
 
           {/* Recent Submissions Tab Content */}
           {activeTab === 'submissions' && (
-            <Card className="border-0 shadow-sm">
-              <CardContent className="p-12 text-center">
-                <p className="text-muted-foreground font-medium">Recent submissions coming soon</p>
-              </CardContent>
-            </Card>
+            <>
+              {recentSubmissions.length > 0 ? (
+                <div className="space-y-3">
+                  {recentSubmissions.map((submission) => (
+                    <Card key={submission.id} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <Avatar className="h-10 w-10 flex-shrink-0">
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                {submission.avatar}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="font-semibold text-sm">{submission.student}</p>
+                                <Badge className={submission.onTime ? 'bg-green-100 text-green-700 border-green-200 text-xs' : 'bg-red-100 text-red-700 border-red-200 text-xs'}>
+                                  {submission.onTime ? 'On Time' : 'Late'}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground mb-1">{submission.assignment}</p>
+                              <p className="text-xs text-muted-foreground">Submitted: {submission.submittedAt}</p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="flex-shrink-0 rounded-lg"
+                            onClick={() => {
+                              setSelectedSubmission(submission);
+                              setShowSubmissionDetail(true);
+                              setSubmissionGrade('');
+                              setSubmissionFeedback('');
+                            }}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <Card className="border-0 shadow-sm">
+                  <CardContent className="p-12 text-center">
+                    <Clock className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
+                    <p className="text-muted-foreground font-medium">No recent submissions yet</p>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -995,6 +899,146 @@ export function TeacherClassStream({
           }
         }
       `}</style>
+
+      {/* Teacher Assignment Detail Dialog */}
+      {selectedAssignment && (
+        <TeacherAssignmentDetail
+          assignment={selectedAssignment ? {
+            id: String(selectedAssignment.id),
+            title: selectedAssignment.title,
+            description: selectedAssignment.description,
+            dueDate: selectedAssignment.dueDate,
+            points: 100,
+            type: selectedAssignment.type,
+            topics: selectedAssignment.topic ? [{ id: '1', name: selectedAssignment.topic }] : [],
+            acceptingSubmissions: selectedAssignment.status === 'active',
+          } : null}
+          open={showAssignmentDetail}
+          onOpenChange={(open) => {
+            setShowAssignmentDetail(open);
+            if (!open) setSelectedAssignment(null);
+          }}
+        />
+      )}
+
+      {/* Student Detail Dialog */}
+      <StudentDetailDialog
+        student={selectedStudent}
+        open={showStudentDetail}
+        onOpenChange={(open) => {
+          setShowStudentDetail(open);
+          if (!open) setSelectedStudent(null);
+        }}
+      />
+
+      {/* Submission Detail Dialog */}
+      <Dialog open={showSubmissionDetail} onOpenChange={setShowSubmissionDetail}>
+        <DialogContent className="w-full max-w-2xl rounded-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Student Submission</DialogTitle>
+          </DialogHeader>
+
+          {selectedSubmission && (
+            <div className="space-y-6">
+              {/* Student & Assignment Info */}
+              <div className="border-b border-muted pb-4">
+                <div className="flex items-start gap-4 mb-4">
+                  <Avatar className="h-12 w-12">
+                    <AvatarFallback className="bg-primary/10 text-primary">
+                      {selectedSubmission.avatar}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg">{selectedSubmission.student}</h3>
+                    <div className="flex items-center gap-3 mt-2">
+                      <Badge className={selectedSubmission.onTime ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}>
+                        {selectedSubmission.onTime ? 'On Time' : 'Late'}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">Submitted: {selectedSubmission.submittedAt}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignment Details */}
+                <div className="space-y-3 bg-blue-50 rounded-lg p-3 mt-4">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">ASSIGNMENT</p>
+                    <p className="font-semibold text-sm">{selectedSubmission.assignment}</p>
+                  </div>
+                  {selectedSubmission.description && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">INSTRUCTIONS</p>
+                      <p className="text-xs text-foreground/80">{selectedSubmission.description}</p>
+                    </div>
+                  )}
+                  {selectedSubmission.points && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">POINTS</p>
+                      <p className="text-sm font-bold text-blue-600">{selectedSubmission.points} points</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Submission Content */}
+              <div>
+                <h4 className="font-semibold text-sm mb-3">Student's Submission</h4>
+                <Card className="border-0 shadow-sm bg-muted/50">
+                  <CardContent className="p-4">
+                    <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                      {selectedSubmission.submissionContent || 'No submission content available yet from backend.'}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Grade Input */}
+              <div>
+                <label className="text-sm font-semibold mb-2 block">Grade</label>
+                <Input
+                  placeholder="e.g., 95/100 or 95"
+                  value={submissionGrade}
+                  onChange={(e) => setSubmissionGrade(e.target.value)}
+                  className="rounded-lg"
+                />
+              </div>
+
+              {/* Feedback Input */}
+              <div>
+                <label className="text-sm font-semibold mb-2 block">Feedback</label>
+                <Textarea
+                  placeholder="Provide constructive feedback for the student..."
+                  value={submissionFeedback}
+                  onChange={(e) => setSubmissionFeedback(e.target.value)}
+                  className="min-h-24 rounded-lg resize-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                />
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex gap-2 justify-end pt-4 border-t border-muted">
+                <Button 
+                  variant="outline" 
+                  className="rounded-lg"
+                  onClick={() => setShowSubmissionDetail(false)}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  className="rounded-lg"
+                  onClick={() => {
+                    // Handle saving grade and feedback
+                    setShowSubmissionDetail(false);
+                    setSubmissionGrade('');
+                    setSubmissionFeedback('');
+                  }}
+                >
+                  Save Grade & Feedback
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

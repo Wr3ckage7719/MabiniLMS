@@ -70,16 +70,48 @@ function getCourseColor(index: number): 'blue' | 'teal' | 'purple' | 'orange' | 
   return COURSE_COLORS[index % COURSE_COLORS.length];
 }
 
+function parseSection(section?: string): { section: string; block?: string; level?: string } {
+  const fallback = section || 'Section A';
+  const normalized = fallback.trim();
+
+  // Supports patterns like "Section A - Period 1" and "Block A • Grade 10".
+  const dashParts = normalized.split('-').map((value) => value.trim()).filter(Boolean);
+  if (dashParts.length >= 2) {
+    return {
+      section: normalized,
+      block: dashParts[0],
+      level: dashParts.slice(1).join(' - '),
+    };
+  }
+
+  const dotParts = normalized.split('•').map((value) => value.trim()).filter(Boolean);
+  if (dotParts.length >= 2) {
+    return {
+      section: normalized,
+      block: dotParts[0],
+      level: dotParts.slice(1).join(' • '),
+    };
+  }
+
+  return {
+    section: normalized,
+    block: normalized,
+  };
+}
+
 export function transformCourseToClassItem(course: BackendCourse, index: number = 0): ClassItem {
   const teacherFullName = [course.teacher?.first_name, course.teacher?.last_name]
     .filter(Boolean)
     .join(' ')
     .trim();
+  const parsedSection = parseSection(course.section);
 
   return {
     id: course.id,
     name: course.title,
-    section: course.section || 'Section A',
+    section: parsedSection.section,
+    block: parsedSection.block,
+    level: parsedSection.level,
     teacher: course.teacher_name || teacherFullName || course.teacher?.email || 'Teacher',
     color: getCourseColor(index),
     students: course.enrollment_count || 0,

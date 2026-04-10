@@ -11,6 +11,8 @@ import {
   createSubmissionSchema,
   assignmentSubmissionsParamSchema,
   submissionIdParamSchema,
+  createAssignmentCommentSchema,
+  assignmentCommentsParamSchema,
 } from '../types/assignments.js';
 import * as assignmentController from '../controllers/assignments.js';
 
@@ -96,6 +98,20 @@ router.get(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: assignmentSubmissionsParamSchema }),
   assignmentController.listSubmissions
+);
+
+// GET /api/assignments/:assignmentId/comments - List comments
+router.get(
+  '/:assignmentId/comments',
+  validate({ params: assignmentCommentsParamSchema }),
+  assignmentController.listComments
+);
+
+// POST /api/assignments/:assignmentId/comments - Add comment
+router.post(
+  '/:assignmentId/comments',
+  validate({ params: assignmentCommentsParamSchema, body: createAssignmentCommentSchema }),
+  assignmentController.createComment
 );
 
 // ============================================

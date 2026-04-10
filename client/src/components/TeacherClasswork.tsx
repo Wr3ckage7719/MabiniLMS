@@ -15,12 +15,13 @@ import {
   Upload,
   ListPlus,
 } from 'lucide-react';
-import { mockAssignments, mockMaterials } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAssignments } from '@/hooks-api/useAssignments';
+import { useMaterials } from '@/hooks-api/useMaterials';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,21 +30,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   assignment: FileText,
@@ -70,11 +63,22 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTopic, setSelectedTopic] = useState<string>('all');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createType, setCreateType] = useState<'assignment' | 'material' | 'topic'>('assignment');
   const [activeTab, setActiveTab] = useState('assignments');
 
-  const classAssignments = mockAssignments.filter((a) => a.classId === classId);
-  const classMaterials = mockMaterials.filter((m) => m.classId === classId);
+  const { data: classAssignments = [], isLoading: assignmentsLoading } = useAssignments(classId);
+  const { data: classMaterials = [], isLoading: materialsLoading } = useMaterials(classId);
+
+  if (assignmentsLoading || materialsLoading) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-8 text-center text-muted-foreground">
+            Loading classwork...
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Extract unique topics from materials
   const topics = Array.from(
@@ -426,135 +430,11 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
       </Tabs>
 
       {/* Create Dialog */}
-      <CreateItemDialog
+      <CreateAssignmentDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
-        type={createType}
-        onTypeChange={setCreateType}
+        classId={classId}
       />
     </div>
-  );
-}
-
-interface CreateItemDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  type: 'assignment' | 'material' | 'topic';
-  onTypeChange: (type: 'assignment' | 'material' | 'topic') => void;
-}
-
-function CreateItemDialog({
-  open,
-  onOpenChange,
-  type,
-  onTypeChange,
-}: CreateItemDialogProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [points, setPoints] = useState('100');
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-xl max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create New Item</DialogTitle>
-          <DialogDescription>
-            Add a new assignment, material, or topic to your class.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {/* Type Selection */}
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              variant={type === 'assignment' ? 'default' : 'outline'}
-              className="rounded-lg"
-              onClick={() => onTypeChange('assignment')}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              Assignment
-            </Button>
-            <Button
-              variant={type === 'material' ? 'default' : 'outline'}
-              className="rounded-lg"
-              onClick={() => onTypeChange('material')}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Material
-            </Button>
-            <Button
-              variant={type === 'topic' ? 'default' : 'outline'}
-              className="rounded-lg"
-              onClick={() => onTypeChange('topic')}
-            >
-              <Folder className="h-4 w-4 mr-2" />
-              Topic
-            </Button>
-          </div>
-
-          {/* Form */}
-          <div className="space-y-4 pt-2">
-            <div>
-              <label className="text-sm font-medium">Title *</label>
-              <Input
-                placeholder="Enter title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 rounded-lg"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Description</label>
-              <Textarea
-                placeholder="Enter description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="mt-1 rounded-lg resize-none min-h-20"
-              />
-            </div>
-
-            {type === 'assignment' && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Due Date</label>
-                    <Input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="mt-1 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Points</label>
-                    <Input
-                      type="number"
-                      value={points}
-                      onChange={(e) => setPoints(e.target.value)}
-                      className="mt-1 rounded-lg"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            className="rounded-lg"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button className="rounded-lg" onClick={() => onOpenChange(false)}>
-            Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
