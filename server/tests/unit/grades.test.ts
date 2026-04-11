@@ -11,11 +11,17 @@ import {
   gradeIdParamSchema,
   submissionGradeParamSchema,
   assignmentGradesParamSchema,
+  courseWeightedGradeParamSchema,
+  weightedGradeQuerySchema,
   listGradesQuerySchema,
   bulkGradeSchema,
+  COURSE_GRADE_WEIGHTS,
   calculatePercentage,
   calculateLetterGrade,
+  calculateWeightedContribution,
+  calculateWeightedFinalGrade,
   formatGradeDisplay,
+  normalizeAssignmentCategory,
 } from '../../src/types/grades.js'
 
 // ============================================
@@ -196,6 +202,48 @@ describe('Grade Schemas', () => {
     })
   })
 
+  describe('courseWeightedGradeParamSchema', () => {
+    it('should accept valid course UUID', () => {
+      const result = courseWeightedGradeParamSchema.safeParse({
+        courseId: '123e4567-e89b-12d3-a456-426614174000',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject invalid course UUID', () => {
+      const result = courseWeightedGradeParamSchema.safeParse({
+        courseId: 'invalid-course-id',
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('weightedGradeQuerySchema', () => {
+    it('should allow empty query', () => {
+      const result = weightedGradeQuerySchema.safeParse({})
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should accept valid student_id', () => {
+      const result = weightedGradeQuerySchema.safeParse({
+        student_id: '123e4567-e89b-12d3-a456-426614174000',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject invalid student_id', () => {
+      const result = weightedGradeQuerySchema.safeParse({
+        student_id: 'student-1',
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
   describe('listGradesQuerySchema', () => {
     it('should allow empty query', () => {
       const result = listGradesQuerySchema.safeParse({})
@@ -351,6 +399,58 @@ describe('Grade Helper Functions', () => {
       expect(calculateLetterGrade(59)).toBe('F')
       expect(calculateLetterGrade(50)).toBe('F')
       expect(calculateLetterGrade(0)).toBe('F')
+    })
+  })
+
+  describe('normalizeAssignmentCategory', () => {
+    it('should keep canonical assignment categories', () => {
+      expect(normalizeAssignmentCategory('exam')).toBe('exam')
+      expect(normalizeAssignmentCategory('quiz')).toBe('quiz')
+      expect(normalizeAssignmentCategory('activity')).toBe('activity')
+    })
+
+    it('should map legacy assignment types to activity', () => {
+      expect(normalizeAssignmentCategory('homework')).toBe('activity')
+      expect(normalizeAssignmentCategory('project')).toBe('activity')
+      expect(normalizeAssignmentCategory('discussion')).toBe('activity')
+    })
+
+    it('should fallback unknown values to activity', () => {
+      expect(normalizeAssignmentCategory('unknown-type')).toBe('activity')
+      expect(normalizeAssignmentCategory(undefined)).toBe('activity')
+      expect(normalizeAssignmentCategory(null)).toBe('activity')
+    })
+  })
+
+  describe('calculateWeightedContribution', () => {
+    it('should return weighted contribution with two decimals', () => {
+      expect(calculateWeightedContribution(87.5, COURSE_GRADE_WEIGHTS.exam)).toBe(35)
+      expect(calculateWeightedContribution(83.33, COURSE_GRADE_WEIGHTS.quiz)).toBe(25)
+    })
+
+    it('should return zero for missing category percentage', () => {
+      expect(calculateWeightedContribution(null, COURSE_GRADE_WEIGHTS.activity)).toBe(0)
+    })
+  })
+
+  describe('calculateWeightedFinalGrade', () => {
+    it('should apply fixed 40/30/30 weights', () => {
+      const weighted = calculateWeightedFinalGrade({
+        exam: 80,
+        quiz: 90,
+        activity: 100,
+      })
+
+      // 80*0.4 + 90*0.3 + 100*0.3 = 89
+      expect(weighted).toBe(89)
+    })
+
+    it('should treat missing categories as zero contribution', () => {
+      const weighted = calculateWeightedFinalGrade({
+        exam: 100,
+      })
+
+      expect(weighted).toBe(40)
     })
   })
 

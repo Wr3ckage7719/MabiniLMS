@@ -56,6 +56,20 @@ export const assignmentGradesParamSchema = z.object({
 })
 
 /**
+ * Schema for weighted course grade endpoint parameter
+ */
+export const courseWeightedGradeParamSchema = z.object({
+  courseId: z.string().uuid('Invalid course ID'),
+})
+
+/**
+ * Schema for weighted grade query options
+ */
+export const weightedGradeQuerySchema = z.object({
+  student_id: z.string().uuid('Invalid student ID').optional(),
+})
+
+/**
  * Schema for listing grades with optional filters
  */
 export const listGradesQuerySchema = z.object({
@@ -88,6 +102,32 @@ export type CreateGradeInput = z.infer<typeof createGradeSchema>
 export type UpdateGradeInput = z.infer<typeof updateGradeSchema>
 export type ListGradesQuery = z.infer<typeof listGradesQuerySchema>
 export type BulkGradeInput = z.infer<typeof bulkGradeSchema>
+export type WeightedGradeQuery = z.infer<typeof weightedGradeQuerySchema>
+
+export const gradeCategorySchema = z.enum(['exam', 'quiz', 'activity'])
+export type GradeCategory = z.infer<typeof gradeCategorySchema>
+
+export const COURSE_GRADE_WEIGHTS: Record<GradeCategory, number> = {
+  exam: 0.4,
+  quiz: 0.3,
+  activity: 0.3,
+}
+
+const LEGACY_ASSIGNMENT_TYPE_TO_CATEGORY: Record<string, GradeCategory> = {
+  homework: 'activity',
+  project: 'activity',
+  discussion: 'activity',
+}
+
+export const normalizeAssignmentCategory = (assignmentType?: string | null): GradeCategory => {
+  const normalized = (assignmentType || '').trim().toLowerCase()
+
+  if (normalized === 'exam' || normalized === 'quiz' || normalized === 'activity') {
+    return normalized
+  }
+
+  return LEGACY_ASSIGNMENT_TYPE_TO_CATEGORY[normalized] || 'activity'
+}
 
 // ============================================
 // Database/Response Interfaces
@@ -189,6 +229,27 @@ export interface StudentGradeSummary {
   letter_grade: string
 }
 
+export interface WeightedCategoryBreakdown {
+  category: GradeCategory
+  weight: number
+  assignment_total: number
+  graded_count: number
+  points_earned: number
+  points_possible: number
+  raw_percentage: number | null
+  weighted_contribution: number
+}
+
+export interface WeightedCourseGradeBreakdown {
+  course_id: string
+  student_id: string
+  policy: 'missing_categories_count_as_zero'
+  final_percentage: number
+  letter_grade: string
+  weights: Record<GradeCategory, number>
+  categories: Record<GradeCategory, WeightedCategoryBreakdown>
+}
+
 // ============================================
 // Helper Functions
 // ============================================
@@ -202,6 +263,37 @@ export const calculatePercentage = (
 ): number => {
   if (maxPoints === 0) return 0
   return Math.round((pointsEarned / maxPoints) * 10000) / 100 // 2 decimal places
+}
+
+export const roundToTwoDecimals = (value: number): number => {
+  return Math.round(value * 100) / 100
+}
+
+export const calculateWeightedContribution = (
+  rawPercentage: number | null,
+  weight: number
+): number => {
+  if (typeof rawPercentage !== 'number') {
+    return 0
+  }
+
+  return roundToTwoDecimals(rawPercentage * weight)
+}
+
+export const calculateWeightedFinalGrade = (
+  categoryPercentages: Partial<Record<GradeCategory, number | null>>
+): number => {
+  const weightedTotal = (Object.entries(COURSE_GRADE_WEIGHTS) as Array<[GradeCategory, number]>)
+    .reduce((sum, [category, weight]) => {
+      const percentage = categoryPercentages[category]
+      if (typeof percentage !== 'number') {
+        return sum
+      }
+
+      return sum + (percentage * weight)
+    }, 0)
+
+  return roundToTwoDecimals(weightedTotal)
 }
 
 /**

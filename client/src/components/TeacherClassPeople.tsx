@@ -40,6 +40,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { useStudents } from '@/hooks-api/useStudents';
+import { useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
 
 type SortOption = 'name' | 'submissions';
@@ -349,14 +350,19 @@ interface StudentDetailDialogProps {
 
 function StudentDetailsDialog({
   student,
-  classId: _classId,
+  classId,
   getStudentSubmissions,
   onClose,
 }: StudentDetailDialogProps) {
 
+  const weightedGradeQuery = useWeightedCourseGrade(classId, student?.id, {
+    enabled: Boolean(student?.id),
+  });
+
   if (!student) return null;
 
   const submissions = getStudentSubmissions(student.id);
+  const weightedBreakdown = weightedGradeQuery.data;
 
   return (
     <Dialog open={!!student} onOpenChange={onClose}>
@@ -376,6 +382,58 @@ function StudentDetailsDialog({
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* Weighted Standing */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Current Standing (40/30/30)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {weightedGradeQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading weighted grade...</p>
+              ) : weightedBreakdown ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Final Grade</span>
+                    <span className="font-semibold">
+                      {weightedBreakdown.final_percentage.toFixed(2)}% ({weightedBreakdown.letter_grade})
+                    </span>
+                  </div>
+
+                  {(['exam', 'quiz', 'activity'] as const).map((categoryKey) => {
+                    const category = weightedBreakdown.categories[categoryKey];
+                    const label =
+                      categoryKey === 'exam'
+                        ? 'Exam'
+                        : categoryKey === 'quiz'
+                          ? 'Quiz'
+                          : 'Activity';
+
+                    return (
+                      <div key={categoryKey} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{label} ({Math.round(category.weight * 100)}%)</span>
+                          <span className="font-semibold">+{category.weighted_contribution.toFixed(2)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {category.graded_count}/{category.assignment_total} graded
+                          {typeof category.raw_percentage === 'number'
+                            ? ` • ${category.raw_percentage.toFixed(2)}%`
+                            : ' • Not graded yet'}
+                        </p>
+                      </div>
+                    );
+                  })}
+
+                  <p className="text-xs text-muted-foreground">
+                    Missing categories currently contribute 0 until graded.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No weighted grade data available yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Submissions */}
           <Card className="border-0 shadow-sm">
             <CardHeader>

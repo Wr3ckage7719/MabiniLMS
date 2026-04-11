@@ -8,7 +8,7 @@ import { useAssignments } from '@/hooks-api/useAssignments';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useStudents } from '@/hooks-api/useStudents';
-import { useGrades } from '@/hooks-api/useGrades';
+import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -67,6 +67,7 @@ export default function ClassDetail() {
   const materialsQuery = useMaterials(classId);
   const studentsQuery = useStudents(classId);
   const gradesQuery = useGrades(classId);
+  const weightedGradeQuery = useWeightedCourseGrade(classId);
 
   const isLoading =
     classQuery.isLoading ||
@@ -74,7 +75,8 @@ export default function ClassDetail() {
     announcementsQuery.isLoading ||
     materialsQuery.isLoading ||
     studentsQuery.isLoading ||
-    gradesQuery.isLoading;
+    gradesQuery.isLoading ||
+    weightedGradeQuery.isLoading;
 
   const dataError =
     classQuery.error;
@@ -84,7 +86,8 @@ export default function ClassDetail() {
     Boolean(announcementsQuery.error) ||
     Boolean(materialsQuery.error) ||
     Boolean(studentsQuery.error) ||
-    Boolean(gradesQuery.error);
+    Boolean(gradesQuery.error) ||
+    Boolean(weightedGradeQuery.error);
 
   const cls = classQuery.data;
   const assignments = assignmentsQuery.data || [];
@@ -121,6 +124,19 @@ export default function ClassDetail() {
     return numericScores.reduce((sum: number, score: number) => sum + score, 0) / numericScores.length;
   })();
 
+  const weightedBreakdown = weightedGradeQuery.data || null;
+  const finalGradePercentage = (() => {
+    if (typeof weightedBreakdown?.final_percentage === 'number') {
+      return weightedBreakdown.final_percentage;
+    }
+
+    if (averageGradeScore === null) {
+      return null;
+    }
+
+    return Math.round(averageGradeScore * 100) / 100;
+  })();
+
   const toLetterGrade = (score: number) => {
     if (score >= 93) return 'A';
     if (score >= 90) return 'A-';
@@ -140,7 +156,8 @@ export default function ClassDetail() {
     name: 'Student',
     email: 'student@example.com',
     avatar: currentUserAvatar,
-    grade: averageGradeScore !== null ? toLetterGrade(averageGradeScore) : 'N/A',
+    grade: finalGradePercentage !== null ? toLetterGrade(finalGradePercentage) : 'N/A',
+    percentage: finalGradePercentage,
   };
 
   const handleArchive = async () => {
@@ -458,9 +475,58 @@ export default function ClassDetail() {
                 <CardContent className="p-3 md:p-6 text-center w-full">
                   <p className="text-xs md:text-sm text-muted-foreground mb-1 md:mb-2">Overall Grade</p>
                   <p className="text-3xl md:text-5xl font-bold text-primary">{currentStudentGrade.grade}</p>
+                  {currentStudentGrade.percentage !== null && (
+                    <p className="text-xs md:text-sm text-muted-foreground mt-2">
+                      {currentStudentGrade.percentage.toFixed(2)}%
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
+
+            {weightedBreakdown && (
+              <Card className="border-0 shadow-sm">
+                <CardContent className="p-3 md:p-6">
+                  <h4 className="font-semibold text-sm md:text-base mb-3 md:mb-4">Weighted Breakdown (40/30/30)</h4>
+                  <div className="space-y-3">
+                    {(['exam', 'quiz', 'activity'] as const).map((categoryKey) => {
+                      const category = weightedBreakdown.categories[categoryKey];
+                      const label =
+                        categoryKey === 'exam'
+                          ? 'Exam'
+                          : categoryKey === 'quiz'
+                            ? 'Quiz'
+                            : 'Activity';
+
+                      return (
+                        <div key={categoryKey} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-medium text-sm md:text-base">
+                              {label} ({Math.round(category.weight * 100)}%)
+                            </p>
+                            <p className="font-semibold text-sm md:text-base">
+                              +{category.weighted_contribution.toFixed(2)}
+                            </p>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {category.points_earned.toFixed(2)}/{category.points_possible.toFixed(2)} points
+                            {typeof category.raw_percentage === 'number'
+                              ? ` (${category.raw_percentage.toFixed(2)}%)`
+                              : ' (No graded items yet)'}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {category.graded_count}/{category.assignment_total} assignments graded
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Policy: missing categories currently contribute 0 until they receive graded work.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Assignment Grades */}
             <Card className="border-0 shadow-sm">

@@ -5,10 +5,15 @@ import { z } from 'zod';
 // ============================================
 
 export enum SubmissionStatus {
+  DRAFT = 'draft',
   SUBMITTED = 'submitted',
-  GRADED = 'graded',
   LATE = 'late',
+  UNDER_REVIEW = 'under_review',
+  GRADED = 'graded',
 }
+
+export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
+export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
 
 // ============================================
 // Assignment Schemas
@@ -17,6 +22,7 @@ export enum SubmissionStatus {
 export const createAssignmentSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   description: z.string().optional(),
+  assignment_type: assignmentCategorySchema.default('activity'),
   due_date: z.string().datetime().optional(),
   max_points: z.number().int().min(0).max(1000).default(100),
 });
@@ -24,6 +30,7 @@ export const createAssignmentSchema = z.object({
 export const updateAssignmentSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
+  assignment_type: assignmentCategorySchema.optional(),
   due_date: z.string().datetime().nullable().optional(),
   max_points: z.number().int().min(0).max(1000).optional(),
 });
@@ -68,6 +75,15 @@ export const assignmentSubmissionsParamSchema = z.object({
   assignmentId: z.string().uuid('Invalid assignment ID'),
 });
 
+export const transitionSubmissionStatusSchema = z.object({
+  status: z.nativeEnum(SubmissionStatus),
+  reason: z.string().trim().max(2000).optional(),
+});
+
+export const requestRevisionSchema = z.object({
+  reason: z.string().trim().min(1, 'Revision reason is required').max(2000),
+});
+
 // ============================================
 // Assignment Comment Schemas
 // ============================================
@@ -90,6 +106,8 @@ export type ListAssignmentsQuery = z.infer<typeof listAssignmentsQuerySchema>;
 
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
 export type UpdateSubmissionInput = z.infer<typeof updateSubmissionSchema>;
+export type TransitionSubmissionStatusInput = z.infer<typeof transitionSubmissionStatusSchema>;
+export type RequestRevisionInput = z.infer<typeof requestRevisionSchema>;
 export type CreateAssignmentCommentInput = z.infer<typeof createAssignmentCommentSchema>;
 
 export interface Assignment {
@@ -97,6 +115,7 @@ export interface Assignment {
   course_id: string;
   title: string;
   description: string | null;
+  assignment_type: AssignmentCategory;
   due_date: string | null;
   max_points: number;
   created_at: string;
@@ -138,8 +157,27 @@ export interface SubmissionWithStudent extends Submission {
   assignment: {
     id: string;
     title: string;
+    assignment_type?: AssignmentCategory;
     max_points: number;
   };
+}
+
+export interface SubmissionStatusHistoryEntry {
+  id: string;
+  submission_id: string;
+  from_status: SubmissionStatus | null;
+  to_status: SubmissionStatus;
+  changed_by: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  actor?: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+    role?: string;
+  } | null;
 }
 
 export interface SubmissionWithGrade extends SubmissionWithStudent {

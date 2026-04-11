@@ -82,6 +82,10 @@ import * as assignmentService from '../services/assignments.js';
  *                 type: string
  *               description:
  *                 type: string
+ *               assignment_type:
+ *                 type: string
+ *                 enum: [exam, quiz, activity]
+ *                 default: activity
  *               due_date:
  *                 type: string
  *                 format: date-time
@@ -452,11 +456,80 @@ export const getSubmission = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const submission = await assignmentService.getSubmissionById(req.params.id);
+    const submission = await assignmentService.getSubmissionById(
+      req.params.id,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
 
     res.json({
       success: true,
       data: submission,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const transitionSubmissionStatus = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const submission = await assignmentService.transitionSubmissionStatus(
+      req.params.id,
+      req.body,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: submission,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const requestSubmissionRevision = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const submission = await assignmentService.requestSubmissionRevision(
+      req.params.id,
+      req.body.reason,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: submission,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSubmissionTimeline = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const timeline = await assignmentService.getSubmissionStatusTimeline(
+      req.params.id,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: timeline,
     });
   } catch (error) {
     next(error);

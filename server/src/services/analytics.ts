@@ -153,7 +153,8 @@ export const getCourseAnalytics = async (
   const submissionStats = {
     total: submissions?.length || 0,
     graded: submissions?.filter((s) => s.status === 'graded').length || 0,
-    pending: submissions?.filter((s) => s.status === 'submitted').length || 0,
+    pending:
+      submissions?.filter((s) => ['submitted', 'under_review'].includes(s.status)).length || 0,
     late: submissions?.filter((s) => s.status === 'late').length || 0,
   }
 
@@ -280,7 +281,7 @@ export const getStudentAnalytics = async (
       .from('submissions')
       .select('*', { count: 'exact', head: true })
       .eq('student_id', studentId)
-      .in('status', ['submitted', 'graded', 'late'])
+      .in('status', ['submitted', 'under_review', 'graded', 'late'])
 
     completedAssignments = submissionCount || 0
   }
@@ -439,7 +440,7 @@ export const getPlatformAnalytics = async (
   const { count: pendingGrading } = await supabaseAdmin
     .from('submissions')
     .select('*', { count: 'exact', head: true })
-    .in('status', ['submitted', 'late'])
+    .in('status', ['submitted', 'late', 'under_review'])
 
   return {
     users: userStats,
@@ -512,7 +513,7 @@ export const getTeacherAnalytics = async (
       .from('submissions')
       .select('*, assignment:assignments!inner(course_id)', { count: 'exact', head: true })
       .in('assignment.course_id', courseIds)
-      .in('status', ['submitted', 'late'])
+      .in('status', ['submitted', 'late', 'under_review'])
 
     pendingGrading = count || 0
   }

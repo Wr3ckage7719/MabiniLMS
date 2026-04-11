@@ -10,7 +10,10 @@ import {
   ListAssignmentsQuery,
   Submission,
   SubmissionWithStudent,
+  SubmissionWithGrade,
+  SubmissionStatusHistoryEntry,
   CreateSubmissionInput,
+  TransitionSubmissionStatusInput,
   SubmissionStatus,
 } from '../types/assignments.js';
 import * as driveService from './google-drive.js';
@@ -123,6 +126,238 @@ const recordSubmissionSyncEvent = async (
   });
 };
 
+type SubmissionWithAccessContext = SubmissionWithStudent & {
+  assignment: SubmissionWithStudent['assignment'] & {
+    course_id: string;
+    course_teacher_id: string | null;
+    course_title: string | null;
+  };
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fixStatusActorJoin = (historyRow: any): SubmissionStatusHistoryEntry => {
+  const actor = Array.isArray(historyRow.actor) ? historyRow.actor[0] || null : historyRow.actor;
+  return {
+    ...historyRow,
+    actor,
+  } as SubmissionStatusHistoryEntry;
+};
+
+const SUBMISSION_STATUS_TRANSITIONS: Record<SubmissionStatus, SubmissionStatus[]> = {
+  [SubmissionStatus.DRAFT]: [SubmissionStatus.SUBMITTED, SubmissionStatus.LATE],
+  [SubmissionStatus.SUBMITTED]: [SubmissionStatus.LATE, SubmissionStatus.UNDER_REVIEW],
+  [SubmissionStatus.LATE]: [SubmissionStatus.SUBMITTED, SubmissionStatus.UNDER_REVIEW],
+  [SubmissionStatus.UNDER_REVIEW]: [SubmissionStatus.DRAFT, SubmissionStatus.GRADED],
+  [SubmissionStatus.GRADED]: [SubmissionStatus.UNDER_REVIEW],
+};
+
+const parseSubmissionStatus = (status: string): SubmissionStatus => {
+  const normalizedStatus = (status || '').trim().toLowerCase();
+
+  switch (normalizedStatus) {
+    case SubmissionStatus.DRAFT:
+      return SubmissionStatus.DRAFT;
+    case SubmissionStatus.SUBMITTED:
+      return SubmissionStatus.SUBMITTED;
+    case SubmissionStatus.LATE:
+      return SubmissionStatus.LATE;
+    case SubmissionStatus.UNDER_REVIEW:
+      return SubmissionStatus.UNDER_REVIEW;
+    case SubmissionStatus.GRADED:
+      return SubmissionStatus.GRADED;
+    default:
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        `Unsupported submission status: ${status}`,
+        400
+      );
+  }
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normalizeSubmissionContext = (record: any): SubmissionWithAccessContext => {
+  const assignment = Array.isArray(record.assignment) ? record.assignment[0] || null : record.assignment;
+  const course = assignment?.course
+    ? (Array.isArray(assignment.course) ? assignment.course[0] || null : assignment.course)
+    : null;
+  const student = Array.isArray(record.student) ? record.student[0] || null : record.student;
+
+  return {
+    ...record,
+    status: parseSubmissionStatus(record.status),
+    student,
+    assignment: {
+      id: assignment?.id,
+      title: assignment?.title,
+      assignment_type: assignment?.assignment_type,
+      max_points: assignment?.max_points,
+      course_id: assignment?.course_id,
+      course_teacher_id: course?.teacher_id || null,
+      course_title: course?.title || null,
+    },
+  } as SubmissionWithAccessContext;
+};
+
+const toSubmissionWithStudent = (
+  submission: SubmissionWithAccessContext
+): SubmissionWithStudent => {
+  return {
+    ...submission,
+    assignment: {
+      id: submission.assignment.id,
+      title: submission.assignment.title,
+      assignment_type: submission.assignment.assignment_type,
+      max_points: submission.assignment.max_points,
+    },
+  } as SubmissionWithStudent;
+};
+
+const getSubmissionWithAccessContext = async (
+  submissionId: string
+): Promise<SubmissionWithAccessContext> => {
+  const { data, error } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id, assignment_id, student_id, content, file_url, drive_file_id, drive_view_link, drive_file_name, submitted_at, status,
+      student:profiles!submissions_student_id_fkey(id, email, first_name, last_name, role),
+      assignment:assignments(
+        id, title, assignment_type, max_points, course_id,
+        course:courses(id, title, teacher_id)
+      )
+    `)
+    .eq('id', submissionId)
+    .single();
+
+  if (error || !data) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Submission not found', 404);
+  }
+
+  return normalizeSubmissionContext(data);
+};
+
+const assertSubmissionAccess = (
+  submission: SubmissionWithAccessContext,
+  userId: string,
+  userRole: UserRole
+): void => {
+  if (userRole === UserRole.ADMIN) {
+    return;
+  }
+
+  if (userRole === UserRole.TEACHER) {
+    if (submission.assignment.course_teacher_id === userId) {
+      return;
+    }
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only access submissions for your own courses',
+      403
+    );
+  }
+
+  if (submission.student_id === userId) {
+    return;
+  }
+
+  throw new ApiError(
+    ErrorCode.FORBIDDEN,
+    'You can only access your own submission',
+    403
+  );
+};
+
+const recordSubmissionStatusHistory = async (
+  submissionId: string,
+  fromStatus: SubmissionStatus | null,
+  toStatus: SubmissionStatus,
+  changedBy: string | null,
+  reason?: string,
+  metadata?: Record<string, unknown>
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('submission_status_history')
+    .insert({
+      submission_id: submissionId,
+      from_status: fromStatus,
+      to_status: toStatus,
+      changed_by: changedBy,
+      reason: reason?.trim() || null,
+      metadata: metadata || {},
+      created_at: new Date().toISOString(),
+    });
+
+  if (!error) {
+    return;
+  }
+
+  if (isMissingRelationError(error)) {
+    logger.warn('submission_status_history table missing; status transition history not recorded', {
+      submissionId,
+      fromStatus,
+      toStatus,
+      changedBy,
+    });
+    return;
+  }
+
+  logger.error('Failed to record submission status history', {
+    submissionId,
+    fromStatus,
+    toStatus,
+    changedBy,
+    error: error.message,
+  });
+
+  throw new ApiError(
+    ErrorCode.INTERNAL_ERROR,
+    'Failed to record submission status history',
+    500
+  );
+};
+
+const assertTransitionAllowedForRole = (
+  submission: SubmissionWithAccessContext,
+  _currentStatus: SubmissionStatus,
+  targetStatus: SubmissionStatus,
+  userId: string,
+  userRole: UserRole
+): void => {
+  if (userRole === UserRole.ADMIN) {
+    return;
+  }
+
+  if (userRole === UserRole.STUDENT) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Students cannot transition submission status directly. Submit through the assignment submission flow instead.',
+      403
+    );
+  }
+
+  if (submission.assignment.course_teacher_id !== userId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only transition submissions in your own courses',
+      403
+    );
+  }
+
+  const teacherAllowedTargets = [
+    SubmissionStatus.UNDER_REVIEW,
+    SubmissionStatus.DRAFT,
+    SubmissionStatus.GRADED,
+  ];
+
+  if (!teacherAllowedTargets.includes(targetStatus)) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Teachers can only move submissions to under review, graded, or draft revision state',
+      403
+    );
+  }
+};
+
 // ============================================
 // Assignment Operations
 // ============================================
@@ -161,6 +396,7 @@ export const createAssignment = async (
       course_id: courseId,
       title: input.title,
       description: input.description || null,
+      assignment_type: input.assignment_type || 'activity',
       due_date: input.due_date || null,
       max_points: input.max_points || 100,
       created_at: new Date().toISOString(),
@@ -190,7 +426,7 @@ export const getAssignmentById = async (assignmentId: string): Promise<Assignmen
   const { data, error } = await supabaseAdmin
     .from('assignments')
     .select(`
-      id, course_id, title, description, due_date, max_points, created_at,
+      id, course_id, title, description, assignment_type, due_date, max_points, created_at,
       course:courses(
         id, title,
         teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
@@ -231,7 +467,7 @@ export const listAssignments = async (
   let queryBuilder = supabaseAdmin
     .from('assignments')
     .select(`
-      id, course_id, title, description, due_date, max_points, created_at,
+      id, course_id, title, description, assignment_type, due_date, max_points, created_at,
       course:courses(
         id, title,
         teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
@@ -449,12 +685,28 @@ export const submitAssignment = async (
   // Check for existing submission
   const { data: existing } = await supabaseAdmin
     .from('submissions')
-    .select('id')
+    .select('id, status')
     .eq('assignment_id', assignmentId)
     .eq('student_id', userId)
     .single();
 
+  const targetStatus = isLate ? SubmissionStatus.LATE : SubmissionStatus.SUBMITTED;
+
   if (existing) {
+    const currentStatus = parseSubmissionStatus(existing.status);
+
+    if (
+      currentStatus !== SubmissionStatus.DRAFT &&
+      currentStatus !== SubmissionStatus.SUBMITTED &&
+      currentStatus !== SubmissionStatus.LATE
+    ) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Submission cannot be edited while it is under review or already graded',
+        403
+      );
+    }
+
     // Update existing submission
     const { data, error } = await supabaseAdmin
       .from('submissions')
@@ -464,7 +716,7 @@ export const submitAssignment = async (
         drive_view_link: driveService.getDriveWebViewUrl(input.drive_file_id),
         content: input.content || null,
         submitted_at: new Date().toISOString(),
-        status: isLate ? SubmissionStatus.LATE : SubmissionStatus.SUBMITTED,
+        status: targetStatus,
       })
       .eq('id', existing.id)
       .select()
@@ -477,6 +729,20 @@ export const submitAssignment = async (
 
     if (input.sync_key) {
       await recordSubmissionSyncEvent(input.sync_key, userId, assignmentId, data.id);
+    }
+
+    if (currentStatus !== targetStatus) {
+      await recordSubmissionStatusHistory(
+        data.id,
+        currentStatus,
+        targetStatus,
+        userId,
+        'Student submitted revision',
+        {
+          action: 'resubmit',
+          assignment_id: assignmentId,
+        }
+      );
     }
 
     // Log resubmission audit event
@@ -512,7 +778,7 @@ export const submitAssignment = async (
       drive_view_link: driveService.getDriveWebViewUrl(input.drive_file_id),
       content: input.content || null,
       submitted_at: new Date().toISOString(),
-      status: isLate ? SubmissionStatus.LATE : SubmissionStatus.SUBMITTED,
+      status: targetStatus,
     })
     .select()
     .single();
@@ -525,6 +791,18 @@ export const submitAssignment = async (
   if (input.sync_key) {
     await recordSubmissionSyncEvent(input.sync_key, userId, assignmentId, data.id);
   }
+
+  await recordSubmissionStatusHistory(
+    data.id,
+    null,
+    targetStatus,
+    userId,
+    'Initial submission',
+    {
+      action: 'initial_submit',
+      assignment_id: assignmentId,
+    }
+  );
 
   // Log submission audit event
   await auditService.logAssignmentEvent(
@@ -551,22 +829,188 @@ export const submitAssignment = async (
 /**
  * Get submission by ID
  */
-export const getSubmissionById = async (submissionId: string): Promise<SubmissionWithStudent> => {
-  const { data, error } = await supabaseAdmin
-    .from('submissions')
-    .select(`
-      *,
-      student:profiles!submissions_student_id_fkey(id, email, first_name, last_name),
-      assignment:assignments(id, title, max_points)
-    `)
-    .eq('id', submissionId)
-    .single();
+export const getSubmissionById = async (
+  submissionId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<SubmissionWithStudent> => {
+  const submission = await getSubmissionWithAccessContext(submissionId);
+  assertSubmissionAccess(submission, userId, userRole);
+  return toSubmissionWithStudent(submission);
+};
 
-  if (error || !data) {
-    throw new ApiError(ErrorCode.NOT_FOUND, 'Submission not found', 404);
+/**
+ * Transition submission status with role-aware transition rules.
+ */
+export const transitionSubmissionStatus = async (
+  submissionId: string,
+  input: TransitionSubmissionStatusInput,
+  userId: string,
+  userRole: UserRole
+): Promise<SubmissionWithStudent> => {
+  const submission = await getSubmissionWithAccessContext(submissionId);
+  assertSubmissionAccess(submission, userId, userRole);
+
+  const currentStatus = parseSubmissionStatus(submission.status);
+  const targetStatus = parseSubmissionStatus(input.status);
+
+  if (currentStatus === targetStatus) {
+    return toSubmissionWithStudent(submission);
   }
 
-  return data as SubmissionWithStudent;
+  const allowedTargets = SUBMISSION_STATUS_TRANSITIONS[currentStatus] || [];
+  if (!allowedTargets.includes(targetStatus)) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      `Invalid status transition from ${currentStatus} to ${targetStatus}`,
+      400
+    );
+  }
+
+  assertTransitionAllowedForRole(submission, currentStatus, targetStatus, userId, userRole);
+
+  if (
+    currentStatus === SubmissionStatus.UNDER_REVIEW &&
+    targetStatus === SubmissionStatus.DRAFT &&
+    !input.reason?.trim()
+  ) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Revision reason is required when returning a submission to draft',
+      400
+    );
+  }
+
+  if (targetStatus === SubmissionStatus.GRADED) {
+    const { data: existingGrade, error: gradeLookupError } = await supabaseAdmin
+      .from('grades')
+      .select('id')
+      .eq('submission_id', submissionId)
+      .maybeSingle();
+
+    if (gradeLookupError) {
+      logger.error('Failed to validate grade before submission status transition', {
+        submissionId,
+        targetStatus,
+        error: gradeLookupError.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate submission grade state', 500);
+    }
+
+    if (!existingGrade) {
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        'Cannot mark submission as graded without an associated grade record',
+        400
+      );
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = { status: targetStatus };
+  if (targetStatus === SubmissionStatus.SUBMITTED || targetStatus === SubmissionStatus.LATE) {
+    updatePayload.submitted_at = new Date().toISOString();
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('submissions')
+    .update(updatePayload)
+    .eq('id', submissionId);
+
+  if (updateError) {
+    logger.error('Failed to transition submission status', {
+      submissionId,
+      currentStatus,
+      targetStatus,
+      userId,
+      error: updateError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update submission status', 500);
+  }
+
+  await recordSubmissionStatusHistory(
+    submissionId,
+    currentStatus,
+    targetStatus,
+    userId,
+    input.reason,
+    {
+      actor_role: userRole,
+    }
+  );
+
+  await auditService.logAuditEvent({
+    user_id: userId,
+    event_type: 'submission_status_changed',
+    resource_type: 'submission',
+    resource_id: submissionId,
+    details: {
+      assignment_id: submission.assignment.id,
+      from_status: currentStatus,
+      to_status: targetStatus,
+      reason: input.reason || null,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return getSubmissionById(submissionId, userId, userRole);
+};
+
+/**
+ * Request a revision by transitioning a submission from under review to draft.
+ */
+export const requestSubmissionRevision = async (
+  submissionId: string,
+  reason: string,
+  userId: string,
+  userRole: UserRole
+): Promise<SubmissionWithStudent> => {
+  return transitionSubmissionStatus(
+    submissionId,
+    {
+      status: SubmissionStatus.DRAFT,
+      reason,
+    },
+    userId,
+    userRole
+  );
+};
+
+/**
+ * Get immutable status timeline for a submission.
+ */
+export const getSubmissionStatusTimeline = async (
+  submissionId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<SubmissionStatusHistoryEntry[]> => {
+  const submission = await getSubmissionWithAccessContext(submissionId);
+  assertSubmissionAccess(submission, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('submission_status_history')
+    .select(`
+      id, submission_id, from_status, to_status, changed_by, reason, metadata, created_at,
+      actor:profiles!submission_status_history_changed_by_fkey(id, email, first_name, last_name, role)
+    `)
+    .eq('submission_id', submissionId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      logger.warn('submission_status_history table missing; returning empty timeline', {
+        submissionId,
+      });
+      return [];
+    }
+
+    logger.error('Failed to load submission status timeline', {
+      submissionId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load submission timeline', 500);
+  }
+
+  return (data || []).map(fixStatusActorJoin);
 };
 
 /**
@@ -576,7 +1020,7 @@ export const listSubmissions = async (
   assignmentId: string,
   userId: string,
   userRole: UserRole
-): Promise<SubmissionWithStudent[]> => {
+): Promise<SubmissionWithGrade[]> => {
   const assignment = await getAssignmentById(assignmentId);
 
   // Only teacher of the course or admin can view all submissions
@@ -593,7 +1037,8 @@ export const listSubmissions = async (
     .select(`
       *,
       student:profiles!submissions_student_id_fkey(id, email, first_name, last_name),
-      assignment:assignments(id, title, max_points)
+      assignment:assignments(id, title, assignment_type, max_points),
+      grade:grades(id, points_earned, feedback, graded_by, graded_at)
     `)
     .eq('assignment_id', assignmentId)
     .order('submitted_at', { ascending: false });
@@ -603,7 +1048,13 @@ export const listSubmissions = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list submissions', 500);
   }
 
-  return data as SubmissionWithStudent[];
+  return (data || []).map((submission: any) => {
+    const grade = Array.isArray(submission.grade) ? submission.grade[0] || null : submission.grade;
+    return {
+      ...submission,
+      grade,
+    };
+  }) as SubmissionWithGrade[];
 };
 
 /**

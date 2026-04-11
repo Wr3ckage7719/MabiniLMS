@@ -9,6 +9,8 @@ import {
   assignmentIdParamSchema,
   listAssignmentsQuerySchema,
   createSubmissionSchema,
+  transitionSubmissionStatusSchema,
+  requestRevisionSchema,
   assignmentSubmissionsParamSchema,
   submissionIdParamSchema,
   createAssignmentCommentSchema,
@@ -117,6 +119,29 @@ router.post(
 // ============================================
 // Submission Detail Routes
 // ============================================
+
+// PATCH /api/assignments/submissions/:id/status - transition submission status
+router.patch(
+  '/submissions/:id/status',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: submissionIdParamSchema, body: transitionSubmissionStatusSchema }),
+  assignmentController.transitionSubmissionStatus
+);
+
+// POST /api/assignments/submissions/:id/request-revision - request student revision
+router.post(
+  '/submissions/:id/request-revision',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: submissionIdParamSchema, body: requestRevisionSchema }),
+  assignmentController.requestSubmissionRevision
+);
+
+// GET /api/assignments/submissions/:id/timeline - immutable status timeline
+router.get(
+  '/submissions/:id/timeline',
+  validate({ params: submissionIdParamSchema }),
+  assignmentController.getSubmissionTimeline
+);
 
 // GET /api/submissions/:id - Get submission by ID
 router.get(

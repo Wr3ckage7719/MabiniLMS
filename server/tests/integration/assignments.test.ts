@@ -90,6 +90,46 @@ describe('Assignment Schemas', () => {
       }
     })
 
+      it('should default assignment_type to activity', () => {
+        const result = createAssignmentSchema.safeParse({
+          title: 'Test Assignment',
+        })
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+          expect(result.data.assignment_type).toBe('activity')
+        }
+      })
+
+      it('should accept supported assignment_type values', () => {
+        const examResult = createAssignmentSchema.safeParse({
+          title: 'Midterm Exam',
+          assignment_type: 'exam',
+        })
+        expect(examResult.success).toBe(true)
+
+        const quizResult = createAssignmentSchema.safeParse({
+          title: 'Quiz 1',
+          assignment_type: 'quiz',
+        })
+        expect(quizResult.success).toBe(true)
+
+        const activityResult = createAssignmentSchema.safeParse({
+          title: 'Seatwork',
+          assignment_type: 'activity',
+        })
+        expect(activityResult.success).toBe(true)
+      })
+
+      it('should reject unsupported assignment_type values', () => {
+        const result = createAssignmentSchema.safeParse({
+          title: 'Invalid Type',
+          assignment_type: 'project',
+        })
+
+        expect(result.success).toBe(false)
+      })
+
     it('should validate due_date as ISO datetime', () => {
       const resultInvalid = createAssignmentSchema.safeParse({
         title: 'Test',

@@ -74,6 +74,7 @@ export function CreateAssignmentDialog({
   const [assignmentType, setAssignmentType] = useState<'activity' | 'material'>(
     'activity'
   );
+  const [gradingCategory, setGradingCategory] = useState<'exam' | 'quiz' | 'activity'>('activity');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [points, setPoints] = useState('100');
   const [files, setFiles] = useState<AttachedFile[]>([]);
@@ -155,6 +156,7 @@ export function CreateAssignmentDialog({
         await assignmentsService.createAssignment(classId, {
           title: title.trim(),
           description: description.trim() || undefined,
+          assignment_type: gradingCategory,
           due_date: dueDate ? dueDate.toISOString() : new Date().toISOString(),
           max_points: Number(points) || 100,
         });
@@ -192,6 +194,7 @@ export function CreateAssignmentDialog({
     setTitle('');
     setDescription('');
     setAssignmentType('activity');
+    setGradingCategory('activity');
     setDueDate(undefined);
     setPoints('100');
     setFiles([]);
@@ -358,7 +361,7 @@ export function CreateAssignmentDialog({
 
             {/* Activity-specific fields */}
             {assignmentType === 'activity' && (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
                 {/* Due Date */}
                 <div>
                   <label className="text-sm font-semibold">
@@ -417,6 +420,21 @@ export function CreateAssignmentDialog({
                     onChange={(e) => setPoints(e.target.value)}
                     className="mt-2 rounded-lg"
                   />
+                </div>
+
+                {/* Grading Category */}
+                <div>
+                  <label className="text-sm font-semibold">Category</label>
+                  <Select value={gradingCategory} onValueChange={(value) => setGradingCategory(value as 'exam' | 'quiz' | 'activity')}>
+                    <SelectTrigger className="mt-2 rounded-lg">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="exam">Exam (40%)</SelectItem>
+                      <SelectItem value="quiz">Quiz (30%)</SelectItem>
+                      <SelectItem value="activity">Activity (30%)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             )}

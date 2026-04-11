@@ -44,7 +44,11 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/utils';
 import { useAssignmentSubmissions } from '@/hooks/useTeacherData';
-import { assignmentsService } from '@/services/assignments.service';
+import {
+  assignmentsService,
+  SubmissionStatus,
+  SubmissionStatusTimelineEntry,
+} from '@/services/assignments.service';
 import { gradesService } from '@/services/grades.service';
 import { useToast } from '@/hooks/use-toast';
 
@@ -52,7 +56,7 @@ interface StudentSubmission {
   id: string;
   name: string;
   avatar: string;
-  status: 'submitted' | 'pending' | 'graded';
+  status: SubmissionStatus;
   submittedDate?: string;
   grade?: string;
   gradeId?: string;
@@ -87,6 +91,32 @@ interface Topic {
   id: string;
   name: string;
 }
+
+const STATUS_LABELS: Record<SubmissionStatus, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+  late: 'Late',
+  under_review: 'Under Review',
+  graded: 'Graded',
+};
+
+const getStatusBadgeVariant = (
+  status: SubmissionStatus
+): 'default' | 'secondary' | 'destructive' | 'outline' => {
+  switch (status) {
+    case 'graded':
+      return 'default';
+    case 'late':
+      return 'destructive';
+    case 'under_review':
+      return 'secondary';
+    case 'submitted':
+      return 'outline';
+    case 'draft':
+    default:
+      return 'outline';
+  }
+};
 
 interface TeacherAssignmentDetailProps {
   assignment: {
@@ -153,8 +183,12 @@ export function TeacherAssignmentDetail({
   const [submissionView, setSubmissionView] = useState<'list' | 'view-submission' | 'feedback'>('list');
   const [gradeInput, setGradeInput] = useState('');
   const [feedbackText, setFeedbackText] = useState('');
+  const [revisionReason, setRevisionReason] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [savingGrade, setSavingGrade] = useState(false);
+  const [submissionTimeline, setSubmissionTimeline] = useState<SubmissionStatusTimelineEntry[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [transitioningStatus, setTransitioningStatus] = useState(false);
 
   const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
     const firstName = comment.author?.first_name?.trim() || '';
@@ -198,6 +232,37 @@ export function TeacherAssignmentDetail({
     }
   }, [assignment?.id, mapApiComment]);
 
+  const fetchSubmissionTimeline = useCallback(
+    async (submissionId: string) => {
+      setTimelineLoading(true);
+      try {
+        const response = await assignmentsService.getSubmissionTimeline(submissionId);
+        const rootData = (response as any)?.data;
+        const timeline = Array.isArray(rootData)
+          ? rootData
+          : Array.isArray(rootData?.data)
+            ? rootData.data
+            : [];
+        setSubmissionTimeline(timeline as SubmissionStatusTimelineEntry[]);
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to load submission timeline';
+        toast({
+          title: 'Timeline unavailable',
+          description: message,
+          variant: 'destructive',
+        });
+        setSubmissionTimeline([]);
+      } finally {
+        setTimelineLoading(false);
+      }
+    },
+    [toast]
+  );
+
   // Handle Escape key to return to student list
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
@@ -206,6 +271,8 @@ export function TeacherAssignmentDetail({
         setSubmissionView('list');
         setGradeInput('');
         setFeedbackText('');
+        setRevisionReason('');
+        setSubmissionTimeline([]);
         setActiveTab('submissions');
       }
     };
@@ -231,6 +298,8 @@ export function TeacherAssignmentDetail({
     setSubmissionView('list');
     setGradeInput('');
     setFeedbackText('');
+    setRevisionReason('');
+    setSubmissionTimeline([]);
   }, [assignment]);
 
   useEffect(() => {
@@ -244,21 +313,27 @@ export function TeacherAssignmentDetail({
       const lastName = submission.student?.last_name?.trim() || '';
       const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
       const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || studentName.slice(0, 2).toUpperCase();
+      const normalizedGrade = Array.isArray((submission as any).grade)
+        ? (submission as any).grade[0]
+        : (submission as any).grade;
+      const normalizedStatus =
+        (submission.status as SubmissionStatus | undefined) ||
+        (normalizedGrade ? 'graded' : 'submitted');
 
       return {
         id: submission.id,
         name: studentName,
         avatar,
-        status: submission.grade ? 'graded' : 'submitted',
+        status: normalizedStatus,
         submittedDate: new Date(submission.submitted_at).toLocaleString(),
         grade:
-          typeof submission.grade?.points_earned === 'number'
-            ? String(submission.grade.points_earned)
+          typeof normalizedGrade?.points_earned === 'number'
+            ? String(normalizedGrade.points_earned)
             : undefined,
-        gradeId: submission.grade?.id,
-        feedback: submission.grade?.feedback ?? null,
-        submissionText: submission.submission_text || undefined,
-        submissionUrl: submission.submission_url || undefined,
+        gradeId: normalizedGrade?.id,
+        feedback: normalizedGrade?.feedback ?? null,
+        submissionText: submission.content || submission.submission_text || undefined,
+        submissionUrl: submission.drive_view_link || submission.submission_url || undefined,
       };
     });
 
@@ -341,8 +416,28 @@ export function TeacherAssignmentDetail({
       return;
     }
 
+    if (!selectedSubmission.gradeId && selectedSubmission.status === 'draft') {
+      toast({
+        title: 'Submission is draft',
+        description: 'Move the submission to review before grading.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSavingGrade(true);
     try {
+      if (
+        !selectedSubmission.gradeId &&
+        (selectedSubmission.status === 'submitted' || selectedSubmission.status === 'late')
+      ) {
+        await assignmentsService.transitionSubmissionStatus(
+          selectedSubmission.id,
+          'under_review',
+          'Entered grading workflow'
+        );
+      }
+
       if (selectedSubmission.gradeId) {
         await gradesService.updateGrade(selectedSubmission.gradeId, {
           score: parsedGrade ?? undefined,
@@ -377,6 +472,8 @@ export function TeacherAssignmentDetail({
       setSubmissionView('list');
       setGradeInput('');
       setFeedbackText('');
+      setRevisionReason('');
+      setSubmissionTimeline([]);
       setActiveTab('submissions');
     } catch (error: any) {
       const message =
@@ -395,11 +492,81 @@ export function TeacherAssignmentDetail({
     }
   };
 
+  const handleTransitionSubmissionStatus = async (
+    targetStatus: SubmissionStatus,
+    reason?: string
+  ) => {
+    if (!selectedSubmission) return;
+
+    const trimmedReason = reason?.trim();
+    if (targetStatus === 'draft' && !trimmedReason) {
+      toast({
+        title: 'Revision reason required',
+        description: 'Provide a reason before requesting a revision.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setTransitioningStatus(true);
+    try {
+      if (targetStatus === 'draft') {
+        await assignmentsService.requestSubmissionRevision(
+          selectedSubmission.id,
+          trimmedReason as string
+        );
+      } else {
+        await assignmentsService.transitionSubmissionStatus(
+          selectedSubmission.id,
+          targetStatus,
+          trimmedReason
+        );
+      }
+
+      await refetchSubmissions();
+      await fetchSubmissionTimeline(selectedSubmission.id);
+
+      setSelectedSubmission((previous) =>
+        previous
+          ? {
+              ...previous,
+              status: targetStatus,
+            }
+          : null
+      );
+
+      if (targetStatus !== 'draft') {
+        setRevisionReason('');
+      }
+
+      toast({
+        title: 'Status updated',
+        description: `Submission moved to ${STATUS_LABELS[targetStatus].toLowerCase()}.`,
+      });
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update submission status';
+
+      toast({
+        title: 'Status update failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setTransitioningStatus(false);
+    }
+  };
+
   const handleOpenSubmissionDetail = (submission: StudentSubmission) => {
     setSelectedSubmission(submission);
     setSubmissionView('view-submission');
     setGradeInput(submission.grade || '');
     setFeedbackText(submission.feedback || '');
+    setRevisionReason('');
+    void fetchSubmissionTimeline(submission.id);
     setActiveTab('submissions');
   };
 
@@ -410,11 +577,11 @@ export function TeacherAssignmentDetail({
     return `${numericGrade}/${editedPoints}`;
   };
 
-  const submittedCount = submissions.filter(
-    (s) => s.status === 'submitted' || s.status === 'graded'
-  ).length;
+  const submittedCount = submissions.filter((s) => s.status !== 'draft').length;
   const gradedCount = submissions.filter((s) => s.status === 'graded').length;
-  const pendingCount = submissions.filter((s) => s.status === 'pending').length;
+  const pendingCount = submissions.filter(
+    (s) => s.status === 'submitted' || s.status === 'late' || s.status === 'under_review'
+  ).length;
 
   // Handle dialog close - go back to list if viewing submission
   const handleDialogOpenChange = (isOpen: boolean) => {
@@ -425,6 +592,8 @@ export function TeacherAssignmentDetail({
         setSubmissionView('list');
         setGradeInput('');
         setFeedbackText('');
+        setRevisionReason('');
+        setSubmissionTimeline([]);
         setActiveTab('submissions');
       } else {
         // Close the dialog
@@ -447,9 +616,7 @@ export function TeacherAssignmentDetail({
                     {selectedSubmission.name}'s Submission
                   </DialogTitle>
                   <p className="text-sm text-muted-foreground">
-                    {selectedSubmission.status === 'pending'
-                      ? 'Not yet submitted'
-                      : `${selectedSubmission.status === 'graded' ? 'Graded' : 'Submitted'} on ${selectedSubmission.submittedDate}`}
+                    {`${STATUS_LABELS[selectedSubmission.status]} on ${selectedSubmission.submittedDate}`}
                   </p>
                 </div>
               ) : !isEditing ? (
@@ -529,7 +696,7 @@ export function TeacherAssignmentDetail({
           {selectedSubmission ? (
             <div className="space-y-6">
               {/* Submission Content */}
-              {selectedSubmission.status !== 'pending' && (
+              {selectedSubmission.status !== 'draft' && (
                 <div>
                   <h4 className="font-semibold text-sm mb-3">Submission</h4>
                   <Card className="border-0 shadow-sm bg-muted/50">
@@ -563,7 +730,7 @@ export function TeacherAssignmentDetail({
               )}
 
               {/* Grade Input */}
-              {selectedSubmission.status !== 'pending' && (
+              {selectedSubmission.status !== 'draft' && (
                 <div>
                   <label className="text-sm font-semibold block mb-2">Grade</label>
                   <Input
@@ -586,6 +753,53 @@ export function TeacherAssignmentDetail({
                   onChange={(e) => setFeedbackText(e.target.value)}
                   className="rounded-lg min-h-24 resize-none"
                 />
+              </div>
+
+              {selectedSubmission.status === 'under_review' && (
+                <div>
+                  <label className="text-sm font-semibold block mb-2">Revision Request Reason</label>
+                  <Textarea
+                    placeholder="Explain what needs to be revised before re-submission..."
+                    value={revisionReason}
+                    onChange={(e) => setRevisionReason(e.target.value)}
+                    className="rounded-lg min-h-20 resize-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <h4 className="font-semibold text-sm mb-3">Status Timeline</h4>
+                <Card className="border-0 shadow-sm bg-muted/30">
+                  <CardContent className="p-4 space-y-3">
+                    {timelineLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading timeline...</p>
+                    ) : submissionTimeline.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No status transitions recorded yet.</p>
+                    ) : (
+                      submissionTimeline.map((entry) => {
+                        const actorName =
+                          `${entry.actor?.first_name || ''} ${entry.actor?.last_name || ''}`.trim() ||
+                          entry.actor?.email ||
+                          'System';
+
+                        return (
+                          <div key={entry.id} className="space-y-1 border-l-2 border-border pl-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={getStatusBadgeVariant(entry.to_status)} className="rounded-lg text-xs">
+                                {STATUS_LABELS[entry.to_status]}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(entry.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">By {actorName}</p>
+                            {entry.reason && <p className="text-sm">{entry.reason}</p>}
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </div>
           ) : (
@@ -799,7 +1013,7 @@ export function TeacherAssignmentDetail({
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-4 text-center">
                     <p className="text-2xl font-bold">{pendingCount}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Pending</p>
+                    <p className="text-xs text-muted-foreground mt-1">Needs Grading</p>
                   </CardContent>
                 </Card>
               </div>
@@ -857,9 +1071,7 @@ export function TeacherAssignmentDetail({
                                   {submission.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {submission.status === 'pending'
-                                    ? 'Not yet submitted'
-                                    : `${submission.status === 'graded' ? 'Graded' : 'Submitted'} • ${submission.submittedDate}`}
+                                  {`${STATUS_LABELS[submission.status]} • ${submission.submittedDate}`}
                                 </p>
                               </div>
                             </div>
@@ -873,16 +1085,10 @@ export function TeacherAssignmentDetail({
                                 </div>
                               )}
                               <Badge
-                                variant={
-                                  submission.status === 'graded'
-                                    ? 'default'
-                                    : submission.status === 'submitted'
-                                      ? 'secondary'
-                                      : 'outline'
-                                }
+                                variant={getStatusBadgeVariant(submission.status)}
                                 className="rounded-lg text-xs capitalize"
                               >
-                                {submission.status}
+                                {STATUS_LABELS[submission.status]}
                               </Badge>
                             </div>
                           </div>
@@ -993,6 +1199,45 @@ export function TeacherAssignmentDetail({
           <DialogFooter className="mt-6 flex gap-2 justify-end">
             {selectedSubmission ? (
               <>
+                {(selectedSubmission.status === 'submitted' || selectedSubmission.status === 'late') && (
+                  <Button
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => {
+                      void handleTransitionSubmissionStatus('under_review', 'Moved to review by teacher');
+                    }}
+                    disabled={savingGrade || transitioningStatus}
+                  >
+                    {transitioningStatus ? 'Updating...' : 'Move to Review'}
+                  </Button>
+                )}
+
+                {selectedSubmission.status === 'under_review' && (
+                  <Button
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => {
+                      void handleTransitionSubmissionStatus('draft', revisionReason);
+                    }}
+                    disabled={savingGrade || transitioningStatus || !revisionReason.trim()}
+                  >
+                    {transitioningStatus ? 'Updating...' : 'Request Revision'}
+                  </Button>
+                )}
+
+                {selectedSubmission.status === 'graded' && (
+                  <Button
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => {
+                      void handleTransitionSubmissionStatus('under_review', 'Reopened for review');
+                    }}
+                    disabled={savingGrade || transitioningStatus}
+                  >
+                    {transitioningStatus ? 'Updating...' : 'Reopen Review'}
+                  </Button>
+                )}
+
                 <Button
                   variant="outline"
                   className="rounded-lg"
@@ -1001,6 +1246,8 @@ export function TeacherAssignmentDetail({
                     setSubmissionView('list');
                     setGradeInput('');
                     setFeedbackText('');
+                    setRevisionReason('');
+                    setSubmissionTimeline([]);
                     setActiveTab('submissions');
                   }}
                 >
@@ -1011,7 +1258,12 @@ export function TeacherAssignmentDetail({
                   onClick={() => {
                     void handleSaveGradeAndFeedback();
                   }}
-                  disabled={savingGrade || (!gradeInput.trim() && !feedbackText.trim())}
+                  disabled={
+                    savingGrade ||
+                    transitioningStatus ||
+                    selectedSubmission.status === 'draft' ||
+                    (!gradeInput.trim() && !feedbackText.trim())
+                  }
                 >
                   {savingGrade ? 'Saving...' : 'Save Grade & Feedback'}
                 </Button>

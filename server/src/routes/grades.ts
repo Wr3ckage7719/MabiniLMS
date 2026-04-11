@@ -14,6 +14,8 @@ import {
   gradeIdParamSchema,
   submissionGradeParamSchema,
   assignmentGradesParamSchema,
+  courseWeightedGradeParamSchema,
+  weightedGradeQuerySchema,
   bulkGradeSchema,
 } from '../types/grades.js'
 import * as gradeController from '../controllers/grades.js'
@@ -46,6 +48,15 @@ router.get(
 // ============================================
 // Grade CRUD Routes
 // ============================================
+
+/**
+ * GET /api/grades/course/:courseId/weighted - Get weighted grade breakdown (40/30/30)
+ */
+router.get(
+  '/course/:courseId/weighted',
+  validate({ params: courseWeightedGradeParamSchema, query: weightedGradeQuerySchema }),
+  gradeController.getWeightedCourseGrade
+)
 
 /**
  * POST /api/grades - Create a grade (teacher/admin)

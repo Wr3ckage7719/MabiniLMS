@@ -1,5 +1,28 @@
 import { apiClient } from './api-client';
 
+export type WeightedGradeCategory = 'exam' | 'quiz' | 'activity';
+
+export interface WeightedCategoryBreakdown {
+  category: WeightedGradeCategory;
+  weight: number;
+  assignment_total: number;
+  graded_count: number;
+  points_earned: number;
+  points_possible: number;
+  raw_percentage: number | null;
+  weighted_contribution: number;
+}
+
+export interface WeightedCourseGradeBreakdown {
+  course_id: string;
+  student_id: string;
+  policy: 'missing_categories_count_as_zero';
+  final_percentage: number;
+  letter_grade: string;
+  weights: Record<WeightedGradeCategory, number>;
+  categories: Record<WeightedGradeCategory, WeightedCategoryBreakdown>;
+}
+
 const extractArray = (response: any) => {
   if (Array.isArray(response?.data)) {
     return response.data;
@@ -60,6 +83,20 @@ export const gradesService = {
       data: {
         grades,
       },
+    };
+  },
+
+  async getWeightedCourseGrade(courseId: string, studentId?: string) {
+    const query = studentId
+      ? `?student_id=${encodeURIComponent(studentId)}`
+      : '';
+
+    const response = await apiClient.get<{ success: boolean; data: WeightedCourseGradeBreakdown }>(
+      `/grades/course/${courseId}/weighted${query}`
+    );
+    return {
+      ...response,
+      data: response?.data,
     };
   },
 

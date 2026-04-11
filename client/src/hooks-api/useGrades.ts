@@ -1,5 +1,5 @@
 import { useQuery, UseQueryResult } from '@tanstack/react-query';
-import { gradesService } from '@/services/grades.service';
+import { gradesService, WeightedCourseGradeBreakdown } from '@/services/grades.service';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Main export - used by GradesPage
@@ -67,5 +67,32 @@ export function useStudentGrades(courseId: string, studentId: string) {
       return failureCount < 1;
     },
     refetchOnReconnect: false,
+  });
+}
+
+export function useWeightedCourseGrade(
+  courseId: string,
+  studentId?: string,
+  options?: { enabled?: boolean }
+): UseQueryResult<WeightedCourseGradeBreakdown | null, Error> {
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const queryEnabled = options?.enabled ?? true;
+
+  return useQuery({
+    queryKey: ['weighted-course-grade', courseId, studentId || 'me'],
+    queryFn: async () => {
+      const response = await gradesService.getWeightedCourseGrade(courseId, studentId);
+      return response.data || null;
+    },
+    enabled: !authLoading && isLoggedIn && !!courseId && queryEnabled,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403 || status === 404) {
+        return false;
+      }
+      return failureCount < 1;
+    },
+    refetchOnReconnect: false,
+    staleTime: 60 * 1000,
   });
 }

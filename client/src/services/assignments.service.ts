@@ -9,7 +9,7 @@ export interface AssignmentData {
   description?: string;
   due_date: string;
   max_points: number;
-  assignment_type?: 'homework' | 'quiz' | 'project' | 'discussion';
+  assignment_type?: 'exam' | 'quiz' | 'activity';
   instructions?: string;
 }
 
@@ -21,6 +21,31 @@ export interface SubmissionData {
   submission_url?: string;
   attachments?: File[];
   sync_key?: string;
+}
+
+export type SubmissionStatus =
+  | 'draft'
+  | 'submitted'
+  | 'late'
+  | 'under_review'
+  | 'graded';
+
+export interface SubmissionStatusTimelineEntry {
+  id: string;
+  submission_id: string;
+  from_status: SubmissionStatus | null;
+  to_status: SubmissionStatus;
+  changed_by: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  actor?: {
+    id: string;
+    email: string;
+    first_name?: string | null;
+    last_name?: string | null;
+    role?: string;
+  } | null;
 }
 
 export interface SubmissionResult {
@@ -146,6 +171,27 @@ export const assignmentsService = {
 
   async getMySubmission(courseId: string, assignmentId: string) {
     return apiClient.get(`/assignments/${assignmentId}/my-submission`);
+  },
+
+  async transitionSubmissionStatus(
+    submissionId: string,
+    status: SubmissionStatus,
+    reason?: string
+  ) {
+    return apiClient.patch(`/assignments/submissions/${submissionId}/status`, {
+      status,
+      reason,
+    });
+  },
+
+  async requestSubmissionRevision(submissionId: string, reason: string) {
+    return apiClient.post(`/assignments/submissions/${submissionId}/request-revision`, {
+      reason,
+    });
+  },
+
+  async getSubmissionTimeline(submissionId: string) {
+    return apiClient.get(`/assignments/submissions/${submissionId}/timeline`);
   },
 
   async getComments(assignmentId: string) {

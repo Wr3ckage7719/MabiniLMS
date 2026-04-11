@@ -14,8 +14,15 @@ import {
   CreateGradeInput,
   UpdateGradeInput,
   BulkGradeInput,
+  COURSE_GRADE_WEIGHTS,
+  GradeCategory,
+  WeightedCourseGradeBreakdown,
   calculatePercentage,
   calculateLetterGrade,
+  calculateWeightedContribution,
+  calculateWeightedFinalGrade,
+  normalizeAssignmentCategory,
+  roundToTwoDecimals,
 } from '../types/grades.js'
 import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
@@ -30,6 +37,52 @@ const isMissingRelationError = (error?: { code?: string; message?: string } | nu
     message.includes('could not find the table') ||
     message.includes('does not exist')
   )
+}
+
+const GRADE_CATEGORIES: GradeCategory[] = ['exam', 'quiz', 'activity']
+
+const recordSubmissionStatusHistory = async (
+  submissionId: string,
+  fromStatus: SubmissionStatus | null,
+  toStatus: SubmissionStatus,
+  changedBy: string,
+  reason: string,
+  metadata: Record<string, unknown>
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('submission_status_history')
+    .insert({
+      submission_id: submissionId,
+      from_status: fromStatus,
+      to_status: toStatus,
+      changed_by: changedBy,
+      reason,
+      metadata,
+      created_at: new Date().toISOString(),
+    })
+
+  if (!error) {
+    return
+  }
+
+  if (isMissingRelationError(error)) {
+    logger.warn('submission_status_history table missing; grade status transition history not recorded', {
+      submissionId,
+      fromStatus,
+      toStatus,
+      changedBy,
+    })
+    return
+  }
+
+  logger.error('Failed to record grade-driven submission status history', {
+    submissionId,
+    fromStatus,
+    toStatus,
+    changedBy,
+    error: error.message,
+  })
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to record submission status history', 500)
 }
 
 // ============================================
@@ -68,6 +121,15 @@ export const createGrade = async (
   const course = assignment?.course
     ? (Array.isArray(assignment.course) ? assignment.course[0] : assignment.course)
     : null
+  const currentSubmissionStatus = (submission.status as SubmissionStatus | null) ?? null
+
+  if (currentSubmissionStatus === SubmissionStatus.DRAFT) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Draft submissions cannot be graded. Move submission to review before grading.',
+      400
+    )
+  }
 
   // Authorization: Only course teacher or admin can grade
   if (graderRole !== UserRole.ADMIN && course?.teacher_id !== graderId) {
@@ -120,11 +182,35 @@ export const createGrade = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create grade', 500)
   }
 
-  // Update submission status to graded
-  await supabaseAdmin
-    .from('submissions')
-    .update({ status: SubmissionStatus.GRADED })
-    .eq('id', input.submission_id)
+  if (currentSubmissionStatus !== SubmissionStatus.GRADED) {
+    const { error: statusError } = await supabaseAdmin
+      .from('submissions')
+      .update({ status: SubmissionStatus.GRADED })
+      .eq('id', input.submission_id)
+
+    if (statusError) {
+      logger.error('Failed to update submission status after grade creation', {
+        submissionId: input.submission_id,
+        fromStatus: currentSubmissionStatus,
+        toStatus: SubmissionStatus.GRADED,
+        error: statusError.message,
+      })
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update submission status', 500)
+    }
+
+    await recordSubmissionStatusHistory(
+      input.submission_id,
+      currentSubmissionStatus,
+      SubmissionStatus.GRADED,
+      graderId,
+      'Submission graded',
+      {
+        source: 'grade_service',
+        grade_id: grade.id,
+        graded_by: graderId,
+      }
+    )
+  }
 
   // Log grade assignment audit event
   await auditService.logGradeEvent(
@@ -334,6 +420,7 @@ export const deleteGrade = async (
     .select(`
       id, submission_id,
       submission:submissions(
+        id, status,
         assignment:assignments(
           course:courses(teacher_id)
         )
@@ -354,6 +441,7 @@ export const deleteGrade = async (
   const course = assignment?.course
     ? (Array.isArray(assignment.course) ? assignment.course[0] : assignment.course)
     : null
+  const currentSubmissionStatus = (submission?.status as SubmissionStatus | null) ?? null
 
   // Authorization
   if (userRole !== UserRole.ADMIN && course?.teacher_id !== userId) {
@@ -375,11 +463,35 @@ export const deleteGrade = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to delete grade', 500)
   }
 
-  // Update submission status back to submitted
-  await supabaseAdmin
-    .from('submissions')
-    .update({ status: SubmissionStatus.SUBMITTED })
-    .eq('id', grade.submission_id)
+  if (currentSubmissionStatus !== SubmissionStatus.UNDER_REVIEW) {
+    const { error: statusError } = await supabaseAdmin
+      .from('submissions')
+      .update({ status: SubmissionStatus.UNDER_REVIEW })
+      .eq('id', grade.submission_id)
+
+    if (statusError) {
+      logger.error('Failed to update submission status after grade deletion', {
+        submissionId: grade.submission_id,
+        fromStatus: currentSubmissionStatus,
+        toStatus: SubmissionStatus.UNDER_REVIEW,
+        error: statusError.message,
+      })
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update submission status', 500)
+    }
+
+    await recordSubmissionStatusHistory(
+      grade.submission_id,
+      currentSubmissionStatus,
+      SubmissionStatus.UNDER_REVIEW,
+      userId,
+      'Grade removed; submission moved back to review',
+      {
+        source: 'grade_service',
+        grade_id: gradeId,
+        removed_by: userId,
+      }
+    )
+  }
 
   logger.info('Grade deleted', { gradeId, userId })
 }
@@ -690,4 +802,210 @@ export const getStudentGrades = async (studentId: string): Promise<any[]> => {
       } : null,
     }
   })
+}
+
+/**
+ * Get weighted course grade breakdown for one student.
+ * Missing categories are treated as zero contribution (deterministic policy).
+ */
+export const getWeightedCourseGrade = async (
+  courseId: string,
+  requesterId: string,
+  requesterRole: UserRole,
+  requestedStudentId?: string
+): Promise<WeightedCourseGradeBreakdown> => {
+  const { data: course, error: courseError } = await supabaseAdmin
+    .from('courses')
+    .select('id, teacher_id')
+    .eq('id', courseId)
+    .single()
+
+  if (courseError || !course) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404)
+  }
+
+  if (requesterRole === UserRole.TEACHER && course.teacher_id !== requesterId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only view weighted grades for your own courses',
+      403
+    )
+  }
+
+  let targetStudentId = requestedStudentId
+
+  if (requesterRole === UserRole.STUDENT) {
+    if (requestedStudentId && requestedStudentId !== requesterId) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Students can only view their own weighted grade',
+        403
+      )
+    }
+    targetStudentId = requesterId
+  }
+
+  if (!targetStudentId) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'student_id is required for teacher/admin requests',
+      400
+    )
+  }
+
+  const { data: targetStudent, error: studentError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, role')
+    .eq('id', targetStudentId)
+    .maybeSingle()
+
+  if (studentError || !targetStudent) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Student not found', 404)
+  }
+
+  if (targetStudent.role !== UserRole.STUDENT) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Weighted grading is only available for student accounts',
+      400
+    )
+  }
+
+  const { data: enrollment, error: enrollmentError } = await supabaseAdmin
+    .from('enrollments')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('student_id', targetStudentId)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (enrollmentError) {
+    logger.error('Failed to validate student enrollment for weighted grading', {
+      courseId,
+      targetStudentId,
+      error: enrollmentError.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load weighted grade', 500)
+  }
+
+  if (!enrollment) {
+    throw new ApiError(
+      ErrorCode.NOT_FOUND,
+      'Student is not actively enrolled in this course',
+      404
+    )
+  }
+
+  const { data: assignments, error: assignmentsError } = await supabaseAdmin
+    .from('assignments')
+    .select('id, assignment_type')
+    .eq('course_id', courseId)
+
+  if (assignmentsError) {
+    logger.error('Failed to fetch assignments for weighted grading', {
+      courseId,
+      targetStudentId,
+      error: assignmentsError.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load weighted grade', 500)
+  }
+
+  const assignmentTotals: Record<GradeCategory, number> = {
+    exam: 0,
+    quiz: 0,
+    activity: 0,
+  }
+
+  for (const assignment of assignments || []) {
+    const category = normalizeAssignmentCategory((assignment as any).assignment_type)
+    assignmentTotals[category] += 1
+  }
+
+  const { data: grades, error: gradesError } = await supabaseAdmin
+    .from('grades')
+    .select(`
+      points_earned,
+      submission:submissions!inner(
+        student_id,
+        assignment:assignments!inner(
+          id,
+          assignment_type,
+          max_points,
+          course_id
+        )
+      )
+    `)
+    .eq('submission.student_id', targetStudentId)
+    .eq('submission.assignment.course_id', courseId)
+
+  if (gradesError) {
+    logger.error('Failed to fetch grades for weighted grading', {
+      courseId,
+      targetStudentId,
+      error: gradesError.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load weighted grade', 500)
+  }
+
+  const aggregates: Record<GradeCategory, { graded_count: number; points_earned: number; points_possible: number }> = {
+    exam: { graded_count: 0, points_earned: 0, points_possible: 0 },
+    quiz: { graded_count: 0, points_earned: 0, points_possible: 0 },
+    activity: { graded_count: 0, points_earned: 0, points_possible: 0 },
+  }
+
+  for (const row of grades || []) {
+    const submission = Array.isArray((row as any).submission)
+      ? (row as any).submission[0]
+      : (row as any).submission
+    const assignment = Array.isArray(submission?.assignment)
+      ? submission.assignment[0]
+      : submission?.assignment
+
+    if (!assignment) {
+      continue
+    }
+
+    const category = normalizeAssignmentCategory(assignment.assignment_type)
+    const pointsEarned = Number((row as any).points_earned || 0)
+    const maxPoints = Number(assignment.max_points || 0)
+
+    aggregates[category].graded_count += 1
+    aggregates[category].points_earned += pointsEarned
+    aggregates[category].points_possible += maxPoints
+  }
+
+  const categories = {} as WeightedCourseGradeBreakdown['categories']
+  const categoryPercentages: Partial<Record<GradeCategory, number | null>> = {}
+
+  for (const category of GRADE_CATEGORIES) {
+    const aggregate = aggregates[category]
+    const rawPercentage = aggregate.points_possible > 0
+      ? calculatePercentage(aggregate.points_earned, aggregate.points_possible)
+      : null
+
+    categoryPercentages[category] = rawPercentage
+
+    categories[category] = {
+      category,
+      weight: COURSE_GRADE_WEIGHTS[category],
+      assignment_total: assignmentTotals[category],
+      graded_count: aggregate.graded_count,
+      points_earned: roundToTwoDecimals(aggregate.points_earned),
+      points_possible: roundToTwoDecimals(aggregate.points_possible),
+      raw_percentage: rawPercentage,
+      weighted_contribution: calculateWeightedContribution(rawPercentage, COURSE_GRADE_WEIGHTS[category]),
+    }
+  }
+
+  const finalPercentage = calculateWeightedFinalGrade(categoryPercentages)
+
+  return {
+    course_id: courseId,
+    student_id: targetStudentId,
+    policy: 'missing_categories_count_as_zero',
+    final_percentage: finalPercentage,
+    letter_grade: calculateLetterGrade(finalPercentage),
+    weights: COURSE_GRADE_WEIGHTS,
+    categories,
+  }
 }

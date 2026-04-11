@@ -52,10 +52,13 @@ export interface Submission {
   id: string;
   assignment_id: string;
   student_id: string;
+  content: string | null;
+  drive_view_link: string | null;
+  drive_file_name: string | null;
   submission_text: string | null;
   submission_url: string | null;
   submitted_at: string;
-  status: 'submitted' | 'graded' | 'returned';
+  status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded' | 'returned';
   grade?: {
     id: string;
     points_earned: number;

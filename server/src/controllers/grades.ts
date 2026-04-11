@@ -46,6 +46,56 @@ export const getMyGrades = async (
   }
 }
 
+/**
+ * @swagger
+ * /api/grades/course/{courseId}/weighted:
+ *   get:
+ *     summary: Get weighted course grade breakdown (40/30/30)
+ *     tags: [Grades]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: query
+ *         name: student_id
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Required for teacher/admin requests.
+ *     responses:
+ *       200:
+ *         description: Weighted grade breakdown by category with final grade
+ */
+export const getWeightedCourseGrade = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params
+    const studentId = typeof req.query.student_id === 'string' ? req.query.student_id : undefined
+
+    const breakdown = await gradeService.getWeightedCourseGrade(
+      courseId,
+      req.user!.id,
+      req.user!.role as UserRole,
+      studentId
+    )
+
+    res.json({
+      success: true,
+      data: breakdown,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 // ============================================
 // Grade CRUD Controllers
 // ============================================
