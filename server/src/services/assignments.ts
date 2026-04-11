@@ -19,7 +19,7 @@ import {
 import * as driveService from './google-drive.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
-import { notifyAssignmentCreated, notifySubmissionReceived } from './websocket.js';
+import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -390,17 +390,36 @@ export const createAssignment = async (
     );
   }
 
+  const assignmentType = input.assignment_type || 'activity';
+  const isExamAssignment = assignmentType === 'exam';
+
+  const insertPayload: Record<string, unknown> = {
+    course_id: courseId,
+    title: input.title,
+    description: input.description || null,
+    assignment_type: assignmentType,
+    due_date: input.due_date || null,
+    max_points: input.max_points || 100,
+    created_at: new Date().toISOString(),
+  };
+
+  if (isExamAssignment || typeof input.is_proctored === 'boolean') {
+    insertPayload.is_proctored = input.is_proctored ?? isExamAssignment;
+    insertPayload.exam_duration_minutes =
+      input.exam_duration_minutes
+      ?? (isExamAssignment ? 60 : null);
+    insertPayload.proctoring_policy = input.proctoring_policy || {
+      max_violations: 3,
+      terminate_on_fullscreen_exit: false,
+      block_clipboard: true,
+      block_context_menu: true,
+      block_print_shortcut: true,
+    };
+  }
+
   const { data, error } = await supabaseAdmin
     .from('assignments')
-    .insert({
-      course_id: courseId,
-      title: input.title,
-      description: input.description || null,
-      assignment_type: input.assignment_type || 'activity',
-      due_date: input.due_date || null,
-      max_points: input.max_points || 100,
-      created_at: new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -743,6 +762,13 @@ export const submitAssignment = async (
           assignment_id: assignmentId,
         }
       );
+
+      await notifyStandingUpdated(assignment.course_id, userId, {
+        source: 'submission_resubmitted',
+        assignmentId: assignmentId,
+        submissionId: data.id,
+        status: targetStatus,
+      });
     }
 
     // Log resubmission audit event
@@ -803,6 +829,13 @@ export const submitAssignment = async (
       assignment_id: assignmentId,
     }
   );
+
+  await notifyStandingUpdated(assignment.course_id, userId, {
+    source: 'submission_created',
+    assignmentId: assignmentId,
+    submissionId: data.id,
+    status: targetStatus,
+  });
 
   // Log submission audit event
   await auditService.logAssignmentEvent(
@@ -950,6 +983,13 @@ export const transitionSubmissionStatus = async (
       reason: input.reason || null,
       timestamp: new Date().toISOString(),
     },
+  });
+
+  await notifyStandingUpdated(submission.assignment.course_id, submission.student_id, {
+    source: 'submission_status_transition',
+    assignmentId: submission.assignment.id,
+    submissionId,
+    status: targetStatus,
   });
 
   return getSubmissionById(submissionId, userId, userRole);

@@ -55,12 +55,16 @@ interface AuthContextType {
   session: { access_token?: string } | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, twoFactorCode?: string) => Promise<LoginResult>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
   requestStudentSignup: (email: string) => Promise<void>;
   loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
   logout: () => void;
   updateAvatar: (avatarUrl: string) => void;
+}
+
+interface LoginResult {
+  requiresTwoFactor: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -304,7 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, twoFactorCode?: string): Promise<LoginResult> => {
     if (!email || !password) {
       throw new Error('Email and password are required');
     }
@@ -312,25 +316,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       clearRoleIntent();
-      const { data, error } = await withTimeout(
-        supabase.auth.signInWithPassword({
+
+      const response = await withTimeout(
+        authService.login({
           email: normalizedEmail,
           password,
+          twoFactorCode,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
         'Login timed out. Please try again.'
       );
 
-      if (error) throw error;
-
-      if (data.user) {
-        const userData = await loadUserData(data.user.id, normalizedEmail, data.user);
-        await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
-        await enforceTeacherApprovalPolicy(userData, null);
-
-        setUser(userData);
-        setSession(data.session || null);
+      if (!response?.success || !response.data) {
+        throw new Error(response?.error || 'Login failed');
       }
+
+      if (response.data.requires2FA) {
+        return { requiresTwoFactor: true };
+      }
+
+      const authSession = response.data.session;
+      if (!authSession?.access_token || !authSession?.refresh_token) {
+        throw new Error('Login succeeded but session token is missing. Please try again.');
+      }
+
+      const { data: setSessionData, error: setSessionError } = await withTimeout(
+        supabase.auth.setSession({
+          access_token: authSession.access_token,
+          refresh_token: authSession.refresh_token,
+        }),
+        AUTH_OPERATION_TIMEOUT_MS,
+        'Session initialization timed out. Please try again.'
+      );
+
+      if (setSessionError) {
+        throw setSessionError;
+      }
+
+      const authenticatedUser = setSessionData.session?.user || response.data.user;
+
+      if (!authenticatedUser?.id) {
+        throw new Error('Failed to resolve authenticated user data. Please sign in again.');
+      }
+
+      const authenticatedEmail = (authenticatedUser.email || normalizedEmail).trim().toLowerCase();
+      const userData = await loadUserData(authenticatedUser.id, authenticatedEmail, authenticatedUser);
+      await enforceInstitutionalStudentPolicy(userData, authenticatedEmail);
+      await enforceTeacherApprovalPolicy(userData, null);
+
+      setUser(userData);
+      setSession({ access_token: authSession.access_token });
+
+      return { requiresTwoFactor: false };
     } catch (err) {
       throw new Error(getApiErrorMessage(err, 'Login failed'));
     }

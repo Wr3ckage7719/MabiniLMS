@@ -82,24 +82,67 @@ class ApiClient {
           if (!hasRetried && originalRequest) {
             originalRequest._retry = true;
 
-            // Token may be stale, try to refresh once.
-            let session: { access_token?: string } | null = null;
+            // Token may be stale, try to refresh once via backend endpoint.
+            let refreshedSession: { access_token?: string; refresh_token?: string } | null = null;
             let refreshError: unknown = null;
 
             try {
-              const refreshResult = await withTimeout(
-                supabase.auth.refreshSession(),
+              const {
+                data: { session: currentSession },
+              } = await withTimeout(
+                supabase.auth.getSession(),
+                AUTH_LOOKUP_TIMEOUT_MS,
+                'Auth session lookup timed out'
+              );
+
+              const refreshToken = currentSession?.refresh_token;
+
+              if (!refreshToken) {
+                throw new Error('Missing refresh token');
+              }
+
+              const refreshResponse = await withTimeout(
+                axios.post<{
+                  success: boolean;
+                  data?: {
+                    access_token: string;
+                    refresh_token: string;
+                  };
+                }>(
+                  `${API_URL}/auth/refresh`,
+                  { refresh_token: refreshToken },
+                  {
+                    timeout: AUTH_LOOKUP_TIMEOUT_MS,
+                    withCredentials: true,
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                  }
+                ),
                 AUTH_LOOKUP_TIMEOUT_MS,
                 'Auth session refresh timed out'
               );
-              session = refreshResult.data.session;
-              refreshError = refreshResult.error;
+
+              if (!refreshResponse.data?.success || !refreshResponse.data.data) {
+                throw new Error('Session refresh failed');
+              }
+
+              refreshedSession = refreshResponse.data.data;
+
+              const { error: setSessionError } = await supabase.auth.setSession({
+                access_token: refreshedSession.access_token || '',
+                refresh_token: refreshedSession.refresh_token || '',
+              });
+
+              if (setSessionError) {
+                throw setSessionError;
+              }
             } catch (refreshFailure) {
               refreshError = refreshFailure;
             }
 
-            if (!refreshError && session) {
-              originalRequest.headers.Authorization = `Bearer ${session.access_token}`;
+            if (!refreshError && refreshedSession?.access_token) {
+              originalRequest.headers.Authorization = `Bearer ${refreshedSession.access_token}`;
               return this.client.request(originalRequest);
             }
           }

@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { AuthRequest, ApiError, ErrorCode, UserRole } from '../types/index.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
@@ -9,6 +10,8 @@ let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
+const PROFILE_SELECT_WITH_SECURITY_TRACKING =
+  'role, email, first_name, last_name, pending_approval, password_changed_at, two_factor_enabled';
 const PROFILE_SELECT_WITH_PASSWORD_TRACKING =
   'role, email, first_name, last_name, pending_approval, password_changed_at';
 const PROFILE_SELECT_LEGACY =
@@ -21,6 +24,7 @@ type AuthProfile = {
   last_name: string | null;
   pending_approval: boolean | null;
   password_changed_at: string | null;
+  two_factor_enabled: boolean | null;
 };
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
@@ -32,12 +36,90 @@ const resolveUserRole = (roleValue: unknown): UserRole => {
   return UserRole.STUDENT;
 };
 
-const isMissingPasswordChangedAtColumnError = (message?: string): boolean => {
+const isMissingColumnError = (message: string | undefined, columnName: string): boolean => {
   const normalizedMessage = (message || '').toLowerCase();
   return (
-    normalizedMessage.includes('password_changed_at') &&
+    normalizedMessage.includes(columnName.toLowerCase()) &&
     normalizedMessage.includes('column')
   );
+};
+
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const payload = parts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const getTokenSessionId = (accessToken: string): string | undefined => {
+  const payload = decodeJwtPayload(accessToken);
+  const maybeSessionId = payload?.session_id;
+  return typeof maybeSessionId === 'string' ? maybeSessionId : undefined;
+};
+
+const hasServerSessionProof = async (userId: string, accessToken: string): Promise<boolean> => {
+  const tokenHash = crypto.createHash('sha256').update(accessToken).digest('hex');
+  const sessionId = getTokenSessionId(accessToken);
+
+  let query = supabaseAdmin
+    .from('session_logs')
+    .select('id')
+    .eq('user_id', userId)
+    .in('event_type', ['login', 'token_refresh'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  query = sessionId
+    ? query.contains('device_info', { session_id: sessionId })
+    : query.contains('device_info', { token_hash: tokenHash });
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error('Failed to validate server session proof', {
+      userId,
+      sessionId,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+};
+
+const isTwoFactorEnabledForUser = async (
+  userId: string,
+  profileFlag: boolean | null
+): Promise<boolean> => {
+  if (profileFlag === true) {
+    return true;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('two_factor_auth')
+    .select('is_enabled')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    logger.warn('Unable to verify two-factor status from table', {
+      userId,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return data?.is_enabled === true;
 };
 
 const fetchAuthProfile = async (
@@ -45,7 +127,7 @@ const fetchAuthProfile = async (
 ): Promise<{ profile: AuthProfile | null; errorMessage?: string }> => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select(PROFILE_SELECT_WITH_PASSWORD_TRACKING)
+    .select(PROFILE_SELECT_WITH_SECURITY_TRACKING)
     .eq('id', userId)
     .maybeSingle();
 
@@ -53,11 +135,37 @@ const fetchAuthProfile = async (
     return { profile: data as AuthProfile | null };
   }
 
-  if (!isMissingPasswordChangedAtColumnError(error.message)) {
+  const isMissingTwoFactorEnabled = isMissingColumnError(error.message, 'two_factor_enabled');
+  const isMissingPasswordChangedAt = isMissingColumnError(error.message, 'password_changed_at');
+
+  if (!isMissingTwoFactorEnabled && !isMissingPasswordChangedAt) {
     return { profile: null, errorMessage: error.message };
   }
 
-  // Backward compatibility for environments that have not applied migration 005 yet.
+  if (isMissingTwoFactorEnabled) {
+    const { data: dataWithoutTwoFactor, error: fallbackError } = await supabaseAdmin
+      .from('profiles')
+      .select(PROFILE_SELECT_WITH_PASSWORD_TRACKING)
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (!fallbackError) {
+      const fallbackProfile = dataWithoutTwoFactor
+        ? ({
+            ...dataWithoutTwoFactor,
+            two_factor_enabled: false,
+          } as AuthProfile)
+        : null;
+
+      return { profile: fallbackProfile };
+    }
+
+    if (!isMissingColumnError(fallbackError.message, 'password_changed_at')) {
+      return { profile: null, errorMessage: fallbackError.message };
+    }
+  }
+
+  // Backward compatibility for environments that have not applied migration 005/007 yet.
   const { data: legacyData, error: legacyError } = await supabaseAdmin
     .from('profiles')
     .select(PROFILE_SELECT_LEGACY)
@@ -72,6 +180,7 @@ const fetchAuthProfile = async (
     ? ({
         ...legacyData,
         password_changed_at: null,
+        two_factor_enabled: false,
       } as AuthProfile)
     : null;
 
@@ -302,6 +411,25 @@ export const authenticate = async (
         'Your teacher account is pending admin approval. You will receive an email once your account is verified.',
         403
       );
+    }
+
+    const isTwoFactorEnabled = await isTwoFactorEnabledForUser(user.id, profile.two_factor_enabled);
+
+    if (isTwoFactorEnabled) {
+      const hasSessionProof = await hasServerSessionProof(user.id, token);
+
+      if (!hasSessionProof) {
+        logger.warn('Access denied - missing server session proof for 2FA user', {
+          userId: user.id,
+          sessionId: getTokenSessionId(token),
+        });
+
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'This session is not authorized for a two-factor protected account. Please sign in with email and your authenticator code.',
+          401
+        );
+      }
     }
 
     // Attach user info to request

@@ -87,7 +87,7 @@ export const requestLogger = (
 
     // Add query params if present
     if (Object.keys(req.query).length > 0) {
-      context.query = req.query
+      context.query = sanitizeLogData(req.query)
     }
 
     // Add request body for non-GET requests (sanitized)

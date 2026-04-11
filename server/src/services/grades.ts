@@ -27,7 +27,7 @@ import {
 import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
 import { AuditEventType } from './audit.js'
-import { notifyGradeReleased } from './websocket.js'
+import { notifyGradeReleased, notifyStandingUpdated } from './websocket.js'
 import logger from '../utils/logger.js'
 
 const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
@@ -234,6 +234,15 @@ export const createGrade = async (
     maxScore: assignment.max_points,
   });
 
+  if (course?.id) {
+    await notifyStandingUpdated(course.id, submission.student_id, {
+      source: 'grade_created',
+      assignmentId: assignment.id,
+      submissionId: input.submission_id,
+      gradeId: grade.id,
+    })
+  }
+
   logger.info('Grade created', {
     gradeId: grade.id,
     submissionId: input.submission_id,
@@ -349,6 +358,15 @@ export const updateGrade = async (
         score: updated.points_earned,
         maxScore: assignment.max_points,
       });
+
+      if (course?.id) {
+        await notifyStandingUpdated(course.id, submissionData.student_id, {
+          source: 'grade_updated',
+          assignmentId: assignment.id,
+          submissionId: existingGrade.submission_id,
+          gradeId,
+        })
+      }
     }
   }
 
@@ -420,9 +438,10 @@ export const deleteGrade = async (
     .select(`
       id, submission_id,
       submission:submissions(
-        id, status,
+        id, status, student_id,
         assignment:assignments(
-          course:courses(teacher_id)
+          id, course_id,
+          course:courses(id, teacher_id)
         )
       )
     `)
@@ -441,6 +460,7 @@ export const deleteGrade = async (
   const course = assignment?.course
     ? (Array.isArray(assignment.course) ? assignment.course[0] : assignment.course)
     : null
+  const studentId = submission?.student_id || null
   const currentSubmissionStatus = (submission?.status as SubmissionStatus | null) ?? null
 
   // Authorization
@@ -491,6 +511,15 @@ export const deleteGrade = async (
         removed_by: userId,
       }
     )
+  }
+
+  if (assignment?.course_id && studentId) {
+    await notifyStandingUpdated(assignment.course_id, studentId, {
+      source: 'grade_deleted',
+      assignmentId: assignment.id,
+      submissionId: grade.submission_id,
+      gradeId,
+    })
   }
 
   logger.info('Grade deleted', { gradeId, userId })

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import * as search from '../../src/services/search.js'
 
 describe('Search Utilities', () => {

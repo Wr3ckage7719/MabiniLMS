@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileText, Zap, Calendar, MessageSquare, Paperclip, Send, Clock, CheckCircle2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   assignment: FileText,
@@ -31,11 +32,13 @@ interface AssignmentDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   teacherName: string;
+  classId: string;
 }
 
-export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName }: AssignmentDetailDialogProps) {
+export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId }: AssignmentDetailDialogProps) {
   const { currentUserAvatar } = useRole();
   const [submissionText, setSubmissionText] = useState('');
+  const [examOpen, setExamOpen] = useState(false);
   const [submissions, setSubmissions] = useState<Submission[]>([
     { id: '1', content: 'Here is my completed work for this assignment. I followed all the guidelines.', timestamp: 'Apr 1, 2026 at 3:45 PM', status: 'graded', grade: '92/100', feedback: 'Great work! Consider expanding your analysis in section 3.' },
     { id: '2', content: 'Updated submission with revised section 3 as suggested.', timestamp: 'Apr 2, 2026 at 10:20 AM', status: 'submitted' },
@@ -48,6 +51,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [newComment, setNewComment] = useState('');
 
   if (!assignment) return null;
+  const isExamAssignment = assignment.rawType === 'exam';
   const Icon = TYPE_ICONS[assignment.type] || FileText;
 
   const handleSubmit = () => {
@@ -145,21 +149,41 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             </Card>
 
             <div className="pt-2">
-              <h4 className="font-semibold text-xs sm:text-sm mb-2">Submit Your Work</h4>
-              <Textarea
-                value={submissionText}
-                onChange={(e) => setSubmissionText(e.target.value)}
-                placeholder="Paste your work or describe your submission..."
-                className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
-              />
-              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mt-3">
-                <Button variant="ghost" size="sm" className="rounded-lg text-muted-foreground text-xs sm:text-sm">
-                  <Paperclip className="h-4 w-4 mr-1" /> Attach files
-                </Button>
-                <Button size="sm" className="rounded-xl text-xs sm:text-sm" disabled={!submissionText.trim()} onClick={handleSubmit}>
-                  <Send className="h-4 w-4 mr-1" /> Submit
-                </Button>
-              </div>
+              <h4 className="font-semibold text-xs sm:text-sm mb-2">
+                {isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
+              </h4>
+
+              {isExamAssignment ? (
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    This is a proctored exam. Fullscreen, focus changes, and restricted interactions are monitored during your attempt.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="rounded-xl text-xs sm:text-sm"
+                    onClick={() => setExamOpen(true)}
+                  >
+                    <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Textarea
+                    value={submissionText}
+                    onChange={(e) => setSubmissionText(e.target.value)}
+                    placeholder="Paste your work or describe your submission..."
+                    className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
+                  />
+                  <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mt-3">
+                    <Button variant="ghost" size="sm" className="rounded-lg text-muted-foreground text-xs sm:text-sm">
+                      <Paperclip className="h-4 w-4 mr-1" /> Attach files
+                    </Button>
+                    <Button size="sm" className="rounded-xl text-xs sm:text-sm" disabled={!submissionText.trim()} onClick={handleSubmit}>
+                      <Send className="h-4 w-4 mr-1" /> Submit
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </TabsContent>
 
@@ -227,6 +251,15 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
           </TabsContent>
         </Tabs>
       </DialogContent>
+
+      {assignment && classId && (
+        <ProctoredExamDialog
+          assignmentId={assignment.id}
+          assignmentTitle={assignment.title}
+          open={examOpen}
+          onOpenChange={setExamOpen}
+        />
+      )}
     </Dialog>
   );
 }

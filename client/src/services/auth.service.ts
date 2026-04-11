@@ -12,14 +12,26 @@ export interface SignupData {
 export interface LoginData {
   email: string;
   password: string;
+  twoFactorCode?: string;
+}
+
+export interface AuthSessionPayload {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+}
+
+export interface AuthPayload {
+  user: any;
+  session: AuthSessionPayload;
+  requires2FA?: boolean;
+  tempToken?: string;
 }
 
 export interface AuthResponse {
   success: boolean;
-  data?: {
-    user: any;
-    session: any;
-  };
+  data?: AuthPayload;
   error?: string;
 }
 

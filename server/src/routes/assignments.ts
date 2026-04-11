@@ -16,7 +16,20 @@ import {
   createAssignmentCommentSchema,
   assignmentCommentsParamSchema,
 } from '../types/assignments.js';
+import {
+  createExamQuestionSchema,
+  examAssignmentParamSchema,
+  examAttemptParamSchema,
+  examQuestionParamSchema,
+  listViolationsQuerySchema,
+  reportExamViolationSchema,
+  startExamAttemptSchema,
+  submitExamAnswerSchema,
+  submitExamAttemptSchema,
+  updateExamQuestionSchema,
+} from '../types/exams.js';
 import * as assignmentController from '../controllers/assignments.js';
+import * as examController from '../controllers/exams.js';
 
 const router = Router();
 
@@ -72,6 +85,99 @@ router.delete(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: assignmentIdParamSchema }),
   assignmentController.deleteAssignment
+);
+
+// ============================================
+// Exam Authoring Routes (LMS-010/011/012)
+// ============================================
+
+// GET /api/assignments/:assignmentId/exam/questions - list exam questions (teacher/admin)
+router.get(
+  '/:assignmentId/exam/questions',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: examAssignmentParamSchema }),
+  examController.listExamQuestions
+);
+
+// POST /api/assignments/:assignmentId/exam/questions - create exam question (teacher/admin)
+router.post(
+  '/:assignmentId/exam/questions',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: examAssignmentParamSchema, body: createExamQuestionSchema }),
+  examController.createExamQuestion
+);
+
+// PATCH /api/assignments/:assignmentId/exam/questions/:questionId - update exam question
+router.patch(
+  '/:assignmentId/exam/questions/:questionId',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({
+    params: examAssignmentParamSchema.merge(examQuestionParamSchema),
+    body: updateExamQuestionSchema,
+  }),
+  examController.updateExamQuestion
+);
+
+// DELETE /api/assignments/:assignmentId/exam/questions/:questionId - delete exam question
+router.delete(
+  '/:assignmentId/exam/questions/:questionId',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: examAssignmentParamSchema.merge(examQuestionParamSchema) }),
+  examController.deleteExamQuestion
+);
+
+// GET /api/assignments/:assignmentId/exam/violations - list violations for an assignment
+router.get(
+  '/:assignmentId/exam/violations',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: examAssignmentParamSchema, query: listViolationsQuerySchema }),
+  examController.listAssignmentViolations
+);
+
+// POST /api/assignments/:assignmentId/exam/attempts/start - start exam attempt (student)
+router.post(
+  '/:assignmentId/exam/attempts/start',
+  authorize(UserRole.STUDENT),
+  validate({ params: examAssignmentParamSchema, body: startExamAttemptSchema }),
+  examController.startExamAttempt
+);
+
+// GET /api/assignments/exam/attempts/:attemptId - get exam attempt session
+router.get(
+  '/exam/attempts/:attemptId',
+  validate({ params: examAttemptParamSchema }),
+  examController.getExamAttemptSession
+);
+
+// POST /api/assignments/exam/attempts/:attemptId/answers - submit answer
+router.post(
+  '/exam/attempts/:attemptId/answers',
+  authorize(UserRole.STUDENT),
+  validate({ params: examAttemptParamSchema, body: submitExamAnswerSchema }),
+  examController.submitExamAnswer
+);
+
+// POST /api/assignments/exam/attempts/:attemptId/violations - report violation (student)
+router.post(
+  '/exam/attempts/:attemptId/violations',
+  authorize(UserRole.STUDENT),
+  validate({ params: examAttemptParamSchema, body: reportExamViolationSchema }),
+  examController.reportExamViolation
+);
+
+// GET /api/assignments/exam/attempts/:attemptId/violations - list violations for attempt
+router.get(
+  '/exam/attempts/:attemptId/violations',
+  validate({ params: examAttemptParamSchema, query: listViolationsQuerySchema }),
+  examController.listAttemptViolations
+);
+
+// POST /api/assignments/exam/attempts/:attemptId/submit - finalize and auto-grade exam attempt
+router.post(
+  '/exam/attempts/:attemptId/submit',
+  authorize(UserRole.STUDENT),
+  validate({ params: examAttemptParamSchema, body: submitExamAttemptSchema }),
+  examController.submitExamAttempt
 );
 
 // ============================================

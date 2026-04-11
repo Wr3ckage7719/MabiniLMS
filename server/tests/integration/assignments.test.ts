@@ -4,7 +4,6 @@
  * Tests for assignment Zod schemas and validation middleware.
  */
 
-import { describe, it, expect } from 'vitest'
 import {
   createAssignmentSchema,
   updateAssignmentSchema,

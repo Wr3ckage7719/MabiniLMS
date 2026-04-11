@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import * as pagination from '../../src/services/pagination.js'
 
 describe('Pagination Service', () => {

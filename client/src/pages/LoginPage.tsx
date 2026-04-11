@@ -16,6 +16,8 @@ export default function LoginPage() {
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isTeacher, setIsTeacher] = useState(false);
@@ -63,7 +65,24 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      const loginResult = await login(
+        email,
+        password,
+        requiresTwoFactor ? twoFactorCode.trim() : undefined
+      );
+
+      if (loginResult.requiresTwoFactor) {
+        setRequiresTwoFactor(true);
+        setError('Enter your 6-digit authenticator code to continue.');
+        toast({
+          title: 'Two-factor verification required',
+          description: 'Enter your authenticator app code to finish signing in.',
+        });
+        return;
+      }
+
+      setRequiresTwoFactor(false);
+      setTwoFactorCode('');
       navigate('/dashboard');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -162,7 +181,13 @@ export default function LoginPage() {
                   type="email"
                   placeholder="Email address"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (requiresTwoFactor) {
+                      setRequiresTwoFactor(false);
+                      setTwoFactorCode('');
+                    }
+                  }}
                   className="rounded-xl bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 h-11"
                   disabled={isLoading}
                 />
@@ -173,11 +198,32 @@ export default function LoginPage() {
                   type="password"
                   placeholder="Password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (requiresTwoFactor) {
+                      setRequiresTwoFactor(false);
+                      setTwoFactorCode('');
+                    }
+                  }}
                   className="rounded-xl bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 h-11"
                   disabled={isLoading}
                 />
               </div>
+
+              {requiresTwoFactor && (
+                <div>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="6-digit authenticator code"
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="rounded-xl bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 h-11"
+                    disabled={isLoading}
+                  />
+                </div>
+              )}
 
               <button
                 type="button"
@@ -194,7 +240,7 @@ export default function LoginPage() {
                 className="w-full h-11 rounded-xl font-medium bg-primary text-primary-foreground hover:bg-primary/90"
                 disabled={isLoading}
               >
-                {isLoading ? 'Signing in...' : 'Sign in'}
+                {isLoading ? 'Signing in...' : requiresTwoFactor ? 'Verify and sign in' : 'Sign in'}
               </Button>
             </form>
 

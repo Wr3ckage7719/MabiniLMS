@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -21,6 +22,7 @@ export enum SocketEvent {
   
   GRADE_RELEASED = 'grade_released',
   SUBMISSION_RECEIVED = 'submission_received',
+  STANDING_UPDATED = 'standing_updated',
   
   TEACHER_PENDING = 'teacher_pending',
   TEACHER_APPROVED = 'teacher_approved',
@@ -184,6 +186,7 @@ export function useWebSocket() {
 export function useRealtimeNotifications() {
   const { subscribe, isAuthenticated } = useWebSocket();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -264,6 +267,24 @@ export function useRealtimeNotifications() {
       }
     );
 
+    const unsubStandingUpdated = subscribe<any>(
+      SocketEvent.STANDING_UPDATED,
+      (data) => {
+        const courseId = (data?.courseId || data?.course_id) as string | undefined;
+        if (!courseId) {
+          return;
+        }
+
+        void queryClient.invalidateQueries({
+          queryKey: ['weighted-course-grade', courseId],
+        });
+
+        void queryClient.invalidateQueries({
+          queryKey: ['my-grades', courseId],
+        });
+      }
+    );
+
     return () => {
       unsubNotification();
       unsubCount();
@@ -272,8 +293,9 @@ export function useRealtimeNotifications() {
       unsubAnnouncement();
       unsubTeacherPending();
       unsubSubmissionReceived();
+      unsubStandingUpdated();
     };
-  }, [isAuthenticated, subscribe, toast]);
+  }, [isAuthenticated, queryClient, subscribe, toast]);
 
   return { unreadCount, setUnreadCount };
 }

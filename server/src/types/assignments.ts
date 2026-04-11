@@ -15,6 +15,14 @@ export enum SubmissionStatus {
 export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
 export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
 
+const proctoringPolicySchema = z.object({
+  max_violations: z.number().int().min(1).max(20).optional(),
+  terminate_on_fullscreen_exit: z.boolean().optional(),
+  block_clipboard: z.boolean().optional(),
+  block_context_menu: z.boolean().optional(),
+  block_print_shortcut: z.boolean().optional(),
+});
+
 // ============================================
 // Assignment Schemas
 // ============================================
@@ -25,6 +33,9 @@ export const createAssignmentSchema = z.object({
   assignment_type: assignmentCategorySchema.default('activity'),
   due_date: z.string().datetime().optional(),
   max_points: z.number().int().min(0).max(1000).default(100),
+  is_proctored: z.boolean().optional(),
+  exam_duration_minutes: z.number().int().min(5).max(300).optional(),
+  proctoring_policy: proctoringPolicySchema.optional(),
 });
 
 export const updateAssignmentSchema = z.object({
@@ -33,6 +44,9 @@ export const updateAssignmentSchema = z.object({
   assignment_type: assignmentCategorySchema.optional(),
   due_date: z.string().datetime().nullable().optional(),
   max_points: z.number().int().min(0).max(1000).optional(),
+  is_proctored: z.boolean().optional(),
+  exam_duration_minutes: z.number().int().min(5).max(300).nullable().optional(),
+  proctoring_policy: proctoringPolicySchema.nullable().optional(),
 });
 
 export const assignmentIdParamSchema = z.object({
@@ -118,6 +132,9 @@ export interface Assignment {
   assignment_type: AssignmentCategory;
   due_date: string | null;
   max_points: number;
+  is_proctored?: boolean;
+  exam_duration_minutes?: number | null;
+  proctoring_policy?: Record<string, unknown>;
   created_at: string;
 }
 

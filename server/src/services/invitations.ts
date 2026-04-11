@@ -29,6 +29,14 @@ const shouldCountAsFailure = (status: DirectEnrollmentStatus): boolean => {
   return status !== DirectEnrollmentStatus.ENROLLED && status !== DirectEnrollmentStatus.ALREADY_ENROLLED;
 };
 
+export interface LoginEnrollmentSyncResult {
+  pending_invitations: number;
+  enrolled: number;
+  already_enrolled: number;
+  failed: number;
+  course_ids: string[];
+}
+
 const syncPendingInvitationStatus = async (
   courseId: string,
   studentEmail: string,
@@ -404,6 +412,111 @@ export const listCourseInvitations = async (
     invitations: (data || []).map(fixCourseJoin),
     total: count || 0,
   };
+};
+
+const markInvitationAccepted = async (
+  invitationId: string,
+  studentId: string
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('class_invitations')
+    .update({
+      status: InvitationStatus.ACCEPTED,
+      student_id: studentId,
+      responded_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invitationId)
+    .eq('status', InvitationStatus.PENDING);
+
+  if (error) {
+    logger.warn('Failed to mark invitation as accepted during login sync', {
+      invitationId,
+      studentId,
+      error: error.message,
+    });
+  }
+};
+
+export const syncStudentEnrollmentsOnLogin = async (
+  studentId: string,
+  studentEmail: string
+): Promise<LoginEnrollmentSyncResult> => {
+  const normalizedEmail = normalizeEmail(studentEmail);
+
+  const result: LoginEnrollmentSyncResult = {
+    pending_invitations: 0,
+    enrolled: 0,
+    already_enrolled: 0,
+    failed: 0,
+    course_ids: [],
+  };
+
+  const { data: pendingInvitations, error } = await supabaseAdmin
+    .from('class_invitations')
+    .select('id, course_id, student_email, student_id, status')
+    .eq('status', InvitationStatus.PENDING)
+    .or(`student_id.eq.${studentId},student_email.eq.${normalizedEmail}`);
+
+  if (error) {
+    logger.warn('Failed to fetch pending invitations during login sync', {
+      studentId,
+      studentEmail: normalizedEmail,
+      error: error.message,
+    });
+    return result;
+  }
+
+  if (!pendingInvitations?.length) {
+    return result;
+  }
+
+  const syncedCourseIds = new Set<string>();
+
+  for (const invitation of pendingInvitations) {
+    result.pending_invitations += 1;
+
+    if (syncedCourseIds.has(invitation.course_id)) {
+      continue;
+    }
+
+    try {
+      const alreadyEnrolled = await enrollmentService.isStudentEnrolled(invitation.course_id, studentId);
+
+      if (alreadyEnrolled) {
+        result.already_enrolled += 1;
+      } else {
+        await enrollmentService.enrollStudent(invitation.course_id, studentId);
+        result.enrolled += 1;
+      }
+
+      await markInvitationAccepted(invitation.id, studentId);
+      syncedCourseIds.add(invitation.course_id);
+    } catch (syncError) {
+      if (
+        syncError instanceof ApiError
+        && syncError.code === ErrorCode.VALIDATION_ERROR
+        && syncError.message.toLowerCase().includes('already enrolled')
+      ) {
+        result.already_enrolled += 1;
+        await markInvitationAccepted(invitation.id, studentId);
+        syncedCourseIds.add(invitation.course_id);
+        continue;
+      }
+
+      result.failed += 1;
+      logger.warn('Failed to sync invitation enrollment during login', {
+        invitationId: invitation.id,
+        courseId: invitation.course_id,
+        studentId,
+        error: syncError instanceof Error ? syncError.message : String(syncError),
+      });
+    }
+  }
+
+  result.course_ids = Array.from(syncedCourseIds);
+
+  return result;
 };
 
 const getInvitationForStudentAction = async (

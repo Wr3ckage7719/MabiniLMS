@@ -16,6 +16,7 @@ import * as emailService from './email.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import * as twoFactorService from './twoFactor.js';
+import * as invitationService from './invitations.js';
 import { generateTemporaryPassword, getPendingTeachersCount } from './admin.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import { notifyAdminsPendingTeacher } from './websocket.js';
@@ -23,6 +24,37 @@ import { notifyAdminsPendingTeacher } from './websocket.js';
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const payload = parts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const getTokenSessionId = (accessToken: string): string | undefined => {
+  const payload = decodeJwtPayload(accessToken);
+  const maybeSessionId = payload?.session_id;
+  return typeof maybeSessionId === 'string' ? maybeSessionId : undefined;
+};
+
+const createSessionProofDeviceInfo = (accessToken: string): Record<string, unknown> => {
+  return {
+    session_id: getTokenSessionId(accessToken) || null,
+    token_hash: crypto.createHash('sha256').update(accessToken).digest('hex'),
+    issued_at: new Date().toISOString(),
+  };
+};
 
 const isInstitutionalStudentEmail = (email: string): boolean => {
   const normalizedEmail = normalizeEmail(email);
@@ -98,9 +130,10 @@ const issueTemporaryPassword = async (userId: string, temporaryPassword: string)
 export const signup = async (input: SignupInput): Promise<AuthResponse> => {
   const { email, password, first_name, last_name, role } = input;
   const normalizedEmail = normalizeEmail(email);
+  const requestedRole = role === UserRole.TEACHER ? UserRole.TEACHER : UserRole.STUDENT;
 
   // Check institutional email domain for students
-  if (role === UserRole.STUDENT) {
+  if (requestedRole === UserRole.STUDENT) {
     assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
   }
 
@@ -114,7 +147,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
     user_metadata: {
       first_name,
       last_name,
-      role: role || UserRole.STUDENT,
+      role: requestedRole,
     },
   });
 
@@ -159,7 +192,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
 
   // Create or update profile in profiles table
   // For teachers, set pending_approval flag
-  const isPendingTeacher = role === UserRole.TEACHER
+  const isPendingTeacher = requestedRole === UserRole.TEACHER
   
   const { error: profileError } = await supabaseAdmin
     .from('profiles')
@@ -168,7 +201,7 @@ export const signup = async (input: SignupInput): Promise<AuthResponse> => {
       email: normalizedEmail,
       first_name,
       last_name,
-      role: role || UserRole.STUDENT,
+      role: requestedRole,
       email_verified: false,
       pending_approval: isPendingTeacher, // Teachers require admin approval
       created_at: new Date().toISOString(),
@@ -573,6 +606,29 @@ export const login = async (
     userAgent
   );
 
+  await logSessionEvent(
+    data.user.id,
+    'login',
+    ipAddress,
+    userAgent,
+    createSessionProofDeviceInfo(data.session.access_token)
+  );
+
+  if (profile.role === UserRole.STUDENT) {
+    const syncResult = await invitationService.syncStudentEnrollmentsOnLogin(
+      data.user.id,
+      profile.email
+    );
+
+    if (syncResult.pending_invitations > 0) {
+      logger.info('Student login enrollment sync completed', {
+        userId: data.user.id,
+        email: profile.email,
+        ...syncResult,
+      });
+    }
+  }
+
   // Check if email is verified (optional enforcement - can be enabled later)
   if (!profile.email_verified) {
     logger.warn('Login attempt with unverified email', { userId: data.user.id, email })
@@ -636,6 +692,17 @@ export const refreshToken = async (input: RefreshTokenInput): Promise<AuthSessio
       ErrorCode.UNAUTHORIZED,
       'Invalid or expired refresh token',
       401
+    );
+  }
+
+  const refreshedUserId = data.user?.id || data.session.user?.id;
+  if (refreshedUserId) {
+    await logSessionEvent(
+      refreshedUserId,
+      'token_refresh',
+      undefined,
+      undefined,
+      createSessionProofDeviceInfo(data.session.access_token)
     );
   }
 
@@ -788,7 +855,8 @@ export const logSessionEvent = async (
   userId: string,
   eventType: 'login' | 'logout' | 'token_refresh' | 'session_expired',
   ipAddress?: string,
-  userAgent?: string
+  userAgent?: string,
+  deviceInfo?: Record<string, unknown>
 ): Promise<void> => {
   try {
     await supabaseAdmin
@@ -798,6 +866,7 @@ export const logSessionEvent = async (
         event_type: eventType,
         ip_address: ipAddress || null,
         user_agent: userAgent || null,
+        device_info: deviceInfo || null,
       });
   } catch (error) {
     logger.error('Failed to log session event', { userId, eventType, error });

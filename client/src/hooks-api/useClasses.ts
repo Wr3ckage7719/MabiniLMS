@@ -5,10 +5,10 @@ import { ClassItem } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function useClasses(params?: { archived?: boolean; role?: 'student' | 'teacher' }): UseQueryResult<ClassItem[], Error> {
-  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const { user, isLoggedIn, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['classes', params],
+    queryKey: ['classes', user?.id || null, params],
     queryFn: async () => {
       const response = await coursesService.getCourses(params);
       return transformCourses(response.data?.courses || []);

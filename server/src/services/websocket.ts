@@ -1,5 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
+import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabase.js';
 import logger from '../utils/logger.js';
 
@@ -45,6 +46,84 @@ const socketAllowedOrigins = Array.from(
   )
 );
 
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const payload = parts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const getTokenSessionId = (accessToken: string): string | undefined => {
+  const payload = decodeJwtPayload(accessToken);
+  const maybeSessionId = payload?.session_id;
+  return typeof maybeSessionId === 'string' ? maybeSessionId : undefined;
+};
+
+const hasServerSessionProof = async (userId: string, accessToken: string): Promise<boolean> => {
+  const tokenHash = crypto.createHash('sha256').update(accessToken).digest('hex');
+  const sessionId = getTokenSessionId(accessToken);
+
+  let query = supabaseAdmin
+    .from('session_logs')
+    .select('id')
+    .eq('user_id', userId)
+    .in('event_type', ['login', 'token_refresh'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  query = sessionId
+    ? query.contains('device_info', { session_id: sessionId })
+    : query.contains('device_info', { token_hash: tokenHash });
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error('WebSocket session proof validation failed', {
+      userId,
+      sessionId,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+};
+
+const isTwoFactorEnabledForUser = async (
+  userId: string,
+  profileFlag: boolean | null
+): Promise<boolean> => {
+  if (profileFlag === true) {
+    return true;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('two_factor_auth')
+    .select('is_enabled')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    logger.warn('WebSocket could not verify two-factor status', {
+      userId,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return data?.is_enabled === true;
+};
+
 // Connected users map: userId -> Set of socket IDs
 const connectedUsers = new Map<string, Set<string>>();
 
@@ -70,6 +149,7 @@ export enum SocketEvent {
   // Grade events
   GRADE_RELEASED = 'grade_released',
   SUBMISSION_RECEIVED = 'submission_received',
+  STANDING_UPDATED = 'standing_updated',
   
   // Admin events
   TEACHER_PENDING = 'teacher_pending',
@@ -121,13 +201,28 @@ export const initializeWebSocket = (httpServer: HttpServer): Server => {
         // Get user profile for role info
         const { data: profile } = await supabaseAdmin
           .from('profiles')
-          .select('id, role, first_name, last_name')
+          .select('id, role, first_name, last_name, two_factor_enabled')
           .eq('id', user.id)
           .single();
 
         if (!profile) {
           socket.emit(SocketEvent.AUTH_ERROR, { message: 'Profile not found' });
           return;
+        }
+
+        const isTwoFactorEnabled = await isTwoFactorEnabledForUser(
+          user.id,
+          (profile as { two_factor_enabled?: boolean | null }).two_factor_enabled ?? null
+        );
+
+        if (isTwoFactorEnabled) {
+          const hasSessionProof = await hasServerSessionProof(user.id, token);
+          if (!hasSessionProof) {
+            socket.emit(SocketEvent.AUTH_ERROR, {
+              message: 'Session is not authorized for two-factor protected account. Sign in with email and your authenticator code.',
+            });
+            return;
+          }
         }
 
         // Store user ID in socket data
@@ -377,6 +472,65 @@ export const notifySubmissionReceived = (
   sendToUser(teacherId, SocketEvent.SUBMISSION_RECEIVED, submissionData);
 };
 
+/**
+ * Notify student + course teacher that standing data should be refreshed.
+ */
+export const notifyStandingUpdated = async (
+  courseId: string,
+  studentId: string,
+  standingData?: {
+    source?: string;
+    assignmentId?: string;
+    submissionId?: string;
+    gradeId?: string;
+    status?: string;
+  }
+): Promise<void> => {
+  if (!io) {
+    logger.warn('WebSocket not initialized, cannot send standing updates');
+    return;
+  }
+
+  const recipientIds = new Set<string>([studentId]);
+
+  try {
+    const { data: course, error } = await supabaseAdmin
+      .from('courses')
+      .select('teacher_id')
+      .eq('id', courseId)
+      .single();
+
+    if (error) {
+      logger.warn('Failed to resolve course teacher for standing update', {
+        courseId,
+        studentId,
+        error: error.message,
+      });
+    }
+
+    if (course?.teacher_id) {
+      recipientIds.add(course.teacher_id);
+    }
+  } catch (error) {
+    logger.warn('Unexpected error while resolving standing update recipients', {
+      courseId,
+      studentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const payload = {
+    courseId,
+    studentId,
+    updatedAt: new Date().toISOString(),
+    ...standingData,
+  };
+
+  recipientIds.forEach((recipientId) => {
+    sendToUser(recipientId, SocketEvent.STANDING_UPDATED, payload);
+  });
+};
+
 export default {
   initializeWebSocket,
   getIO,
@@ -393,5 +547,6 @@ export default {
   notifyAssignmentCreated,
   notifyGradeReleased,
   notifySubmissionReceived,
+  notifyStandingUpdated,
   SocketEvent,
 };

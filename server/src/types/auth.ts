@@ -5,12 +5,17 @@ import { UserRole } from './index.js';
 // Authentication Schemas
 // ============================================
 
+const publicSignupRoleSchema = z.union([
+  z.literal(UserRole.STUDENT),
+  z.literal(UserRole.TEACHER),
+]);
+
 export const signupSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
-  role: z.nativeEnum(UserRole).optional().default(UserRole.STUDENT),
+  role: publicSignupRoleSchema.optional().default(UserRole.STUDENT),
 });
 
 export const loginSchema = z.object({

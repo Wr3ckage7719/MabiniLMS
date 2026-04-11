@@ -5,8 +5,10 @@ import { TeacherDashboard } from './TeacherDashboard';
 import { TeacherCreateClassDialog } from './TeacherCreateClassDialog';
 import { ClassItem } from '@/lib/data';
 import { useClasses as useApiClasses } from '@/hooks-api/useClasses';
+import { useRealtimeNotifications } from '@/hooks/useWebSocket';
 
 export function TeacherPanel() {
+  useRealtimeNotifications();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings'>('dashboard');
   const [createClassOpen, setCreateClassOpen] = useState(false);

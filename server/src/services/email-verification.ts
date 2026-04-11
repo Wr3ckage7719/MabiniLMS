@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { supabaseAdmin } from '../lib/supabase.js'
 import { ApiError, ErrorCode } from '../types/index.js'
 import * as emailService from './email.js'
@@ -11,6 +11,72 @@ export const generateEmailToken = (): string => {
   return randomBytes(32).toString('hex')
 }
 
+const hashToken = (token: string): string => {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+type StoredAuthToken = {
+  user_id: string
+  expires_at: string
+  used_at: string | null
+  token: string
+}
+
+const isTokenNotFoundError = (error: { code?: string; message?: string } | null): boolean => {
+  if (!error) {
+    return false
+  }
+
+  const normalizedMessage = (error.message || '').toLowerCase()
+  return (
+    error.code === 'PGRST116' ||
+    normalizedMessage.includes('not found') ||
+    normalizedMessage.includes('no rows')
+  )
+}
+
+const fetchStoredToken = async (
+  tableName: 'email_verification_tokens' | 'password_reset_tokens',
+  tokenValue: string,
+  label: 'hashed' | 'legacy'
+): Promise<StoredAuthToken | null> => {
+  const { data, error } = await supabaseAdmin
+    .from(tableName)
+    .select('user_id, expires_at, used_at, token')
+    .eq('token', tokenValue)
+    .single()
+
+  if (error) {
+    if (isTokenNotFoundError(error)) {
+      return null
+    }
+
+    logger.warn(`Failed to lookup ${label} auth token`, {
+      tableName,
+      error: error.message,
+    })
+    return null
+  }
+
+  return data as StoredAuthToken
+}
+
+const findStoredToken = async (
+  tableName: 'email_verification_tokens' | 'password_reset_tokens',
+  rawToken: string
+): Promise<StoredAuthToken | null> => {
+  const hashedToken = hashToken(rawToken)
+
+  const hashedTokenData = await fetchStoredToken(tableName, hashedToken, 'hashed')
+
+  if (hashedTokenData) {
+    return hashedTokenData
+  }
+
+  // Backward compatibility for tokens issued before hashing rollout.
+  return fetchStoredToken(tableName, rawToken, 'legacy')
+}
+
 /**
  * Create email verification token and send email
  */
@@ -20,6 +86,7 @@ export const sendEmailVerificationToken = async (
   baseUrl: string
 ): Promise<void> => {
   const token = generateEmailToken()
+  const tokenHash = hashToken(token)
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
 
   // Store token in database
@@ -27,7 +94,7 @@ export const sendEmailVerificationToken = async (
     .from('email_verification_tokens')
     .insert({
       user_id: userId,
-      token,
+      token: tokenHash,
       expires_at: expiresAt.toISOString(),
     })
 
@@ -54,14 +121,9 @@ export const verifyEmailToken = async (token: string): Promise<{
   userId: string
   email: string
 }> => {
-  // Find token in database
-  const { data: tokenData, error: queryError } = await supabaseAdmin
-    .from('email_verification_tokens')
-    .select('user_id, expires_at, used_at')
-    .eq('token', token)
-    .single()
+  const tokenData = await findStoredToken('email_verification_tokens', token)
 
-  if (queryError || !tokenData) {
+  if (!tokenData) {
     throw new ApiError(
       ErrorCode.UNAUTHORIZED,
       'Invalid verification token',
@@ -92,7 +154,7 @@ export const verifyEmailToken = async (token: string): Promise<{
   const { error: updateError } = await supabaseAdmin
     .from('email_verification_tokens')
     .update({ used_at: new Date().toISOString() })
-    .eq('token', token)
+    .eq('token', tokenData.token)
 
   if (updateError) {
     logger.error('Failed to mark verification token as used', { error: updateError.message })
@@ -225,6 +287,7 @@ export const sendPasswordResetToken = async (
   }
 
   const token = generateEmailToken()
+  const tokenHash = hashToken(token)
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
 
   // Store token in database
@@ -232,7 +295,7 @@ export const sendPasswordResetToken = async (
     .from('password_reset_tokens')
     .insert({
       user_id: profile.id,
-      token,
+      token: tokenHash,
       expires_at: expiresAt.toISOString(),
     })
 
@@ -259,14 +322,9 @@ export const resetPasswordWithToken = async (token: string, newPassword: string)
   userId: string
   email: string
 }> => {
-  // Find token in database
-  const { data: tokenData, error: queryError } = await supabaseAdmin
-    .from('password_reset_tokens')
-    .select('user_id, expires_at, used_at')
-    .eq('token', token)
-    .single()
+  const tokenData = await findStoredToken('password_reset_tokens', token)
 
-  if (queryError || !tokenData) {
+  if (!tokenData) {
     throw new ApiError(
       ErrorCode.UNAUTHORIZED,
       'Invalid reset token',
@@ -297,7 +355,7 @@ export const resetPasswordWithToken = async (token: string, newPassword: string)
   const { error: updateError } = await supabaseAdmin
     .from('password_reset_tokens')
     .update({ used_at: new Date().toISOString() })
-    .eq('token', token)
+    .eq('token', tokenData.token)
 
   if (updateError) {
     logger.error('Failed to mark reset token as used', { error: updateError.message })

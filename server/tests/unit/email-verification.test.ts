@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import * as emailVerificationService from '../../src/services/email-verification.js'
 import * as emailService from '../../src/services/email.js'
 import { supabaseAdmin } from '../../src/lib/supabase.js'

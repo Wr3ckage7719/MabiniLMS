@@ -36,6 +36,13 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
+const isEnvFlagEnabled = (value: string | undefined): boolean => {
+  return (value || '').trim().toLowerCase() === 'true';
+};
+
+const shouldExposeApiDocs = !isProduction || isEnvFlagEnabled(process.env.EXPOSE_API_DOCS);
+const shouldExposeDbTestEndpoint = !isProduction || isEnvFlagEnabled(process.env.EXPOSE_DB_TEST_ENDPOINT);
+
 // Trust reverse proxy headers so req.ip is the real client IP on Render/Vercel.
 app.set('trust proxy', 1);
 
@@ -178,7 +185,9 @@ app.use(requestLogger);
 app.use('/api', apiLimiter);
 
 // Setup Swagger documentation
-setupSwagger(app);
+if (shouldExposeApiDocs) {
+  setupSwagger(app);
+}
 
 // Health check endpoint (no auth required)
 /**
@@ -261,37 +270,49 @@ app.get('/api/health', (_req: Request, res: Response) => {
  *       500:
  *         description: Database connection failed
  */
-app.get('/api/db-test', async (_req: Request, res: Response) => {
-  try {
-    const { error } = await supabase
-      .from('profiles')
-      .select('count')
-      .limit(1);
+if (shouldExposeDbTestEndpoint) {
+  app.get('/api/db-test', async (_req: Request, res: Response) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .select('count')
+        .limit(1);
 
-    if (error && error.code !== 'PGRST116') {
-      throw error;
-    }
-
-    res.json({ 
-      success: true,
-      data: {
-        status: 'ok', 
-        message: 'Supabase connected successfully',
-        timestamp: new Date().toISOString()
+      if (error && error.code !== 'PGRST116') {
+        throw error;
       }
-    });
-  } catch (error) {
-    logger.error('Database connection test failed', { error: (error as Error).message });
-    res.status(500).json({ 
-      success: false,
-      error: {
+
+      res.json({ 
+        success: true,
+        data: {
+          status: 'ok', 
+          message: 'Supabase connected successfully',
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Database connection test failed', { error: (error as Error).message });
+
+      const errorPayload: {
+        code: string;
+        message: string;
+        details?: string;
+      } = {
         code: 'INTERNAL_ERROR',
         message: 'Database connection failed',
-        details: (error as Error).message
+      };
+
+      if (!isProduction) {
+        errorPayload.details = (error as Error).message;
       }
-    });
-  }
-});
+
+      res.status(500).json({ 
+        success: false,
+        error: errorPayload,
+      });
+    }
+  });
+}
 
 // API Routes with specific rate limiters
 app.use('/api/auth', authRoutes);
@@ -321,12 +342,20 @@ app.use(errorHandler);
 
 const server = httpServer.listen(PORT, () => {
   logger.info(`🚀 Server is running on port ${PORT}`);
-  logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  if (shouldExposeApiDocs) {
+    logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  } else {
+    logger.info('📚 API Documentation: disabled');
+  }
   logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`);
   logger.info(`🔌 WebSocket: Enabled for real-time notifications`);
   logger.info(`🔒 Security: Helmet enabled, CORS configured, rate limiting active`);
   console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  if (shouldExposeApiDocs) {
+    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  } else {
+    console.log('📚 API Documentation: disabled');
+  }
   console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
 });

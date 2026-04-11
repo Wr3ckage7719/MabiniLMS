@@ -23,6 +23,7 @@ export interface Assignment {
   points: number;
   status: 'assigned' | 'submitted' | 'graded' | 'late';
   type: 'assignment' | 'quiz' | 'project' | 'discussion';
+  rawType?: 'exam' | 'quiz' | 'activity' | string;
   attachments?: number;
 }
 

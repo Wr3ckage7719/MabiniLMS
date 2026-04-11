@@ -558,6 +558,7 @@ export default function ClassDetail() {
         open={!!selectedAssignment}
         onOpenChange={(open) => !open && setSelectedAssignment(null)}
         teacherName={cls.teacher}
+        classId={cls.id}
       />
 
       <AlertDialog open={confirmAction !== null} onOpenChange={(open) => !open && setConfirmAction(null)}>

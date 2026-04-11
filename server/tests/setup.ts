@@ -1,4 +1,3 @@
-import { beforeAll, afterEach, afterAll } from 'vitest'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
@@ -131,25 +130,3 @@ export const createTestSubmission = (
   }
 }
 
-/**
- * Global setup - runs once before all tests
- */
-beforeAll(() => {
-  // Setup global configuration
-  // Could initialize test database, mock services, etc.
-})
-
-/**
- * Global teardown - runs after each test
- */
-afterEach(() => {
-  // Clean up after each test
-  // Could reset mocks, clear database, etc.
-})
-
-/**
- * Global cleanup - runs after all tests
- */
-afterAll(() => {
-  // Final cleanup
-})

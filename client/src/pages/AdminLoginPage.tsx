@@ -10,6 +10,8 @@ export default function AdminLoginPage() {
   const { login, isLoggedIn, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [emailError, setEmailError] = useState('');
@@ -59,7 +61,20 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      await login(trimmedEmail, password);
+      const loginResult = await login(
+        trimmedEmail,
+        password,
+        requiresTwoFactor ? twoFactorCode.trim() : undefined
+      );
+
+      if (loginResult.requiresTwoFactor) {
+        setRequiresTwoFactor(true);
+        setError('Enter your 6-digit authenticator code to continue.');
+        return;
+      }
+
+      setRequiresTwoFactor(false);
+      setTwoFactorCode('');
       // After login, check role via the AuthContext
       // The useEffect above will handle the redirect
     } catch (err) {
@@ -127,6 +142,10 @@ export default function AdminLoginPage() {
                   onChange={(e) => {
                     setEmail(e.target.value);
                     if (emailError) setEmailError('');
+                    if (requiresTwoFactor) {
+                      setRequiresTwoFactor(false);
+                      setTwoFactorCode('');
+                    }
                   }}
                   placeholder="admin@mabinilms.edu"
                   disabled={isLoading}
@@ -154,6 +173,10 @@ export default function AdminLoginPage() {
                   onChange={(e) => {
                     setPassword(e.target.value);
                     if (passwordError) setPasswordError('');
+                    if (requiresTwoFactor) {
+                      setRequiresTwoFactor(false);
+                      setTwoFactorCode('');
+                    }
                   }}
                   placeholder="••••••••"
                   disabled={isLoading}
@@ -166,6 +189,25 @@ export default function AdminLoginPage() {
                 <p className="mt-1 text-xs text-red-400">{passwordError}</p>
               )}
             </div>
+
+            {requiresTwoFactor && (
+              <div>
+                <label htmlFor="twoFactorCode" className="block text-sm font-medium text-slate-300 mb-2">
+                  Authenticator Code
+                </label>
+                <Input
+                  id="twoFactorCode"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={twoFactorCode}
+                  onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  disabled={isLoading}
+                  className="bg-slate-900/50 text-white placeholder:text-slate-500 border-slate-700 focus:border-blue-500 focus:ring-blue-500/20"
+                />
+              </div>
+            )}
 
             {/* Login Button */}
             <Button
@@ -184,7 +226,7 @@ export default function AdminLoginPage() {
               ) : (
                 <span className="flex items-center justify-center gap-2">
                   <Shield className="w-5 h-5" />
-                  Sign In as Administrator
+                  {requiresTwoFactor ? 'Verify and Sign In' : 'Sign In as Administrator'}
                 </span>
               )}
             </Button>

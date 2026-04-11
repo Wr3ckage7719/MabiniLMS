@@ -59,11 +59,13 @@ interface ClassworkAssignment {
   title: string;
   description: string;
   dueDate: string;
+  points: number;
   dueSoon: boolean;
   submitted: number;
   total: number;
   status: 'active' | 'completed';
   type: 'activity' | 'material';
+  rawType?: string;
   topic?: string;
   createdAt: Date;
 }
@@ -138,11 +140,13 @@ export function TeacherClassStream({
       title: assignment.title,
       description: assignment.description,
       dueDate: assignment.dueDate,
+      points: assignment.points,
       dueSoon: new Date(assignment.dueDate).getTime() - Date.now() <= 48 * 60 * 60 * 1000,
       submitted: assignmentSubmissions[assignment.id] || 0,
       total: Math.max(assignmentSubmissions[assignment.id] || 0, 1),
       status: assignment.status === 'graded' ? 'completed' : 'active',
       type: assignment.type === 'discussion' ? 'material' : 'activity',
+      rawType: assignment.rawType,
       createdAt: new Date(assignment.dueDate),
     }));
 
@@ -908,8 +912,9 @@ export function TeacherClassStream({
             title: selectedAssignment.title,
             description: selectedAssignment.description,
             dueDate: selectedAssignment.dueDate,
-            points: 100,
+            points: selectedAssignment.points,
             type: selectedAssignment.type,
+            rawType: selectedAssignment.rawType,
             topics: selectedAssignment.topic ? [{ id: '1', name: selectedAssignment.topic }] : [],
             acceptingSubmissions: selectedAssignment.status === 'active',
           } : null}

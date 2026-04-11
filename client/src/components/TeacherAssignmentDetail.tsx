@@ -51,6 +51,7 @@ import {
 } from '@/services/assignments.service';
 import { gradesService } from '@/services/grades.service';
 import { useToast } from '@/hooks/use-toast';
+import { TeacherExamManagementPanel } from '@/components/TeacherExamManagementPanel';
 
 interface StudentSubmission {
   id: string;
@@ -126,6 +127,7 @@ interface TeacherAssignmentDetailProps {
     dueDate: string;
     points: number;
     type: 'activity' | 'material';
+    rawType?: string;
     topics: Topic[];
     acceptingSubmissions: boolean;
   } | null;
@@ -300,6 +302,7 @@ export function TeacherAssignmentDetail({
     setFeedbackText('');
     setRevisionReason('');
     setSubmissionTimeline([]);
+    setActiveTab('details');
   }, [assignment]);
 
   useEffect(() => {
@@ -341,6 +344,8 @@ export function TeacherAssignmentDetail({
   }, [apiSubmissions]);
 
   if (!assignment) return null;
+
+  const isExamAssignment = assignment.rawType === 'exam';
 
   const handleSaveChanges = () => {
     // Changes are already in state (editedTitle, editedPoints, etc.)
@@ -636,6 +641,11 @@ export function TeacherAssignmentDetail({
                     >
                       {assignment?.type === 'activity' ? 'Activity' : 'Material'}
                     </Badge>
+                    {isExamAssignment && (
+                      <Badge variant="outline" className="rounded-lg">
+                        Exam
+                      </Badge>
+                    )}
                     <Badge
                       variant={acceptingSubmissions ? 'default' : 'destructive'}
                       className="rounded-lg"
@@ -804,7 +814,7 @@ export function TeacherAssignmentDetail({
             </div>
           ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 rounded-lg">
+              <TabsList className={`grid w-full ${isExamAssignment ? 'grid-cols-4' : 'grid-cols-3'} rounded-lg`}>
                 <TabsTrigger value="details" className="rounded-md">
                   Details
                 </TabsTrigger>
@@ -814,6 +824,11 @@ export function TeacherAssignmentDetail({
                 <TabsTrigger value="comments" className="rounded-md">
                   Comments
                 </TabsTrigger>
+                {isExamAssignment && (
+                  <TabsTrigger value="exam" className="rounded-md">
+                    Exam
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               {/* Details Tab */}
@@ -1193,6 +1208,15 @@ export function TeacherAssignmentDetail({
                 </div>
               </div>
             </TabsContent>
+
+            {isExamAssignment && (
+              <TabsContent value="exam">
+                <TeacherExamManagementPanel
+                  assignmentId={assignment.id}
+                  active={open && activeTab === 'exam'}
+                />
+              </TabsContent>
+            )}
           </Tabs>
           )}
 

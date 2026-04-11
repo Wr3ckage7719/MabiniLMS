@@ -4,7 +4,6 @@
  * Tests for grade validation schemas and helper functions.
  */
 
-import { describe, it, expect } from 'vitest'
 import {
   createGradeSchema,
   updateGradeSchema,

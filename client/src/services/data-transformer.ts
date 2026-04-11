@@ -199,6 +199,7 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     points: assignment.max_points,
     status: statusMap[assignment.submission_status || 'pending'] || 'assigned',
     type: typeMap[assignment.assignment_type || 'homework'] || 'assignment',
+    rawType: assignment.assignment_type || 'activity',
     attachments: assignment.attachments_count,
   };
 }
