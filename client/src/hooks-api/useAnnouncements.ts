@@ -32,9 +32,11 @@ const toDisplayAnnouncement = (announcement: ApiAnnouncement): Announcement => {
     classId: announcement.course_id,
     author,
     avatar,
-    content: announcement.title ? `${announcement.title}: ${announcement.content}` : announcement.content,
+    title: announcement.title,
+    content: announcement.content,
     timestamp: toRelativeTime(announcement.created_at),
     comments: 0,
+    pinned: announcement.pinned,
   };
 };
 

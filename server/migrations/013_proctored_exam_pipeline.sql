@@ -134,6 +134,7 @@ ALTER TABLE public.exam_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exam_attempt_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exam_violations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS exam_questions_select ON public.exam_questions;
 CREATE POLICY exam_questions_select ON public.exam_questions
     FOR SELECT
     USING (
@@ -160,6 +161,7 @@ CREATE POLICY exam_questions_select ON public.exam_questions
         )
     );
 
+DROP POLICY IF EXISTS exam_questions_manage ON public.exam_questions;
 CREATE POLICY exam_questions_manage ON public.exam_questions
     FOR ALL
     USING (
@@ -195,6 +197,7 @@ CREATE POLICY exam_questions_manage ON public.exam_questions
         )
     );
 
+DROP POLICY IF EXISTS exam_attempts_select ON public.exam_attempts;
 CREATE POLICY exam_attempts_select ON public.exam_attempts
     FOR SELECT
     USING (
@@ -215,6 +218,7 @@ CREATE POLICY exam_attempts_select ON public.exam_attempts
         )
     );
 
+DROP POLICY IF EXISTS exam_attempts_insert ON public.exam_attempts;
 CREATE POLICY exam_attempts_insert ON public.exam_attempts
     FOR INSERT
     WITH CHECK (
@@ -224,12 +228,17 @@ CREATE POLICY exam_attempts_insert ON public.exam_attempts
             FROM public.assignments a
             JOIN public.enrollments e ON e.course_id = a.course_id
             WHERE a.id = assignment_id
-              AND a.assignment_type = 'exam'
+                            AND COALESCE(
+                                        to_jsonb(a)->>'assignment_type',
+                                        to_jsonb(a)->>'type',
+                                        to_jsonb(a)->>'raw_type'
+                                    ) = 'exam'
               AND e.student_id = auth.uid()
               AND e.status = 'active'
         )
     );
 
+DROP POLICY IF EXISTS exam_attempts_update ON public.exam_attempts;
 CREATE POLICY exam_attempts_update ON public.exam_attempts
     FOR UPDATE
     USING (
@@ -267,6 +276,7 @@ CREATE POLICY exam_attempts_update ON public.exam_attempts
         )
     );
 
+DROP POLICY IF EXISTS exam_attempt_answers_select ON public.exam_attempt_answers;
 CREATE POLICY exam_attempt_answers_select ON public.exam_attempt_answers
     FOR SELECT
     USING (
@@ -288,6 +298,7 @@ CREATE POLICY exam_attempt_answers_select ON public.exam_attempt_answers
         )
     );
 
+DROP POLICY IF EXISTS exam_attempt_answers_upsert ON public.exam_attempt_answers;
 CREATE POLICY exam_attempt_answers_upsert ON public.exam_attempt_answers
     FOR ALL
     USING (
@@ -307,6 +318,7 @@ CREATE POLICY exam_attempt_answers_upsert ON public.exam_attempt_answers
         )
     );
 
+DROP POLICY IF EXISTS exam_violations_select ON public.exam_violations;
 CREATE POLICY exam_violations_select ON public.exam_violations
     FOR SELECT
     USING (
@@ -327,6 +339,7 @@ CREATE POLICY exam_violations_select ON public.exam_violations
         )
     );
 
+DROP POLICY IF EXISTS exam_violations_insert ON public.exam_violations;
 CREATE POLICY exam_violations_insert ON public.exam_violations
     FOR INSERT
     WITH CHECK (

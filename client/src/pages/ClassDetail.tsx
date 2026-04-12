@@ -304,7 +304,7 @@ export default function ClassDetail() {
             {/* Student Discussion Section */}
             <div>
               <h3 className="font-semibold text-sm md:text-base mb-4">Class Discussion</h3>
-              <StudentClassStream />
+              <StudentClassStream classId={classId} />
             </div>
           </TabsContent>
 

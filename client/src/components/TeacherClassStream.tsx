@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   Copy,
@@ -33,6 +33,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
 import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
@@ -42,6 +44,7 @@ import { useAssignments } from '@/hooks-api/useAssignments';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { announcementsService } from '@/services/announcements.service';
 import { assignmentsService } from '@/services/assignments.service';
+import { teacherService } from '@/services/teacher.service';
 import { useToast } from '@/hooks/use-toast';
 
 interface TeacherClassStreamProps {
@@ -76,12 +79,29 @@ interface RecentSubmissionItem {
   avatar: string;
   assignment: string;
   submittedAt: string;
+  submittedAtValue: string;
   dueDate: string;
   onTime: boolean;
   submissionContent?: string;
+  submissionUrl?: string;
+  existingGrade?: number | null;
+  existingFeedback?: string | null;
   points?: number;
   description?: string;
 }
+
+interface EditableAnnouncement {
+  id: string;
+}
+
+const parseGradeInput = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const numericPart = trimmed.includes('/') ? trimmed.split('/')[0] : trimmed;
+  const parsed = Number.parseFloat(numericPart);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 export function TeacherClassStream({
   classId,
@@ -99,8 +119,14 @@ export function TeacherClassStream({
     isLoading: announcementsLoading,
     refetch: refetchAnnouncements,
   } = useAnnouncements(classId);
-  const { data: apiAssignments = [] } = useAssignments(classId);
-  const { submissions: apiSubmissions = [] } = useCourseSubmissions(classId);
+  const {
+    data: apiAssignments = [],
+    refetch: refetchAssignments,
+  } = useAssignments(classId);
+  const {
+    submissions: apiSubmissions = [],
+    refetch: refetchCourseSubmissions,
+  } = useCourseSubmissions(classId);
   const [announcements, setAnnouncements] = useState(apiAnnouncements);
   const [classCode] = useState(() => classId.toUpperCase().slice(0, 8));
   const [showThemeSettings, setShowThemeSettings] = useState(false);
@@ -123,7 +149,14 @@ export function TeacherClassStream({
   const [showSubmissionDetail, setShowSubmissionDetail] = useState(false);
   const [submissionGrade, setSubmissionGrade] = useState('');
   const [submissionFeedback, setSubmissionFeedback] = useState('');
+  const [savingSubmissionGrade, setSavingSubmissionGrade] = useState(false);
   const [assignments, setAssignments] = useState<ClassworkAssignment[]>([]);
+  const [editingAnnouncement, setEditingAnnouncement] = useState<EditableAnnouncement | null>(null);
+  const [editAnnouncementTitle, setEditAnnouncementTitle] = useState('');
+  const [editAnnouncementContent, setEditAnnouncementContent] = useState('');
+  const [editAnnouncementPinned, setEditAnnouncementPinned] = useState(false);
+  const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
+  const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setAnnouncements(apiAnnouncements);
@@ -160,6 +193,9 @@ export function TeacherClassStream({
         const lastName = submission.student?.last_name?.trim() || '';
         const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
         const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || studentName.slice(0, 2).toUpperCase();
+        const normalizedGrade = Array.isArray((submission as any).grade)
+          ? (submission as any).grade[0]
+          : (submission as any).grade;
 
         return {
           id: submission.id,
@@ -167,18 +203,72 @@ export function TeacherClassStream({
           avatar,
           assignment: submission.assignment?.title || 'Assignment',
           submittedAt: new Date(submission.submitted_at).toLocaleString(),
+          submittedAtValue: submission.submitted_at,
           dueDate: submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date',
           onTime: submission.assignment?.due_date
             ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
             : true,
           points: submission.assignment?.max_points,
           submissionContent: submission.submission_text || submission.submission_url || undefined,
+          submissionUrl: submission.drive_view_link || submission.submission_url || undefined,
+          existingGrade:
+            typeof normalizedGrade?.points_earned === 'number'
+              ? normalizedGrade.points_earned
+              : null,
+          existingFeedback: normalizedGrade?.feedback || null,
           description: submission.assignment?.title,
         };
       })
-      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+      .sort((a, b) => new Date(b.submittedAtValue).getTime() - new Date(a.submittedAtValue).getTime())
       .slice(0, 10);
   }, [apiSubmissions]);
+
+  const handleSaveSubmissionGrade = async () => {
+    if (!selectedSubmission) return;
+
+    const parsedGrade = parseGradeInput(submissionGrade);
+    if (parsedGrade === null || parsedGrade < 0) {
+      toast({
+        title: 'Invalid grade',
+        description: 'Enter a numeric grade value before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingSubmissionGrade(true);
+    try {
+      await teacherService.gradeSubmission(selectedSubmission.id, {
+        points_earned: parsedGrade,
+        feedback: submissionFeedback.trim() || undefined,
+      });
+      await refetchCourseSubmissions();
+
+      toast({
+        title: 'Grade saved',
+        description: 'The submission grade and feedback were saved.',
+      });
+
+      setShowSubmissionDetail(false);
+      setSelectedSubmission(null);
+      setSubmissionGrade('');
+      setSubmissionFeedback('');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to save grade and feedback';
+
+      toast({
+        title: 'Save failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSubmissionGrade(false);
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -189,6 +279,10 @@ export function TeacherClassStream({
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const openBackgroundImagePicker = () => {
+    backgroundUploadInputRef.current?.click();
   };
 
   const copyClassCode = () => {
@@ -228,7 +322,7 @@ export function TeacherClassStream({
     void (async () => {
       try {
         await assignmentsService.deleteAssignment(classId, id);
-        setAssignments(assignments.filter((assignment) => assignment.id !== id));
+        await refetchAssignments();
         toast({
           title: 'Classwork removed',
           description: 'The selected classwork item has been deleted.',
@@ -237,6 +331,134 @@ export function TeacherClassStream({
         const message = error?.response?.data?.message || error?.message || 'Failed to delete classwork';
         toast({
           title: 'Delete failed',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    })();
+  };
+
+  const handleDeleteAnnouncement = (announcementId: string) => {
+    void (async () => {
+      try {
+        await announcementsService.deleteAnnouncement(announcementId);
+        await refetchAnnouncements();
+        toast({
+          title: 'Announcement deleted',
+          description: 'The announcement was removed from the stream.',
+        });
+      } catch (error: any) {
+        const message = error?.response?.data?.message || error?.message || 'Failed to delete announcement';
+        toast({
+          title: 'Delete failed',
+          description: message,
+          variant: 'destructive',
+        });
+      }
+    })();
+  };
+
+  const openEditAnnouncementDialog = (announcement: {
+    id: string;
+    title?: string;
+    content: string;
+    pinned?: boolean;
+  }) => {
+    setEditingAnnouncement({ id: announcement.id });
+    setEditAnnouncementTitle(
+      (announcement.title || '').trim() || announcement.content.slice(0, 80)
+    );
+    setEditAnnouncementContent(announcement.content);
+    setEditAnnouncementPinned(Boolean(announcement.pinned));
+  };
+
+  const closeEditAnnouncementDialog = () => {
+    if (savingAnnouncementEdit) {
+      return;
+    }
+
+    setEditingAnnouncement(null);
+    setEditAnnouncementTitle('');
+    setEditAnnouncementContent('');
+    setEditAnnouncementPinned(false);
+  };
+
+  const handleSaveAnnouncementEdit = async () => {
+    if (!editingAnnouncement) return;
+
+    const trimmedTitle = editAnnouncementTitle.trim();
+    const trimmedContent = editAnnouncementContent.trim();
+
+    if (!trimmedTitle) {
+      toast({
+        title: 'Title required',
+        description: 'Announcement title cannot be empty.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!trimmedContent) {
+      toast({
+        title: 'Content required',
+        description: 'Announcement content cannot be empty.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingAnnouncementEdit(true);
+    try {
+      await announcementsService.updateAnnouncement(editingAnnouncement.id, {
+        title: trimmedTitle,
+        content: trimmedContent,
+        pinned: editAnnouncementPinned,
+      });
+      await refetchAnnouncements();
+      toast({
+        title: 'Announcement updated',
+        description: 'The announcement changes are now live.',
+      });
+      setEditingAnnouncement(null);
+      setEditAnnouncementTitle('');
+      setEditAnnouncementContent('');
+      setEditAnnouncementPinned(false);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to update announcement';
+      toast({
+        title: 'Update failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingAnnouncementEdit(false);
+    }
+  };
+
+  const handleTogglePinAnnouncement = (
+    announcementId: string,
+    pinned: boolean | undefined,
+    title: string | undefined,
+    content: string
+  ) => {
+    void (async () => {
+      try {
+        await announcementsService.updateAnnouncement(announcementId, {
+          pinned: !pinned,
+          title: title || content.slice(0, 80),
+          content,
+        });
+        await refetchAnnouncements();
+        toast({
+          title: !pinned ? 'Announcement pinned' : 'Announcement unpinned',
+          description: !pinned
+            ? 'Pinned announcements stay on top for students.'
+            : 'Announcement returned to standard ordering.',
+        });
+      } catch (error: any) {
+        const message = error?.response?.data?.message || error?.message || 'Failed to update announcement';
+        toast({
+          title: 'Pin update failed',
           description: message,
           variant: 'destructive',
         });
@@ -399,7 +621,12 @@ export function TeacherClassStream({
                 <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
                 <p className="text-xs text-muted-foreground">No work due soon</p>
               </div>
-              <Button variant="ghost" size="sm" className="w-full text-xs text-primary hover:bg-blue-50 rounded-lg">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs text-primary hover:bg-blue-50 rounded-lg"
+                onClick={() => setActiveTab('classwork')}
+              >
                 View all
               </Button>
             </CardContent>
@@ -451,28 +678,31 @@ export function TeacherClassStream({
                   </div>
                   <p className="text-xs font-medium text-muted-foreground">Select stream header image</p>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="rounded-lg text-xs">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg text-xs"
+                      onClick={openBackgroundImagePicker}
+                    >
                       <Copy className="h-3 w-3 mr-1.5" />
                       Select photo
                     </Button>
-                    <label htmlFor="bg-upload-modal">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="rounded-lg text-xs cursor-pointer"
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        <Upload className="h-3 w-3 mr-1.5" />
-                        Upload photo
-                      </Button>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        id="bg-upload-modal"
-                      />
-                    </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-lg text-xs"
+                      onClick={openBackgroundImagePicker}
+                    >
+                      <Upload className="h-3 w-3 mr-1.5" />
+                      Upload photo
+                    </Button>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      ref={backgroundUploadInputRef}
+                    />
                   </div>
                 </div>
 
@@ -533,6 +763,79 @@ export function TeacherClassStream({
             </DialogContent>
           </Dialog>
 
+          <Dialog
+            open={Boolean(editingAnnouncement)}
+            onOpenChange={(open) => {
+              if (!open) {
+                closeEditAnnouncementDialog();
+              }
+            }}
+          >
+            <DialogContent className="w-full max-w-xl rounded-xl">
+              <DialogHeader>
+                <DialogTitle>Edit announcement</DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-announcement-title">Title</Label>
+                  <Input
+                    id="edit-announcement-title"
+                    value={editAnnouncementTitle}
+                    onChange={(event) => setEditAnnouncementTitle(event.target.value)}
+                    placeholder="Announcement title"
+                    className="rounded-lg"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-announcement-content">Content</Label>
+                  <Textarea
+                    id="edit-announcement-content"
+                    value={editAnnouncementContent}
+                    onChange={(event) => setEditAnnouncementContent(event.target.value)}
+                    placeholder="Write your announcement..."
+                    className="min-h-32 rounded-lg resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Pin announcement</p>
+                    <p className="text-xs text-muted-foreground">
+                      Pinned announcements appear first for students.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={editAnnouncementPinned}
+                    onCheckedChange={setEditAnnouncementPinned}
+                    aria-label="Pin announcement"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex gap-2 justify-end pt-2">
+                <Button
+                  variant="ghost"
+                  className="rounded-lg"
+                  onClick={closeEditAnnouncementDialog}
+                  disabled={savingAnnouncementEdit}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="rounded-lg"
+                  onClick={() => {
+                    void handleSaveAnnouncementEdit();
+                  }}
+                  disabled={savingAnnouncementEdit}
+                >
+                  {savingAnnouncementEdit ? 'Saving...' : 'Save'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           {/* Stream Tab Content */}
           {activeTab === 'stream' && (
             <>
@@ -550,7 +853,17 @@ export function TeacherClassStream({
                   />
                   <div className="flex items-center justify-between">
                     <div className="flex gap-2">
-                      <Button variant="ghost" size="icon" className="rounded-lg h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="rounded-lg h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        onClick={() => {
+                          toast({
+                            title: 'Attachments not available',
+                            description: 'Announcement file attachments are not supported yet.',
+                          });
+                        }}
+                      >
                         <Plus className="h-4 w-4" />
                       </Button>
                     </div>
@@ -612,10 +925,28 @@ export function TeacherClassStream({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="rounded-lg">
-                                  <DropdownMenuItem>Edit</DropdownMenuItem>
-                                  <DropdownMenuItem>Pin to Top</DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => openEditAnnouncementDialog(announcement)}
+                                  >
+                                    Edit
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleTogglePinAnnouncement(
+                                        announcement.id,
+                                        announcement.pinned,
+                                        announcement.title,
+                                        announcement.content
+                                      )
+                                    }
+                                  >
+                                    {announcement.pinned ? 'Unpin' : 'Pin to Top'}
+                                  </DropdownMenuItem>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem className="text-destructive">
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => handleDeleteAnnouncement(announcement.id)}
+                                  >
                                     Delete
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -623,7 +954,15 @@ export function TeacherClassStream({
                             </div>
 
                             {/* Content */}
+                            {announcement.title && (
+                              <p className="text-sm font-semibold text-foreground">{announcement.title}</p>
+                            )}
                             <p className="text-sm leading-relaxed text-foreground/90">{announcement.content}</p>
+                            {announcement.pinned && (
+                              <Badge className="w-fit bg-blue-100 text-blue-700 border-blue-200 text-xs">
+                                Pinned
+                              </Badge>
+                            )}
 
                             {/* Actions */}
                             <div className="flex gap-4 pt-2 border-t border-muted opacity-70 group-hover:opacity-100 transition-opacity">
@@ -631,6 +970,8 @@ export function TeacherClassStream({
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-all"
+                                disabled
+                                title="Reactions are not available yet"
                               >
                                 <Heart className="h-4 w-4 mr-1.5" />
                                 <span className="text-xs">Like</span>
@@ -639,6 +980,8 @@ export function TeacherClassStream({
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 rounded-lg text-muted-foreground hover:text-blue-500 hover:bg-blue-50 transition-all"
+                                disabled
+                                title="Announcement comments are not available yet"
                               >
                                 <MessageCircle className="h-4 w-4 mr-1.5" />
                                 <span className="text-xs">{announcement.comments}</span>
@@ -647,6 +990,8 @@ export function TeacherClassStream({
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 rounded-lg text-muted-foreground hover:text-green-500 hover:bg-green-50 transition-all"
+                                disabled
+                                title="Sharing is not available yet"
                               >
                                 <Repeat2 className="h-4 w-4 mr-1.5" />
                                 <span className="text-xs">Share</span>
@@ -731,7 +1076,7 @@ export function TeacherClassStream({
                                 </Badge>
                               )}
                             </div>
-                            
+
                             {/* Description */}
                             {item.description && (
                               <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
@@ -847,8 +1192,12 @@ export function TeacherClassStream({
                             onClick={() => {
                               setSelectedSubmission(submission);
                               setShowSubmissionDetail(true);
-                              setSubmissionGrade('');
-                              setSubmissionFeedback('');
+                              setSubmissionGrade(
+                                submission.existingGrade !== null && submission.existingGrade !== undefined
+                                  ? String(submission.existingGrade)
+                                  : ''
+                              );
+                              setSubmissionFeedback(submission.existingFeedback || '');
                             }}
                           >
                             View
@@ -907,6 +1256,7 @@ export function TeacherClassStream({
       {/* Teacher Assignment Detail Dialog */}
       {selectedAssignment && (
         <TeacherAssignmentDetail
+          classId={classId}
           assignment={selectedAssignment ? {
             id: String(selectedAssignment.id),
             title: selectedAssignment.title,
@@ -922,6 +1272,9 @@ export function TeacherClassStream({
           onOpenChange={(open) => {
             setShowAssignmentDetail(open);
             if (!open) setSelectedAssignment(null);
+          }}
+          onAssignmentChanged={() => {
+            void refetchAssignments();
           }}
         />
       )}
@@ -993,6 +1346,16 @@ export function TeacherClassStream({
                     <p className="text-sm text-foreground/80 whitespace-pre-wrap">
                       {selectedSubmission.submissionContent || 'No submission content available yet from backend.'}
                     </p>
+                    {selectedSubmission.submissionUrl && (
+                      <a
+                        href={selectedSubmission.submissionUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-block text-sm text-primary underline"
+                      >
+                        Open submitted file
+                      </a>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1031,13 +1394,11 @@ export function TeacherClassStream({
                 <Button 
                   className="rounded-lg"
                   onClick={() => {
-                    // Handle saving grade and feedback
-                    setShowSubmissionDetail(false);
-                    setSubmissionGrade('');
-                    setSubmissionFeedback('');
+                    void handleSaveSubmissionGrade();
                   }}
+                  disabled={savingSubmissionGrade || !submissionGrade.trim()}
                 >
-                  Save Grade & Feedback
+                  {savingSubmissionGrade ? 'Saving...' : 'Save Grade & Feedback'}
                 </Button>
               </div>
             </div>

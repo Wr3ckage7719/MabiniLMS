@@ -27,6 +27,7 @@ import {
   twoFactorRoutes,
   announcementRoutes,
   invitationRoutes,
+  discussionRoutes,
 } from './routes/index.js';
 
 dotenv.config();
@@ -331,6 +332,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);
 app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
+app.use('/api', discussionRoutes); // Course discussion stream routes
 
 // Error handlers (must be last)
 app.use(notFoundHandler);

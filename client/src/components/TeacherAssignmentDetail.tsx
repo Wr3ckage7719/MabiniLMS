@@ -120,6 +120,7 @@ const getStatusBadgeVariant = (
 };
 
 interface TeacherAssignmentDetailProps {
+  classId: string;
   assignment: {
     id: string;
     title: string;
@@ -133,6 +134,7 @@ interface TeacherAssignmentDetailProps {
   } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onAssignmentChanged?: () => void;
 }
 
 const parseNumericGrade = (value: string): number | null => {
@@ -145,9 +147,11 @@ const parseNumericGrade = (value: string): number | null => {
 };
 
 export function TeacherAssignmentDetail({
+  classId,
   assignment,
   open,
   onOpenChange,
+  onAssignmentChanged,
 }: TeacherAssignmentDetailProps) {
   const { toast } = useToast();
   const {
@@ -188,6 +192,8 @@ export function TeacherAssignmentDetail({
   const [revisionReason, setRevisionReason] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [savingGrade, setSavingGrade] = useState(false);
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [deletingAssignment, setDeletingAssignment] = useState(false);
   const [submissionTimeline, setSubmissionTimeline] = useState<SubmissionStatusTimelineEntry[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [transitioningStatus, setTransitioningStatus] = useState(false);
@@ -347,10 +353,89 @@ export function TeacherAssignmentDetail({
 
   const isExamAssignment = assignment.rawType === 'exam';
 
-  const handleSaveChanges = () => {
-    // Changes are already in state (editedTitle, editedPoints, etc.)
-    // Just close edit mode - the state persists
-    setIsEditing(false);
+  const handleSaveChanges = async () => {
+    if (!assignment?.id) return;
+
+    const parsedPoints = Number.parseInt(editedPoints, 10);
+    if (!Number.isFinite(parsedPoints) || parsedPoints < 0) {
+      toast({
+        title: 'Invalid points',
+        description: 'Points must be a non-negative number.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const trimmedTitle = editedTitle.trim();
+    if (!trimmedTitle) {
+      toast({
+        title: 'Title required',
+        description: 'Assignment title cannot be empty.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingAssignment(true);
+    try {
+      await assignmentsService.updateAssignment(classId, assignment.id, {
+        title: trimmedTitle,
+        description: editedDescription,
+        due_date: editedDueDate ? editedDueDate.toISOString() : null,
+        max_points: parsedPoints,
+      });
+
+      setIsEditing(false);
+      onAssignmentChanged?.();
+      toast({
+        title: 'Assignment updated',
+        description: 'Your changes were saved successfully.',
+      });
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update assignment';
+
+      toast({
+        title: 'Save failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingAssignment(false);
+    }
+  };
+
+  const handleDeleteAssignment = async () => {
+    if (!assignment?.id) return;
+
+    setDeletingAssignment(true);
+    try {
+      await assignmentsService.deleteAssignment(classId, assignment.id);
+      setShowDeleteConfirm(false);
+      onAssignmentChanged?.();
+      onOpenChange(false);
+      toast({
+        title: 'Assignment deleted',
+        description: 'The assignment has been removed.',
+      });
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete assignment';
+
+      toast({
+        title: 'Delete failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingAssignment(false);
+    }
   };
 
   const handleAddTopic = () => {
@@ -1299,6 +1384,7 @@ export function TeacherAssignmentDetail({
                     variant="outline"
                     className="rounded-lg"
                     onClick={() => setIsEditing(false)}
+                    disabled={savingAssignment}
                   >
                     Cancel
                   </Button>
@@ -1306,10 +1392,13 @@ export function TeacherAssignmentDetail({
                 {isEditing && (
                   <Button
                     className="rounded-lg gap-2"
-                    onClick={handleSaveChanges}
+                    onClick={() => {
+                      void handleSaveChanges();
+                    }}
+                    disabled={savingAssignment}
                   >
                     <Save className="h-4 w-4" />
-                    Save Changes
+                    {savingAssignment ? 'Saving...' : 'Save Changes'}
                   </Button>
                 )}
                 {!isEditing && (
@@ -1317,6 +1406,7 @@ export function TeacherAssignmentDetail({
                     variant="destructive"
                     className="rounded-lg gap-2"
                     onClick={() => setShowDeleteConfirm(true)}
+                    disabled={deletingAssignment}
                   >
                     <Trash2 className="h-4 w-4" />
                     Delete Assignment
@@ -1344,9 +1434,15 @@ export function TeacherAssignmentDetail({
             be undone.
           </AlertDialogDescription>
           <div className="flex gap-2 justify-end">
-            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+            <AlertDialogCancel className="rounded-lg" disabled={deletingAssignment}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                void handleDeleteAssignment();
+              }}
+              disabled={deletingAssignment}
+            >
+              {deletingAssignment ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>

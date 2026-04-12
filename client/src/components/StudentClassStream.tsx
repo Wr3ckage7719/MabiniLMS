@@ -1,110 +1,105 @@
-import { useState } from 'react';
-import { Heart, Paperclip, Send, X, FileText, Download } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Heart, Loader2, Paperclip, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/contexts/RoleContext';
+import { useToast } from '@/hooks/use-toast';
+import {
+  DiscussionPost,
+  useCreateDiscussionPost,
+  useDiscussionPosts,
+  useToggleDiscussionPostLike,
+} from '@/hooks-api/useDiscussions';
 
 interface StudentPost {
   id: string;
-  studentId: string;
   studentName: string;
   studentAvatar: string;
   content: string;
-  attachments: AttachmentFile[];
-  timestamp: Date;
+  timestamp: string;
   likes: number;
   liked: boolean;
-  replies?: number;
 }
 
-interface AttachmentFile {
-  id: string;
-  name: string;
-  size: string;
-  type: string;
-  icon: React.ReactNode;
+interface StudentClassStreamProps {
+  classId: string;
 }
 
-const FILE_ICONS: Record<string, string> = {
-  pdf: '📄',
-  doc: '📝',
-  docx: '📝',
-  image: '🖼️',
-  png: '🖼️',
-  jpg: '🖼️',
-  jpeg: '🖼️',
-  video: '🎬',
-  mp4: '🎬',
-  ppt: '📊',
-  pptx: '📊',
-  xls: '📈',
-  xlsx: '📈',
-  zip: '📦',
-  rar: '📦',
-  default: '📎',
+const toDisplayPost = (post: DiscussionPost): StudentPost => {
+  const firstName = post.author?.first_name?.trim() || '';
+  const lastName = post.author?.last_name?.trim() || '';
+  const studentName =
+    `${firstName} ${lastName}`.trim() || post.author?.email || 'Student';
+  const studentAvatar =
+    `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() ||
+    studentName.slice(0, 2).toUpperCase();
+
+  return {
+    id: post.id,
+    studentName,
+    studentAvatar,
+    content: post.content,
+    timestamp: post.created_at,
+    likes: post.likes_count,
+    liked: post.liked_by_me,
+  };
 };
 
-const getFileType = (filename: string): string => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  return FILE_ICONS[ext] || FILE_ICONS['default'];
-};
-
-export function StudentClassStream() {
-  const { currentUserAvatar, currentUserName, currentUserId } = useRole();
-  const [posts, setPosts] = useState<StudentPost[]>([]);
+export function StudentClassStream({ classId }: StudentClassStreamProps) {
+  const { currentUserAvatar } = useRole();
+  const { toast } = useToast();
+  const { data: apiPosts = [], isLoading: postsLoading } = useDiscussionPosts(classId);
+  const createPostMutation = useCreateDiscussionPost(classId);
+  const toggleLikeMutation = useToggleDiscussionPostLike(classId);
 
   const [postContent, setPostContent] = useState('');
-  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [likingPostId, setLikingPostId] = useState<string | null>(null);
 
-  const handleAddAttachment = () => {
-    const placeholderFile: AttachmentFile = {
-      id: `${Date.now()}-${Math.random()}`,
-      name: 'attachment.txt',
-      size: '0 KB',
-      type: 'text',
-      icon: getFileType('attachment.txt'),
-    };
-    setAttachments([...attachments, placeholderFile]);
-  };
+  const posts = useMemo(() => {
+    return apiPosts.map(toDisplayPost);
+  }, [apiPosts]);
 
-  const handleRemoveAttachment = (id: string) => {
-    setAttachments(attachments.filter((a) => a.id !== id));
-  };
-
-  const handlePost = () => {
+  const handlePost = async () => {
     if (!postContent.trim()) return;
 
-    const newPost: StudentPost = {
-      id: `${Date.now()}-${Math.random()}`,
-      studentId: currentUserId,
-      studentName: currentUserName,
-      studentAvatar: currentUserAvatar,
-      content: postContent,
-      attachments,
-      timestamp: new Date(),
-      likes: 0,
-      liked: false,
-    };
+    try {
+      await createPostMutation.mutateAsync({ content: postContent.trim() });
+      setPostContent('');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to publish your post';
 
-    setPosts([newPost, ...posts]);
-    setPostContent('');
-    setAttachments([]);
+      toast({
+        title: 'Post failed',
+        description: message,
+        variant: 'destructive',
+      });
+    }
   };
 
-  const toggleLike = (postId: string) => {
-    setPosts(
-      posts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              liked: !post.liked,
-              likes: post.liked ? post.likes - 1 : post.likes + 1,
-            }
-          : post
-      )
-    );
+  const toggleLike = async (postId: string) => {
+    setLikingPostId(postId);
+    try {
+      await toggleLikeMutation.mutateAsync(postId);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update reaction';
+
+      toast({
+        title: 'Like failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLikingPostId(null);
+    }
   };
 
   const formatTime = (date: Date) => {
@@ -123,9 +118,18 @@ export function StudentClassStream() {
 
   return (
     <div className="flex flex-col h-full space-y-4 md:space-y-6">
+      <div className="rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+        Discussion posts sync to your class stream across devices.
+      </div>
+
       {/* Posts Feed */}
       <div className="space-y-3 md:space-y-4 flex-1 overflow-y-auto">
-        {posts.length === 0 ? (
+        {postsLoading ? (
+          <div className="text-center py-8 md:py-12 text-muted-foreground">
+            <Loader2 className="h-5 w-5 mx-auto mb-2 animate-spin" />
+            <p className="text-sm md:text-base">Loading class discussion...</p>
+          </div>
+        ) : posts.length === 0 ? (
           <div className="text-center py-8 md:py-12 text-muted-foreground">
             <p className="text-sm md:text-base">No data present: class discussion posts</p>
           </div>
@@ -141,7 +145,7 @@ export function StudentClassStream() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <p className="font-medium text-sm">{post.studentName}</p>
-                      <p className="text-xs text-muted-foreground">{formatTime(post.timestamp)}</p>
+                      <p className="text-xs text-muted-foreground">{formatTime(new Date(post.timestamp))}</p>
                     </div>
                   </div>
                 </div>
@@ -149,32 +153,13 @@ export function StudentClassStream() {
                 {/* Content */}
                 <p className="text-sm text-foreground mb-3 leading-relaxed">{post.content}</p>
 
-                {/* Attachments */}
-                {post.attachments.length > 0 && (
-                  <div className="mb-3 space-y-2">
-                    <p className="text-xs text-muted-foreground font-medium">Attachments:</p>
-                    <div className="space-y-2">
-                      {post.attachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className="flex items-center gap-2 p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/60 transition-colors group cursor-pointer"
-                        >
-                          <span className="text-base flex-shrink-0">{attachment.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium truncate">{attachment.name}</p>
-                            <p className="text-xs text-muted-foreground">{attachment.size}</p>
-                          </div>
-                          <Download className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Actions */}
                 <div className="flex items-center gap-4 pt-2 border-t border-border">
                   <button
-                    onClick={() => toggleLike(post.id)}
+                    onClick={() => {
+                      void toggleLike(post.id);
+                    }}
+                    disabled={toggleLikeMutation.isPending && likingPostId === post.id}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group mt-2"
                   >
                     <Heart
@@ -182,12 +167,6 @@ export function StudentClassStream() {
                     />
                     <span>{post.likes}</span>
                   </button>
-                  {post.replies !== undefined && (
-                    <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2">
-                      <span>💬</span>
-                      <span>{post.replies} replies</span>
-                    </button>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -211,37 +190,17 @@ export function StudentClassStream() {
                   className="w-full min-h-[80px] p-3 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all"
                 />
 
-                {/* Attachments */}
-                {attachments.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">Attachments ({attachments.length})</p>
-                    <div className="flex flex-wrap gap-2">
-                      {attachments.map((attachment) => (
-                        <Badge
-                          key={attachment.id}
-                          variant="secondary"
-                          className="px-2 py-1.5 flex items-center gap-1.5 bg-secondary/60 hover:bg-secondary/80 group"
-                        >
-                          <span>{attachment.icon}</span>
-                          <span className="text-xs truncate max-w-[120px]">{attachment.name}</span>
-                          <button
-                            onClick={() => handleRemoveAttachment(attachment.id)}
-                            className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Actions */}
                 <div className="flex items-center justify-between gap-2 pt-2">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={handleAddAttachment}
+                    onClick={() => {
+                      toast({
+                        title: 'Attachments unavailable',
+                        description: 'File attachments are not supported in discussion posts yet.',
+                      });
+                    }}
                     className="gap-2 text-muted-foreground hover:text-foreground rounded-lg h-8"
                   >
                     <Paperclip className="h-4 w-4" />
@@ -249,12 +208,14 @@ export function StudentClassStream() {
                   </Button>
                   <Button
                     onClick={handlePost}
-                    disabled={!postContent.trim()}
+                    disabled={!postContent.trim() || createPostMutation.isPending}
                     className="gap-2 rounded-lg h-8"
                     size="sm"
                   >
                     <Send className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline text-xs">Post</span>
+                    <span className="hidden sm:inline text-xs">
+                      {createPostMutation.isPending ? 'Posting...' : 'Post'}
+                    </span>
                   </Button>
                 </div>
               </div>

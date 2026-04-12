@@ -15,3 +15,4 @@ export { default as batchRoutes } from './batch.js';
 export { default as twoFactorRoutes } from './twoFactor.js';
 export { default as announcementRoutes } from './announcements.js';
 export { default as invitationRoutes } from './invitations.js';
+export { default as discussionRoutes } from './discussions.js';

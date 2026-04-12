@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Assignment } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileText, Zap, Calendar, MessageSquare, Paperclip, Send, Clock, CheckCircle2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
+import { assignmentsService } from '@/services/assignments.service';
+import { useToast } from '@/hooks/use-toast';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   assignment: FileText,
@@ -22,9 +25,39 @@ interface Submission {
   id: string;
   content: string;
   timestamp: string;
-  status: 'submitted' | 'graded';
-  grade?: string;
-  feedback?: string;
+  status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
+  driveFileName?: string | null;
+  driveViewLink?: string | null;
+}
+
+interface ApiSubmission {
+  id: string;
+  content: string | null;
+  drive_file_name: string | null;
+  drive_view_link: string | null;
+  submitted_at: string;
+  status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
+}
+
+interface ApiAssignmentComment {
+  id: string;
+  content: string;
+  created_at: string;
+  author?: {
+    id: string;
+    email: string;
+    first_name?: string | null;
+    last_name?: string | null;
+    role?: string;
+  } | null;
+}
+
+interface AssignmentComment {
+  id: string;
+  author: string;
+  avatar: string;
+  content: string;
+  timestamp: string;
 }
 
 interface AssignmentDetailDialogProps {
@@ -37,44 +70,211 @@ interface AssignmentDetailDialogProps {
 
 export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId }: AssignmentDetailDialogProps) {
   const { currentUserAvatar } = useRole();
+  const { toast } = useToast();
   const [submissionText, setSubmissionText] = useState('');
+  const [driveReference, setDriveReference] = useState('');
+  const [driveFileName, setDriveFileName] = useState('');
   const [examOpen, setExamOpen] = useState(false);
-  const [submissions, setSubmissions] = useState<Submission[]>([
-    { id: '1', content: 'Here is my completed work for this assignment. I followed all the guidelines.', timestamp: 'Apr 1, 2026 at 3:45 PM', status: 'graded', grade: '92/100', feedback: 'Great work! Consider expanding your analysis in section 3.' },
-    { id: '2', content: 'Updated submission with revised section 3 as suggested.', timestamp: 'Apr 2, 2026 at 10:20 AM', status: 'submitted' },
-  ]);
-  const [comments, setComments] = useState([
-    { id: '1', author: teacherName, avatar: 'SC', content: 'Remember to show all your work and cite any references.', timestamp: '2 days ago' },
-    { id: '2', author: 'Kaide Olfindo', avatar: 'KO', content: 'Can we use external sources for this?', timestamp: '1 day ago' },
-    { id: '3', author: teacherName, avatar: 'SC', content: 'Yes, but make sure to cite them properly in APA format.', timestamp: '1 day ago' },
-  ]);
+  const [submission, setSubmission] = useState<ApiSubmission | null>(null);
+  const [loadingSubmission, setLoadingSubmission] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [comments, setComments] = useState<AssignmentComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [postingComment, setPostingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
 
   if (!assignment) return null;
   const isExamAssignment = assignment.rawType === 'exam';
   const Icon = TYPE_ICONS[assignment.type] || FileText;
 
-  const handleSubmit = () => {
-    if (!submissionText.trim()) return;
-    setSubmissions(prev => [...prev, {
-      id: String(prev.length + 1),
-      content: submissionText,
-      timestamp: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
-      status: 'submitted',
-    }]);
-    setSubmissionText('');
+  const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
+    const firstName = comment.author?.first_name?.trim() || '';
+    const lastName = comment.author?.last_name?.trim() || '';
+    const authorName = `${firstName} ${lastName}`.trim() || comment.author?.email || 'User';
+    const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || authorName.slice(0, 2).toUpperCase();
+
+    return {
+      id: comment.id,
+      author: authorName,
+      avatar,
+      content: comment.content,
+      timestamp: new Date(comment.created_at).toLocaleString(),
+    };
+  }, []);
+
+  const extractDriveFileId = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const patterns = [
+      /\/d\/([a-zA-Z0-9_-]{10,})/,
+      /[?&]id=([a-zA-Z0-9_-]{10,})/,
+      /\/file\/d\/([a-zA-Z0-9_-]{10,})/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = trimmed.match(pattern);
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+
+    return null;
   };
 
-  const handleComment = () => {
-    if (!newComment.trim()) return;
-    setComments(prev => [...prev, {
-      id: String(prev.length + 1),
-      author: 'Kaide Olfindo',
-      avatar: currentUserAvatar,
-      content: newComment,
-      timestamp: 'Just now',
-    }]);
+  const loadSubmission = useCallback(async () => {
+    if (!assignment?.id) return;
+
+    setLoadingSubmission(true);
+    try {
+      const response = await assignmentsService.getMySubmission(classId, assignment.id);
+      const apiSubmission = (response as any)?.data as ApiSubmission | null | undefined;
+      setSubmission(apiSubmission || null);
+    } catch {
+      setSubmission(null);
+    } finally {
+      setLoadingSubmission(false);
+    }
+  }, [assignment?.id, classId]);
+
+  const loadComments = useCallback(async () => {
+    if (!assignment?.id) return;
+
+    setCommentsLoading(true);
+    try {
+      const response = await assignmentsService.getComments(assignment.id);
+      const apiComments = Array.isArray((response as any)?.data)
+        ? ((response as any).data as ApiAssignmentComment[])
+        : [];
+      setComments(apiComments.map(mapApiComment));
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to load comments';
+      toast({
+        title: 'Comments unavailable',
+        description: message,
+        variant: 'destructive',
+      });
+      setComments([]);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [assignment?.id, mapApiComment, toast]);
+
+  useEffect(() => {
+    if (!open || !assignment?.id) return;
+
+    setSubmissionText('');
+    setDriveReference('');
+    setDriveFileName('');
     setNewComment('');
+    void loadSubmission();
+    void loadComments();
+  }, [assignment?.id, loadComments, loadSubmission, open]);
+
+  const submissions = useMemo<Submission[]>(() => {
+    if (!submission) return [];
+    return [
+      {
+        id: submission.id,
+        content: submission.content || 'No submission text provided.',
+        timestamp: new Date(submission.submitted_at).toLocaleString(),
+        status: submission.status,
+        driveFileName: submission.drive_file_name,
+        driveViewLink: submission.drive_view_link,
+      },
+    ];
+  }, [submission]);
+
+  const handleSubmit = async () => {
+    if (!assignment?.id) return;
+
+    const driveFileId = extractDriveFileId(driveReference);
+    if (!driveFileId) {
+      toast({
+        title: 'Drive file is required',
+        description: 'Paste a valid Google Drive file ID or share link before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const result = await assignmentsService.submitAssignment(classId, assignment.id, {
+        drive_file_id: driveFileId,
+        drive_file_name: driveFileName.trim() || 'Drive Submission',
+        content: submissionText.trim() || undefined,
+      });
+
+      await loadSubmission();
+      setSubmissionText('');
+
+      if (result.queued) {
+        toast({
+          title: 'Submission queued',
+          description: result.message || 'Your submission will sync automatically when online.',
+        });
+      } else {
+        toast({
+          title: 'Assignment submitted',
+          description: 'Your work has been submitted successfully.',
+        });
+      }
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to submit assignment';
+
+      toast({
+        title: 'Submission failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleComment = async () => {
+    if (!assignment?.id || !newComment.trim()) return;
+
+    setPostingComment(true);
+    try {
+      const response = await assignmentsService.createComment(assignment.id, newComment.trim());
+      const createdComment = (response as any)?.data as ApiAssignmentComment | undefined;
+
+      if (createdComment) {
+        setComments((previous) => [...previous, mapApiComment(createdComment)]);
+      } else {
+        await loadComments();
+      }
+
+      setNewComment('');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to post comment';
+
+      toast({
+        title: 'Comment failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setPostingComment(false);
+    }
   };
 
   return (
@@ -168,17 +368,36 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </div>
               ) : (
                 <>
+                  <Input
+                    value={driveReference}
+                    onChange={(e) => setDriveReference(e.target.value)}
+                    placeholder="Paste Google Drive file ID or link"
+                    className="rounded-xl border-0 bg-secondary/50 text-sm"
+                  />
+                  <Input
+                    value={driveFileName}
+                    onChange={(e) => setDriveFileName(e.target.value)}
+                    placeholder="Optional file name"
+                    className="rounded-xl border-0 bg-secondary/50 text-sm"
+                  />
                   <Textarea
                     value={submissionText}
                     onChange={(e) => setSubmissionText(e.target.value)}
-                    placeholder="Paste your work or describe your submission..."
+                    placeholder="Optional notes or submission details..."
                     className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
                   />
-                  <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 mt-3">
-                    <Button variant="ghost" size="sm" className="rounded-lg text-muted-foreground text-xs sm:text-sm">
-                      <Paperclip className="h-4 w-4 mr-1" /> Attach files
-                    </Button>
-                    <Button size="sm" className="rounded-xl text-xs sm:text-sm" disabled={!submissionText.trim()} onClick={handleSubmit}>
+                  <p className="text-[11px] text-muted-foreground">
+                    Submissions require a Google Drive file so teachers can review and grade directly.
+                  </p>
+                  <div className="flex justify-end mt-3">
+                    <Button
+                      size="sm"
+                      className="rounded-xl text-xs sm:text-sm"
+                      disabled={!driveReference.trim() || submitting}
+                      onClick={() => {
+                        void handleSubmit();
+                      }}
+                    >
                       <Send className="h-4 w-4 mr-1" /> Submit
                     </Button>
                   </div>
@@ -189,20 +408,26 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
           <TabsContent value="comments" className="space-y-3 mt-4">
             <div className="space-y-2 sm:space-y-3 max-h-[300px] overflow-y-auto">
-              {comments.map((c) => (
-                <div key={c.id} className="flex gap-2 sm:gap-3 items-start">
-                  <Avatar className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0">
-                    <AvatarFallback className="bg-secondary text-secondary-foreground text-xs">{c.avatar}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 bg-secondary/30 rounded-lg sm:rounded-xl p-2 sm:p-3 min-w-0">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                      <span className="font-medium text-xs sm:text-sm truncate">{c.author}</span>
-                      <span className="text-xs text-muted-foreground">{c.timestamp}</span>
+              {commentsLoading ? (
+                <p className="text-center text-muted-foreground py-6 text-xs sm:text-sm">Loading comments...</p>
+              ) : comments.length > 0 ? (
+                comments.map((c) => (
+                  <div key={c.id} className="flex gap-2 sm:gap-3 items-start">
+                    <Avatar className="h-7 w-7 sm:h-8 sm:w-8 flex-shrink-0">
+                      <AvatarFallback className="bg-secondary text-secondary-foreground text-xs">{c.avatar}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 bg-secondary/30 rounded-lg sm:rounded-xl p-2 sm:p-3 min-w-0">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                        <span className="font-medium text-xs sm:text-sm truncate">{c.author}</span>
+                        <span className="text-xs text-muted-foreground">{c.timestamp}</span>
+                      </div>
+                      <p className="text-xs sm:text-sm mt-1 break-words">{c.content}</p>
                     </div>
-                    <p className="text-xs sm:text-sm mt-1 break-words">{c.content}</p>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-6 text-xs sm:text-sm">No comments yet</p>
+              )}
             </div>
             <div className="flex gap-2 pt-2 flex-col sm:flex-row">
               <Textarea
@@ -211,14 +436,23 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 placeholder="Add a comment..."
                 className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[60px] flex-1 text-sm"
               />
-              <Button size="icon" className="rounded-xl self-end" disabled={!newComment.trim()} onClick={handleComment}>
+              <Button
+                size="icon"
+                className="rounded-xl self-end"
+                disabled={!newComment.trim() || postingComment}
+                onClick={() => {
+                  void handleComment();
+                }}
+              >
                 <Send className="h-4 w-4" />
               </Button>
             </div>
           </TabsContent>
 
           <TabsContent value="submissions" className="space-y-2 sm:space-y-3 mt-4">
-            {submissions.map((s) => (
+            {loadingSubmission ? (
+              <p className="text-center text-muted-foreground py-6 text-xs sm:text-sm">Loading submission...</p>
+            ) : submissions.map((s) => (
               <Card key={s.id} className="border-0 shadow-sm">
                 <CardContent className="p-2 sm:p-4">
                   <div className="flex flex-col gap-2 sm:gap-3 mb-2 sm:mb-3">
@@ -232,20 +466,31 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span className="text-xs text-muted-foreground">{s.timestamp}</span>
-                      {s.grade && <Badge variant="secondary" className="text-xs w-fit">{s.grade}</Badge>}
+                      <Badge variant="secondary" className="text-xs w-fit capitalize">{s.status.replace('_', ' ')}</Badge>
                     </div>
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground mb-2 break-words">{s.content}</p>
-                  {s.feedback && (
+                  {s.driveFileName && (
                     <div className="p-2 sm:p-3 bg-primary/5 rounded-lg">
-                      <p className="text-xs font-medium text-primary mb-1">Teacher Feedback</p>
-                      <p className="text-xs sm:text-sm text-muted-foreground">{s.feedback}</p>
+                      <p className="text-xs font-medium text-primary mb-1">Drive File</p>
+                      {s.driveViewLink ? (
+                        <a
+                          href={s.driveViewLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs sm:text-sm text-primary underline break-all"
+                        >
+                          {s.driveFileName}
+                        </a>
+                      ) : (
+                        <p className="text-xs sm:text-sm text-muted-foreground">{s.driveFileName}</p>
+                      )}
                     </div>
                   )}
                 </CardContent>
               </Card>
             ))}
-            {submissions.length === 0 && (
+            {!loadingSubmission && submissions.length === 0 && (
               <p className="text-center text-muted-foreground py-6 text-xs sm:text-sm">No submissions yet</p>
             )}
           </TabsContent>

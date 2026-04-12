@@ -32,9 +32,11 @@ export interface Announcement {
   classId: string;
   author: string;
   avatar: string;
+  title?: string;
   content: string;
   timestamp: string;
   comments: number;
+  pinned?: boolean;
 }
 
 export interface StudentSubmission {
