@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Mail, Clock, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,25 +11,15 @@ export function StudentInvitations() {
     getStudentInvitations,
     acceptInvitation,
     declineInvitation,
-    refreshInvitations,
-    invitationsLoading,
   } = useClasses();
   const [processingInvitationId, setProcessingInvitationId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    void refreshInvitations();
-  }, [refreshInvitations, user?.id]);
-
   if (!user) return null;
 
-  const invitations = getStudentInvitations(user.email);
+  const pendingInvitations = getStudentInvitations(user.email).filter((invitation) => invitation.status === 'pending');
 
-  if (!invitationsLoading && invitations.length === 0) return null;
-
-  const pendingInvitations = invitations.filter(inv => inv.status === 'pending');
-
-  if (!invitationsLoading && pendingInvitations.length === 0) return null;
+  // Keep invitation loading in the background; only render when there is actionable content.
+  if (pendingInvitations.length === 0) return null;
 
   const handleAccept = async (invitationId: string) => {
     setProcessingInvitationId(invitationId);
@@ -58,9 +48,6 @@ export function StudentInvitations() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {invitationsLoading && pendingInvitations.length === 0 && (
-          <p className="text-sm text-muted-foreground">Loading invitations...</p>
-        )}
         {pendingInvitations.map((invitation) => {
           const isProcessing = processingInvitationId === invitation.id;
 
