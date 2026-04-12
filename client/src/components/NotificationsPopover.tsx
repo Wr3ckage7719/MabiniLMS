@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Popover,
   PopoverContent,
@@ -16,11 +16,45 @@ interface NotificationsPopoverProps {
 }
 
 // Helper to get initials from notification
+function getNotificationMetadata(notif: any): Record<string, any> {
+  if (notif?.metadata && typeof notif.metadata === 'object') {
+    return notif.metadata;
+  }
+
+  if (notif?.data && typeof notif.data === 'object') {
+    return notif.data;
+  }
+
+  return {};
+}
+
 function getInitialsFromNotification(notif: any): string {
-  // Try to extract initials from notification data or title
-  const match = notif.title?.match(/([A-Z])[a-z]+ ([A-Z])[a-z]+/);
-  if (match) return match[1] + match[2];
-  return '?';
+  const metadata = getNotificationMetadata(notif);
+  const actorName = typeof metadata.actor_name === 'string' ? metadata.actor_name : '';
+  const sourceText = actorName || notif.title || notif.message || '';
+  const words = sourceText
+    .split(/\s+/)
+    .map((word: string) => word.replace(/[^a-zA-Z]/g, ''))
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return 'NA';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function getAvatarUrlFromNotification(notif: any): string | null {
+  const metadata = getNotificationMetadata(notif);
+  const avatarUrl = metadata.actor_avatar_url || metadata.author_avatar_url;
+
+  return typeof avatarUrl === 'string' && avatarUrl.trim().length > 0
+    ? avatarUrl
+    : null;
 }
 
 export function NotificationsPopover({ role = 'student' }: NotificationsPopoverProps) {
@@ -83,6 +117,7 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
                 {notifications.map((notification) => {
                   const iconColor = notification.read ? 'text-muted-foreground' : 'text-primary';
                   const bgColor = notification.read ? 'bg-secondary/20' : 'bg-secondary/40';
+                  const notificationAvatarUrl = getAvatarUrlFromNotification(notification);
                   
                   return (
                     <div
@@ -92,6 +127,9 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
                     >
                       <div className="flex items-start gap-3">
                         <Avatar className={`h-8 w-8 flex-shrink-0`}>
+                          {notificationAvatarUrl ? (
+                            <AvatarImage src={notificationAvatarUrl} alt={`${notification.title} avatar`} />
+                          ) : null}
                           <AvatarFallback className={`${iconColor} bg-primary/10 text-xs font-medium`}>
                             {getInitialsFromNotification(notification)}
                           </AvatarFallback>

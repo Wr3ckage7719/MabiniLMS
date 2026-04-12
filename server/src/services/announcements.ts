@@ -138,10 +138,44 @@ export const createAnnouncement = async (
   await notifyAnnouncementCreated(courseId, {
     id: data.id,
     title: data.title,
+    courseId,
     courseName: course.title || 'Course',
   });
 
   try {
+    let notificationActor:
+      | {
+          id: string;
+          name?: string;
+          avatar_url?: string | null;
+        }
+      | undefined;
+
+    const { data: authorProfile, error: authorProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, avatar_url')
+      .eq('id', authorId)
+      .maybeSingle();
+
+    if (authorProfileError) {
+      logger.warn('Failed to resolve announcement notification actor profile', {
+        courseId,
+        announcementId: data.id,
+        authorId,
+        error: authorProfileError.message,
+      });
+    } else if (authorProfile?.id) {
+      const firstName = authorProfile.first_name?.trim() || '';
+      const lastName = authorProfile.last_name?.trim() || '';
+      const displayName = `${firstName} ${lastName}`.trim() || authorProfile.email || 'Instructor';
+
+      notificationActor = {
+        id: authorProfile.id,
+        name: displayName,
+        avatar_url: authorProfile.avatar_url || null,
+      };
+    }
+
     const { data: enrollments, error: enrollmentError } = await supabaseAdmin
       .from('enrollments')
       .select('student_id')
@@ -171,7 +205,8 @@ export const createAnnouncement = async (
         Array.from(recipientIds),
         course.title || 'Course',
         courseId,
-        data.title
+        data.title,
+        notificationActor
       );
     }
   } catch (notificationError) {

@@ -49,6 +49,15 @@ interface AssignmentEventPayload {
   assignmentType?: string;
 }
 
+interface AnnouncementEventPayload {
+  id?: string;
+  title?: string;
+  courseId?: string;
+  courseName?: string;
+}
+
+const NOTIFICATIONS_REFRESH_EVENT = 'mabini:notifications-refresh';
+
 const getAssignmentLabel = (assignmentType?: string): string => {
   switch ((assignmentType || '').toLowerCase()) {
     case 'exam':
@@ -211,6 +220,28 @@ export function useRealtimeNotifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  const dispatchNotificationsRefresh = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+  }, []);
+
+  const refreshCourseRealtimeData = useCallback(
+    (courseId?: string) => {
+      if (!courseId) {
+        return;
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ['class', courseId] });
+      void queryClient.invalidateQueries({ queryKey: ['assignments', courseId] });
+      void queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
+      void queryClient.invalidateQueries({ queryKey: ['classes'] });
+    },
+    [queryClient]
+  );
+
   const playNotificationSound = useCallback(() => {
     if (typeof window === 'undefined') {
       return;
@@ -333,6 +364,7 @@ export function useRealtimeNotifications() {
           description: notification.message,
         });
         setUnreadCount(prev => prev + 1);
+        dispatchNotificationsRefresh();
       }
     );
 
@@ -359,6 +391,9 @@ export function useRealtimeNotifications() {
     const unsubAssignment = subscribe<any>(
       SocketEvent.ASSIGNMENT_CREATED,
       (data: AssignmentEventPayload) => {
+        refreshCourseRealtimeData(data.courseId);
+        dispatchNotificationsRefresh();
+
         if (!isStudent) {
           return;
         }
@@ -389,7 +424,10 @@ export function useRealtimeNotifications() {
     // Subscribe to announcements
     const unsubAnnouncement = subscribe<any>(
       SocketEvent.ANNOUNCEMENT_CREATED,
-      (data) => {
+      (data: AnnouncementEventPayload) => {
+        refreshCourseRealtimeData(data.courseId);
+        dispatchNotificationsRefresh();
+
         toast({
           title: '📢 New Announcement',
           description: `${data.courseName}: ${data.title}`,
@@ -448,6 +486,8 @@ export function useRealtimeNotifications() {
       unsubStandingUpdated();
     };
   }, [
+    dispatchNotificationsRefresh,
+    refreshCourseRealtimeData,
     isAuthenticated,
     playNotificationSound,
     queryClient,

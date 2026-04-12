@@ -307,6 +307,22 @@ export function useNotifications(options?: UseNotificationsOptions): UseNotifica
     fetchNotifications();
   }, [fetchNotifications]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleRealtimeRefresh = () => {
+      void fetchNotifications();
+    };
+
+    window.addEventListener('mabini:notifications-refresh', handleRealtimeRefresh);
+
+    return () => {
+      window.removeEventListener('mabini:notifications-refresh', handleRealtimeRefresh);
+    };
+  }, [fetchNotifications]);
+
   const markAsRead = useCallback(async (ids: string[]) => {
     try {
       await teacherService.markNotificationsAsRead(ids);

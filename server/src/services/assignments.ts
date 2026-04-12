@@ -456,6 +456,39 @@ export const createAssignment = async (
   });
 
   try {
+    let notificationActor:
+      | {
+          id: string;
+          name?: string;
+          avatar_url?: string | null;
+        }
+      | undefined;
+
+    const { data: actorProfile, error: actorProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, avatar_url')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (actorProfileError) {
+      logger.warn('Failed to resolve assignment notification actor profile', {
+        courseId,
+        assignmentId: data.id,
+        actorId: userId,
+        error: actorProfileError.message,
+      });
+    } else if (actorProfile?.id) {
+      const firstName = actorProfile.first_name?.trim() || '';
+      const lastName = actorProfile.last_name?.trim() || '';
+      const displayName = `${firstName} ${lastName}`.trim() || actorProfile.email || 'Instructor';
+
+      notificationActor = {
+        id: actorProfile.id,
+        name: displayName,
+        avatar_url: actorProfile.avatar_url || null,
+      };
+    }
+
     const { data: enrollments, error: enrollmentError } = await supabaseAdmin
       .from('enrollments')
       .select('student_id')
@@ -483,7 +516,8 @@ export const createAssignment = async (
         courseId,
         data.title,
         data.id,
-        assignmentType
+        assignmentType,
+        notificationActor
       );
     }
   } catch (notificationError) {

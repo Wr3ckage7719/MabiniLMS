@@ -437,7 +437,7 @@ export const notifyAdminsPendingTeacher = (teacherData: {
  */
 export const notifyAnnouncementCreated = async (
   courseId: string,
-  announcement: { id: string; title: string; courseName: string }
+  announcement: { id: string; title: string; courseId?: string; courseName: string }
 ): Promise<void> => {
   await sendToCourse(courseId, SocketEvent.ANNOUNCEMENT_CREATED, announcement);
 };

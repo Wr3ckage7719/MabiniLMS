@@ -83,9 +83,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [postingComment, setPostingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
 
-  if (!assignment) return null;
-  const isExamAssignment = assignment.rawType === 'exam';
-  const Icon = TYPE_ICONS[assignment.type] || FileText;
+  const isExamAssignment = assignment?.rawType === 'exam';
+  const Icon = assignment ? TYPE_ICONS[assignment.type] || FileText : FileText;
 
   const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
     const firstName = comment.author?.first_name?.trim() || '';
@@ -276,6 +275,10 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
       setPostingComment(false);
     }
   };
+
+  if (!assignment) {
+    return null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -92,6 +92,40 @@ export const bulkEnroll = async (
     throw new ApiError(ErrorCode.FORBIDDEN, 'Not authorized to enroll students in this course', 403)
   }
 
+  let enrollmentActor:
+    | {
+        id: string
+        name?: string
+        avatar_url?: string | null
+      }
+    | undefined
+
+  if (course.teacher_id) {
+    const { data: teacherProfile, error: teacherProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, avatar_url')
+      .eq('id', course.teacher_id)
+      .maybeSingle()
+
+    if (teacherProfileError) {
+      logger.warn('Failed to resolve bulk enrollment notification actor profile', {
+        course_id: input.course_id,
+        teacher_id: course.teacher_id,
+        error: teacherProfileError.message,
+      })
+    } else if (teacherProfile?.id) {
+      const firstName = (teacherProfile.first_name || '').trim()
+      const lastName = (teacherProfile.last_name || '').trim()
+      const displayName = `${firstName} ${lastName}`.trim() || teacherProfile.email || 'Instructor'
+
+      enrollmentActor = {
+        id: teacherProfile.id,
+        name: displayName,
+        avatar_url: teacherProfile.avatar_url || null,
+      }
+    }
+  }
+
   const result: BulkEnrollmentResult = {
     success: 0,
     failed: 0,
@@ -154,7 +188,7 @@ export const bulkEnroll = async (
       // Send notification if enabled
       if (input.send_notifications) {
         try {
-          await sendEnrollmentNotification(studentId, course.title, course.id)
+          await sendEnrollmentNotification(studentId, course.title, course.id, enrollmentActor)
         } catch {
           // Don't fail the enrollment if notification fails
           logger.warn('Failed to send enrollment notification', { studentId })

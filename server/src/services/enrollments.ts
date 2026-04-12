@@ -112,7 +112,7 @@ export const enrollStudent = async (
   // Check if course exists and is published
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
-    .select('id, status, title')
+    .select('id, status, title, teacher_id')
     .eq('id', courseId)
     .single();
 
@@ -152,6 +152,41 @@ export const enrollStudent = async (
     );
   }
 
+  let enrollmentActor:
+    | {
+        id: string;
+        name?: string;
+        avatar_url?: string | null;
+      }
+    | undefined;
+
+  if (course.teacher_id) {
+    const { data: teacherProfile, error: teacherProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, avatar_url')
+      .eq('id', course.teacher_id)
+      .maybeSingle();
+
+    if (teacherProfileError) {
+      logger.warn('Failed to resolve enrollment notification actor profile', {
+        courseId,
+        studentId,
+        teacherId: course.teacher_id,
+        error: teacherProfileError.message,
+      });
+    } else if (teacherProfile?.id) {
+      const firstName = teacherProfile.first_name?.trim() || '';
+      const lastName = teacherProfile.last_name?.trim() || '';
+      const displayName = `${firstName} ${lastName}`.trim() || teacherProfile.email || 'Instructor';
+
+      enrollmentActor = {
+        id: teacherProfile.id,
+        name: displayName,
+        avatar_url: teacherProfile.avatar_url || null,
+      };
+    }
+  }
+
   // Check for existing enrollment
   const { data: existing } = await supabaseAdmin
     .from('enrollments')
@@ -185,7 +220,7 @@ export const enrollStudent = async (
     }
 
     try {
-      await sendEnrollmentNotification(studentId, course.title || 'Course', courseId);
+      await sendEnrollmentNotification(studentId, course.title || 'Course', courseId, enrollmentActor);
     } catch (notificationError) {
       logger.warn('Enrollment notification failed after re-enrollment', {
         courseId,
@@ -218,7 +253,7 @@ export const enrollStudent = async (
   }
 
   try {
-    await sendEnrollmentNotification(studentId, course.title || 'Course', courseId);
+    await sendEnrollmentNotification(studentId, course.title || 'Course', courseId, enrollmentActor);
   } catch (notificationError) {
     logger.warn('Enrollment notification failed after new enrollment', {
       courseId,

@@ -17,6 +17,12 @@ import {
 } from '../types/notifications.js'
 import logger from '../utils/logger.js'
 
+type NotificationActor = {
+  id?: string
+  name?: string
+  avatar_url?: string | null
+}
+
 // ============================================
 // Create Notifications
 // ============================================
@@ -478,7 +484,8 @@ export const sendAssignmentCreatedNotification = async (
   courseId: string,
   assignmentTitle: string,
   assignmentId: string,
-  assignmentType: 'activity' | 'quiz' | 'exam' = 'activity'
+  assignmentType: 'activity' | 'quiz' | 'exam' = 'activity',
+  actor?: NotificationActor
 ): Promise<void> => {
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
 
@@ -494,6 +501,24 @@ export const sendAssignmentCreatedNotification = async (
 
   const assignmentLabel = assignmentLabelByType[assignmentType] || 'Assignment'
 
+  const metadata: Record<string, unknown> = {
+    course_id: courseId,
+    assignment_id: assignmentId,
+    assignment_type: assignmentType,
+  }
+
+  if (actor?.id) {
+    metadata.actor_id = actor.id
+  }
+
+  if (actor?.name) {
+    metadata.actor_name = actor.name
+  }
+
+  if (actor?.avatar_url) {
+    metadata.actor_avatar_url = actor.avatar_url
+  }
+
   await createBulkNotifications({
     user_ids: uniqueUserIds,
     type: NotificationType.ASSIGNMENT_CREATED,
@@ -504,11 +529,7 @@ export const sendAssignmentCreatedNotification = async (
         ? NotificationPriority.HIGH
         : NotificationPriority.NORMAL,
     action_url: `/class/${courseId}`,
-    metadata: {
-      course_id: courseId,
-      assignment_id: assignmentId,
-      assignment_type: assignmentType,
-    },
+    metadata,
   })
 }
 
@@ -518,8 +539,25 @@ export const sendAssignmentCreatedNotification = async (
 export const sendEnrollmentNotification = async (
   userId: string,
   courseTitle: string,
-  courseId: string
+  courseId: string,
+  actor?: NotificationActor
 ): Promise<void> => {
+  const metadata: Record<string, unknown> = {
+    course_id: courseId,
+  }
+
+  if (actor?.id) {
+    metadata.actor_id = actor.id
+  }
+
+  if (actor?.name) {
+    metadata.actor_name = actor.name
+  }
+
+  if (actor?.avatar_url) {
+    metadata.actor_avatar_url = actor.avatar_url
+  }
+
   await createNotification({
     user_id: userId,
     type: NotificationType.COURSE_ENROLLMENT,
@@ -527,9 +565,7 @@ export const sendEnrollmentNotification = async (
     message: `You have been enrolled in "${courseTitle}"`,
     priority: NotificationPriority.NORMAL,
     action_url: `/courses/${courseId}`,
-    metadata: {
-      course_id: courseId,
-    },
+    metadata,
   })
 }
 
@@ -540,12 +576,29 @@ export const sendAnnouncementNotification = async (
   userIds: string[],
   courseTitle: string,
   courseId: string,
-  announcementTitle: string
+  announcementTitle: string,
+  actor?: NotificationActor
 ): Promise<void> => {
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
 
   if (uniqueUserIds.length === 0) {
     return
+  }
+
+  const metadata: Record<string, unknown> = {
+    course_id: courseId,
+  }
+
+  if (actor?.id) {
+    metadata.actor_id = actor.id
+  }
+
+  if (actor?.name) {
+    metadata.actor_name = actor.name
+  }
+
+  if (actor?.avatar_url) {
+    metadata.actor_avatar_url = actor.avatar_url
   }
 
   await createBulkNotifications({
@@ -555,9 +608,7 @@ export const sendAnnouncementNotification = async (
     message: `New announcement in ${courseTitle}: "${announcementTitle}"`,
     priority: NotificationPriority.NORMAL,
     action_url: `/courses/${courseId}/announcements`,
-    metadata: {
-      course_id: courseId,
-    },
+    metadata,
   })
 }
 
