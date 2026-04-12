@@ -18,6 +18,7 @@ import {
 import * as enrollmentService from './enrollments.js'
 import { createGrade, updateGrade } from './grades.js'
 import logger from '../utils/logger.js'
+import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 
 type AssignmentContext = {
   id: string
@@ -162,15 +163,28 @@ const parseExamAttempt = (row: Record<string, unknown>): ExamAttempt => {
 }
 
 const getAssignmentContext = async (assignmentId: string): Promise<AssignmentContext> => {
-  const { data, error } = await supabaseAdmin
-    .from('assignments')
-    .select(`
-      id, title, assignment_type, max_points, due_date, course_id,
-      is_proctored, exam_duration_minutes, proctoring_policy,
-      course:courses(id, teacher_id)
-    `)
-    .eq('id', assignmentId)
-    .single()
+  const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn()
+  const query = hasAssignmentTypeColumn
+    ? supabaseAdmin
+        .from('assignments')
+        .select(`
+          id, title, assignment_type, max_points, due_date, course_id,
+          is_proctored, exam_duration_minutes, proctoring_policy,
+          course:courses(id, teacher_id)
+        `)
+        .eq('id', assignmentId)
+        .single()
+    : supabaseAdmin
+        .from('assignments')
+        .select(`
+          id, title, max_points, due_date, course_id,
+          is_proctored, exam_duration_minutes, proctoring_policy,
+          course:courses(id, teacher_id)
+        `)
+        .eq('id', assignmentId)
+        .single()
+
+  const { data, error } = await query
 
   if (error || !data) {
     throw new ApiError(ErrorCode.NOT_FOUND, 'Assignment not found', 404)
@@ -184,12 +198,12 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
   return {
     id: String(assignment.id),
     title: String(assignment.title || 'Exam'),
-    assignment_type: String(assignment.assignment_type || 'activity'),
+    assignment_type: normalizeAssignmentType(assignment.assignment_type),
     max_points: toNumber(assignment.max_points, 100),
     due_date: assignment.due_date ? String(assignment.due_date) : null,
     course_id: String(assignment.course_id),
     teacher_id: course?.teacher_id ? String(course.teacher_id) : null,
-    is_proctored: Boolean(assignment.is_proctored) || String(assignment.assignment_type || '') === 'exam',
+    is_proctored: Boolean(assignment.is_proctored) || normalizeAssignmentType(assignment.assignment_type) === 'exam',
     exam_duration_minutes:
       assignment.exam_duration_minutes === null || assignment.exam_duration_minutes === undefined
         ? null
@@ -199,7 +213,7 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
 }
 
 const assertExamAssignment = (assignment: AssignmentContext): void => {
-  if (assignment.assignment_type !== 'exam') {
+  if (assignment.assignment_type !== 'exam' && !assignment.is_proctored) {
     throw new ApiError(
       ErrorCode.VALIDATION_ERROR,
       'Exam endpoints are only available for exam assignments',

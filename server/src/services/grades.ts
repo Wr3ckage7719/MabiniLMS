@@ -29,6 +29,7 @@ import * as auditService from './audit.js'
 import { AuditEventType } from './audit.js'
 import { notifyGradeReleased, notifyStandingUpdated } from './websocket.js'
 import logger from '../utils/logger.js'
+import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 
 const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
   const message = (error?.message || '').toLowerCase()
@@ -750,6 +751,9 @@ export const bulkGrade = async (
  * Get all grades for a student across all courses
  */
 export const getStudentGrades = async (studentId: string): Promise<any[]> => {
+  const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn()
+  const assignmentTypeField = hasAssignmentTypeColumn ? ', assignment_type' : ''
+
   const { data, error } = await supabaseAdmin
     .from('submissions')
     .select(`
@@ -760,8 +764,7 @@ export const getStudentGrades = async (studentId: string): Promise<any[]> => {
         id,
         title,
         max_points,
-        due_date,
-        assignment_type,
+        due_date${assignmentTypeField},
         course:courses(
           id,
           title
@@ -811,7 +814,7 @@ export const getStudentGrades = async (studentId: string): Promise<any[]> => {
         title: assignment?.title,
         max_points: assignment?.max_points,
         due_date: assignment?.due_date,
-        assignment_type: assignment?.assignment_type,
+        assignment_type: normalizeAssignmentType(assignment?.assignment_type),
       },
       course: {
         id: course?.id,
@@ -925,9 +928,12 @@ export const getWeightedCourseGrade = async (
     )
   }
 
+  const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn()
+  const assignmentTypeField = hasAssignmentTypeColumn ? ', assignment_type' : ''
+
   const { data: assignments, error: assignmentsError } = await supabaseAdmin
     .from('assignments')
-    .select('id, assignment_type')
+    .select(`id${assignmentTypeField}`)
     .eq('course_id', courseId)
 
   if (assignmentsError) {
@@ -946,7 +952,9 @@ export const getWeightedCourseGrade = async (
   }
 
   for (const assignment of assignments || []) {
-    const category = normalizeAssignmentCategory((assignment as any).assignment_type)
+    const category = normalizeAssignmentCategory(
+      normalizeAssignmentType((assignment as any).assignment_type)
+    )
     assignmentTotals[category] += 1
   }
 
@@ -958,9 +966,8 @@ export const getWeightedCourseGrade = async (
         student_id,
         assignment:assignments!inner(
           id,
-          assignment_type,
           max_points,
-          course_id
+          course_id${assignmentTypeField}
         )
       )
     `)
@@ -994,7 +1001,9 @@ export const getWeightedCourseGrade = async (
       continue
     }
 
-    const category = normalizeAssignmentCategory(assignment.assignment_type)
+    const category = normalizeAssignmentCategory(
+      normalizeAssignmentType(assignment.assignment_type)
+    )
     const pointsEarned = Number((row as any).points_earned || 0)
     const maxPoints = Number(assignment.max_points || 0)
 

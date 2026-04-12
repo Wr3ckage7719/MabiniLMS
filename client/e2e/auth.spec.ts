@@ -1,4 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { loginAsAdmin } from './helpers/auth-helpers';
 
 /**
  * Authentication E2E Tests
@@ -11,15 +12,6 @@ const TEST_ADMIN = {
   password: 'Admin123!',
 };
 
-const TEST_TEACHER = {
-  email: 'teacher@test.com',
-  password: 'Teacher123!',
-};
-
-const TEST_STUDENT = {
-  email: 'student@test.com',
-  password: 'Student123!',
-};
 
 test.describe('Authentication Flows', () => {
   test.describe('Login Page', () => {
@@ -154,29 +146,3 @@ test.describe('Authentication Flows', () => {
   });
 });
 
-// Helper functions
-async function loginAsAdmin(page: Page) {
-  await page.goto('/admin/login');
-  await page.getByLabel(/email/i).fill(TEST_ADMIN.email);
-  await page.getByLabel(/password/i).fill(TEST_ADMIN.password);
-  await page.getByRole('button', { name: /sign in|login/i }).click();
-  await expect(page).toHaveURL(/admin/, { timeout: 15000 });
-}
-
-async function loginAsTeacher(page: Page) {
-  await page.goto('/login');
-  await page.getByLabel(/email/i).fill(TEST_TEACHER.email);
-  await page.getByLabel(/password/i).fill(TEST_TEACHER.password);
-  await page.getByRole('button', { name: /sign in|login/i }).click();
-  await expect(page).toHaveURL(/dashboard/, { timeout: 15000 });
-}
-
-async function loginAsStudent(page: Page) {
-  await page.goto('/login');
-  await page.getByLabel(/email/i).fill(TEST_STUDENT.email);
-  await page.getByLabel(/password/i).fill(TEST_STUDENT.password);
-  await page.getByRole('button', { name: /sign in|login/i }).click();
-  await expect(page).toHaveURL(/dashboard/, { timeout: 15000 });
-}
-
-export { loginAsAdmin, loginAsTeacher, loginAsStudent };

@@ -21,6 +21,7 @@ import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
+import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
@@ -40,6 +41,18 @@ const isMissingRelationError = (
     message.includes('could not find the table') ||
     message.includes('does not exist')
   );
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normalizeAssignmentRecord = (assignment: any): any => {
+  if (!assignment || typeof assignment !== 'object') {
+    return assignment;
+  }
+
+  return {
+    ...assignment,
+    assignment_type: normalizeAssignmentType(assignment.assignment_type),
+  };
 };
 
 const getSubmissionBySyncKey = async (
@@ -189,7 +202,7 @@ const normalizeSubmissionContext = (record: any): SubmissionWithAccessContext =>
     assignment: {
       id: assignment?.id,
       title: assignment?.title,
-      assignment_type: assignment?.assignment_type,
+      assignment_type: normalizeAssignmentType(assignment?.assignment_type),
       max_points: assignment?.max_points,
       course_id: assignment?.course_id,
       course_teacher_id: course?.teacher_id || null,
@@ -221,7 +234,7 @@ const getSubmissionWithAccessContext = async (
       id, assignment_id, student_id, content, file_url, drive_file_id, drive_view_link, drive_file_name, submitted_at, status,
       student:profiles!submissions_student_id_fkey(id, email, first_name, last_name, role),
       assignment:assignments(
-        id, title, assignment_type, max_points, course_id,
+        *,
         course:courses(id, title, teacher_id)
       )
     `)
@@ -392,16 +405,20 @@ export const createAssignment = async (
 
   const assignmentType = input.assignment_type || 'activity';
   const isExamAssignment = assignmentType === 'exam';
+  const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
 
   const insertPayload: Record<string, unknown> = {
     course_id: courseId,
     title: input.title,
     description: input.description || null,
-    assignment_type: assignmentType,
     due_date: input.due_date || null,
     max_points: input.max_points || 100,
     created_at: new Date().toISOString(),
   };
+
+  if (hasAssignmentTypeColumn) {
+    insertPayload.assignment_type = assignmentType;
+  }
 
   if (isExamAssignment || typeof input.is_proctored === 'boolean') {
     insertPayload.is_proctored = input.is_proctored ?? isExamAssignment;
@@ -435,7 +452,7 @@ export const createAssignment = async (
     dueDate: data.due_date || '',
   });
 
-  return data as Assignment;
+  return normalizeAssignmentRecord(data) as Assignment;
 };
 
 /**
@@ -445,7 +462,7 @@ export const getAssignmentById = async (assignmentId: string): Promise<Assignmen
   const { data, error } = await supabaseAdmin
     .from('assignments')
     .select(`
-      id, course_id, title, description, assignment_type, due_date, max_points, created_at,
+      *,
       course:courses(
         id, title,
         teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
@@ -465,7 +482,7 @@ export const getAssignmentById = async (assignmentId: string): Promise<Assignmen
   const teacher = course && Array.isArray(course.teacher) ? course.teacher[0] : course?.teacher;
   
   const result: AssignmentWithCourse = {
-    ...rawData,
+    ...normalizeAssignmentRecord(rawData),
     course: course ? {
       ...course,
       teacher: teacher
@@ -486,7 +503,7 @@ export const listAssignments = async (
   let queryBuilder = supabaseAdmin
     .from('assignments')
     .select(`
-      id, course_id, title, description, assignment_type, due_date, max_points, created_at,
+      *,
       course:courses(
         id, title,
         teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)
@@ -551,7 +568,7 @@ export const listAssignments = async (
     const teacher = course && Array.isArray(course.teacher) ? course.teacher[0] : course?.teacher;
     
     return {
-      ...item,
+      ...normalizeAssignmentRecord(item),
       course: course ? {
         ...course,
         teacher: teacher
@@ -584,9 +601,18 @@ export const updateAssignment = async (
     );
   }
 
+  const updatePayload: Record<string, unknown> = {
+    ...input,
+  };
+
+  const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
+  if (!hasAssignmentTypeColumn) {
+    delete updatePayload.assignment_type;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('assignments')
-    .update(input)
+    .update(updatePayload)
     .eq('id', assignmentId)
     .select()
     .single();
@@ -596,7 +622,7 @@ export const updateAssignment = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update assignment', 500);
   }
 
-  return data as Assignment;
+  return normalizeAssignmentRecord(data) as Assignment;
 };
 
 /**
@@ -1077,7 +1103,7 @@ export const listSubmissions = async (
     .select(`
       *,
       student:profiles!submissions_student_id_fkey(id, email, first_name, last_name),
-      assignment:assignments(id, title, assignment_type, max_points),
+      assignment:assignments(*),
       grade:grades(id, points_earned, feedback, graded_by, graded_at)
     `)
     .eq('assignment_id', assignmentId)
@@ -1090,8 +1116,18 @@ export const listSubmissions = async (
 
   return (data || []).map((submission: any) => {
     const grade = Array.isArray(submission.grade) ? submission.grade[0] || null : submission.grade;
+    const assignment = Array.isArray(submission.assignment)
+      ? submission.assignment[0] || null
+      : submission.assignment;
+
     return {
       ...submission,
+      assignment: assignment
+        ? {
+            ...assignment,
+            assignment_type: normalizeAssignmentType(assignment.assignment_type),
+          }
+        : assignment,
       grade,
     };
   }) as SubmissionWithGrade[];

@@ -185,7 +185,9 @@ const processDirectEnrollment = async (
   }
 
   try {
-    const enrollment = await enrollmentService.enrollStudent(course.id, studentProfile.id);
+    const enrollment = await enrollmentService.enrollStudent(course.id, studentProfile.id, {
+      allowNonPublished: true,
+    });
 
     await syncPendingInvitationStatus(course.id, normalizedEmail, studentProfile.id);
 

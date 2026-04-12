@@ -9,7 +9,15 @@ export enum EnrollmentStatus {
 
 // Zod schemas
 export const enrollInCourseSchema = z.object({
-  course_id: z.string().uuid('Invalid course ID'),
+  course_id: z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        /^[0-9a-f]{8}$/i.test(value) ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
+      'Invalid class code'
+    ),
 });
 
 export const updateEnrollmentStatusSchema = z.object({

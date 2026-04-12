@@ -1,5 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
-import { loginAsAdmin } from './auth.spec';
+import { test, expect } from '@playwright/test';
+import { loginAsAdmin } from './helpers/auth-helpers';
 
 /**
  * Admin Workflow E2E Tests

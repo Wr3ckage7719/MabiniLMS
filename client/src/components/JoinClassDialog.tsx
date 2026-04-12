@@ -72,7 +72,7 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
           <div className="space-y-2">
             <Label>Class code</Label>
             <Input 
-              placeholder="Enter class code (course ID)" 
+              placeholder="Enter 8-character class code" 
               className="rounded-xl text-center text-lg tracking-widest font-mono"
               value={courseId}
               onChange={(e) => {
@@ -91,7 +91,7 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            Ask your teacher for the class code, then enter it here.
+            Ask your teacher for the class code, then enter it here. Full course IDs are also accepted.
           </p>
         </div>
         <DialogFooter>

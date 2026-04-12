@@ -11,6 +11,68 @@ import {
 import { CourseStatus } from '../types/courses.js';
 import logger from '../utils/logger.js';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHORT_CLASS_CODE_REGEX = /^[0-9a-f]{8}$/i;
+
+const resolveCourseIdFromReference = async (courseReference: string): Promise<string> => {
+  const normalizedReference = courseReference.trim().toLowerCase();
+
+  if (UUID_REGEX.test(normalizedReference)) {
+    return normalizedReference;
+  }
+
+  if (!SHORT_CLASS_CODE_REGEX.test(normalizedReference)) {
+    throw new ApiError(ErrorCode.VALIDATION_ERROR, 'Invalid class code format', 400);
+  }
+
+  const pageSize = 1000;
+  let offset = 0;
+  const matches: string[] = [];
+
+  while (offset <= 10000 && matches.length < 2) {
+    const { data: courses, error } = await supabaseAdmin
+      .from('courses')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      logger.error('Failed to resolve class code', {
+        classCode: normalizedReference,
+        error: error.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to resolve class code', 500);
+    }
+
+    const rows = courses || [];
+    for (const course of rows) {
+      if (String(course.id || '').toLowerCase().startsWith(normalizedReference)) {
+        matches.push(String(course.id));
+      }
+    }
+
+    if (rows.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  if (matches.length === 0) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404);
+  }
+
+  if (matches.length > 1) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Class code is ambiguous. Please use the full course ID.',
+      400
+    );
+  }
+
+  return matches[0];
+};
+
 // Helper to fix nested Supabase join arrays
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCourseJoin = (data: any): EnrollmentWithCourse => {
@@ -38,9 +100,14 @@ const fixStudentJoin = (data: any): EnrollmentWithStudent => {
  * Enroll a student in a course
  */
 export const enrollStudent = async (
-  courseId: string,
-  studentId: string
+  courseReference: string,
+  studentId: string,
+  options?: {
+    allowNonPublished?: boolean;
+  }
 ): Promise<Enrollment> => {
+  const courseId = await resolveCourseIdFromReference(courseReference);
+
   // Check if course exists and is published
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
@@ -52,7 +119,7 @@ export const enrollStudent = async (
     throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404);
   }
 
-  if (course.status !== CourseStatus.PUBLISHED) {
+  if (course.status !== CourseStatus.PUBLISHED && !options?.allowNonPublished) {
     throw new ApiError(
       ErrorCode.VALIDATION_ERROR,
       'Can only enroll in published courses',
