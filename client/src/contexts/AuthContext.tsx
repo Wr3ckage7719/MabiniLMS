@@ -55,7 +55,12 @@ interface AuthContextType {
   session: { access_token?: string } | null;
   isLoggedIn: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, twoFactorCode?: string) => Promise<LoginResult>;
+  login: (
+    email: string,
+    password: string,
+    twoFactorCode?: string,
+    portal?: 'app' | 'admin'
+  ) => Promise<LoginResult>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
   requestStudentSignup: (email: string) => Promise<void>;
   loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
@@ -144,11 +149,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const profile = authUser || (await supabase.auth.getUser()).data.user;
 
+      let apiProfileData: {
+        first_name?: string | null;
+        last_name?: string | null;
+        role?: string;
+        pending_approval?: boolean | null;
+        avatar_url?: string | null;
+      } | null = null;
+
+      try {
+        const response = await authService.getCurrentUser() as {
+          data?: {
+            first_name?: string | null;
+            last_name?: string | null;
+            role?: string;
+            pending_approval?: boolean | null;
+            avatar_url?: string | null;
+          };
+        };
+        apiProfileData = response?.data || null;
+      } catch (profileApiError) {
+        console.warn('Auth profile API lookup warning:', profileApiError);
+      }
+
       const firstName = profile?.user_metadata?.first_name;
       const lastName = profile?.user_metadata?.last_name;
+      const apiFirstName = apiProfileData?.first_name;
+      const apiLastName = apiProfileData?.last_name;
       const metadataName = [firstName, lastName].filter(Boolean).join(' ').trim();
+      const apiName = [apiFirstName, apiLastName].filter(Boolean).join(' ').trim();
 
       const fullName = profile?.user_metadata?.full_name ||
+                       apiName ||
                        metadataName ||
                        profile?.user_metadata?.name ||
                        email.split('@')[0];
@@ -172,9 +204,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: fullName,
         email,
         avatar,
-        avatarUrl: profileData?.avatar_url || profile?.user_metadata?.avatar_url || null,
-        role: profileData?.role || profile?.user_metadata?.role || 'student',
-        pending_approval: profileData?.pending_approval || false,
+        avatarUrl:
+          apiProfileData?.avatar_url ||
+          profileData?.avatar_url ||
+          profile?.user_metadata?.avatar_url ||
+          null,
+        role:
+          apiProfileData?.role ||
+          profileData?.role ||
+          profile?.user_metadata?.role ||
+          'student',
+        pending_approval:
+          typeof apiProfileData?.pending_approval === 'boolean'
+            ? apiProfileData.pending_approval
+            : (profileData?.pending_approval || false),
       };
     } catch (error) {
       console.error('Failed to load user data:', error);
@@ -308,7 +351,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string, twoFactorCode?: string): Promise<LoginResult> => {
+  const login = async (
+    email: string,
+    password: string,
+    twoFactorCode?: string,
+    portal: 'app' | 'admin' = 'app'
+  ): Promise<LoginResult> => {
     if (!email || !password) {
       throw new Error('Email and password are required');
     }
@@ -322,6 +370,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: normalizedEmail,
           password,
           twoFactorCode,
+          portal,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
         'Login timed out. Please try again.'

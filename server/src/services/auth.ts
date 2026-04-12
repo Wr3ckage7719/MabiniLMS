@@ -471,7 +471,7 @@ export const login = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<AuthResponse> => {
-  const { email, password, twoFactorCode } = input;
+  const { email, password, twoFactorCode, portal = 'app' } = input;
   const normalizedEmail = normalizeEmail(email);
 
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({
@@ -524,6 +524,42 @@ export const login = async (
 
   // Fetch user profile
   const profile = await getUserProfile(data.user.id);
+
+  if (portal === 'admin' && profile.role !== UserRole.ADMIN) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      { reason: 'non_admin_admin_portal_access', role: profile.role, email: profile.email }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Administrator account required for admin portal access.',
+      403
+    );
+  }
+
+  if (portal === 'app' && profile.role === UserRole.ADMIN) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      { reason: 'admin_must_use_admin_portal', role: profile.role, email: profile.email }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Administrator accounts must sign in through the admin portal.',
+      403
+    );
+  }
 
   if (profile.role === UserRole.STUDENT && !isInstitutionalStudentEmail(profile.email)) {
     await auditService.logAuthEvent(

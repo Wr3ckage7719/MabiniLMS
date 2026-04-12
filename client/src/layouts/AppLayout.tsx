@@ -72,6 +72,10 @@ export default function AppLayout() {
     return <Navigate to="/login" replace />;
   }
 
+  if ((user?.role || '').toLowerCase() === 'admin') {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
   // Teacher users should use the dedicated teacher panel experience.
   if ((user?.role || '').toLowerCase() === 'teacher') {
     return <Navigate to="/teacher" replace />;

@@ -19,6 +19,13 @@ export default function ProtectedRoute({ children, role }: ProtectedRouteProps) 
 	}
 
 	if (role && user?.role !== role) {
+		const resolvedRole = (user?.role || '').toLowerCase();
+		if (resolvedRole === 'admin') {
+			return <Navigate to="/admin/dashboard" replace />;
+		}
+		if (resolvedRole === 'teacher') {
+			return <Navigate to="/teacher" replace />;
+		}
 		return <Navigate to="/dashboard" replace />;
 	}
 

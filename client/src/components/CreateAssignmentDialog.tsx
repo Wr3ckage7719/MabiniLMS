@@ -181,7 +181,11 @@ export function CreateAssignmentDialog({
       onOpenChange(false);
       onCreated?.();
     } catch (error: any) {
-      const message = error?.response?.data?.message || error?.message || 'Failed to create classwork';
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to create classwork';
       toast({
         title: 'Creation failed',
         description: message,

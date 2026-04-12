@@ -128,7 +128,7 @@ export function TeacherClassStream({
     refetch: refetchCourseSubmissions,
   } = useCourseSubmissions(classId);
   const [announcements, setAnnouncements] = useState(apiAnnouncements);
-  const [classCode] = useState(() => classId.toUpperCase().slice(0, 8));
+  const [classCode] = useState(() => classId);
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState(classColor);
   const [copied, setCopied] = useState(false);
@@ -589,12 +589,12 @@ export function TeacherClassStream({
           <Card className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class Code</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Course ID</span>
                 <Copy className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                   onClick={copyClassCode} />
               </div>
               <div className="bg-muted rounded-lg p-4 text-center group">
-                <p className="font-mono text-xl font-bold tracking-wider group-hover:scale-105 transition-transform">{classCode}</p>
+                <p className="font-mono text-sm font-bold break-all leading-tight group-hover:scale-105 transition-transform">{classCode}</p>
               </div>
               <Button
                 size="sm"

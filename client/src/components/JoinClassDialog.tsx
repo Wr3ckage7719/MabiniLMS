@@ -40,7 +40,11 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to join class';
+      const message =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to join class';
       setError(message);
       toast({
         title: 'Error',

@@ -14,6 +14,10 @@ export default function GradesPage() {
   const isLoading = classesLoading || gradesLoading;
   const classError = classesError;
   const gradesWarning = gradesError;
+  const gradesWarningMessage =
+    (gradesWarning as any)?.response?.data?.error?.message ||
+    (gradesWarning as any)?.response?.data?.message ||
+    (gradesWarning instanceof Error ? gradesWarning.message : '');
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -52,7 +56,7 @@ export default function GradesPage() {
 
       {!isLoading && !classError && gradesWarning && (
         <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
-          Grades could not be loaded right now. Class list is available, and you can retry in a moment.
+          {gradesWarningMessage || 'Grades could not be loaded right now. Class list is available, and you can retry in a moment.'}
         </div>
       )}
 

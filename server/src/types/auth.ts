@@ -22,6 +22,7 @@ export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
   twoFactorCode: z.string().optional(), // Optional 2FA code
+  portal: z.enum(['app', 'admin']).optional().default('app'),
 });
 
 export const forgotPasswordSchema = z.object({

@@ -31,7 +31,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isLoggedIn && user) {
-      navigate('/dashboard');
+      const resolvedRole = (user.role || '').toLowerCase();
+      if (resolvedRole === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (resolvedRole === 'teacher') {
+        navigate('/teacher');
+      } else {
+        navigate('/dashboard');
+      }
     }
   }, [isLoggedIn, user, navigate]);
 
@@ -68,7 +75,8 @@ export default function LoginPage() {
       const loginResult = await login(
         email,
         password,
-        requiresTwoFactor ? twoFactorCode.trim() : undefined
+        requiresTwoFactor ? twoFactorCode.trim() : undefined,
+        'app'
       );
 
       if (loginResult.requiresTwoFactor) {

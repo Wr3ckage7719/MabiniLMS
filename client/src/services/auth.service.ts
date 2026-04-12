@@ -13,6 +13,7 @@ export interface LoginData {
   email: string;
   password: string;
   twoFactorCode?: string;
+  portal?: 'app' | 'admin';
 }
 
 export interface AuthSessionPayload {
@@ -66,6 +67,10 @@ export const authService = {
 
   async login(data: LoginData): Promise<AuthResponse> {
     return apiClient.post('/auth/login', data);
+  },
+
+  async getCurrentUser() {
+    return apiClient.get('/auth/me');
   },
 
   async logout(): Promise<void> {

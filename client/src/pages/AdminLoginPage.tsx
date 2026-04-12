@@ -24,6 +24,8 @@ export default function AdminLoginPage() {
       // Check if user is admin
       if (user?.role === 'admin') {
         navigate('/admin/dashboard');
+      } else if (user?.role === 'teacher') {
+        navigate('/teacher');
       } else {
         // Not an admin, redirect to regular dashboard
         navigate('/dashboard');
@@ -64,7 +66,8 @@ export default function AdminLoginPage() {
       const loginResult = await login(
         trimmedEmail,
         password,
-        requiresTwoFactor ? twoFactorCode.trim() : undefined
+        requiresTwoFactor ? twoFactorCode.trim() : undefined,
+        'admin'
       );
 
       if (loginResult.requiresTwoFactor) {
