@@ -113,7 +113,6 @@ function parseSection(section?: string): { section: string; block?: string; leve
 
   return {
     section: normalized,
-    block: normalized,
   };
 }
 

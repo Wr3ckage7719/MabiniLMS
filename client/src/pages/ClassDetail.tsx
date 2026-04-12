@@ -208,6 +208,31 @@ export default function ClassDetail() {
 
   if (!cls) return <div className="p-8">Class not found.</div>;
 
+  const classCode = cls.id.slice(0, 8).toUpperCase();
+  const classSubtitle = (() => {
+    const section = (cls.section || '').trim();
+    const block = (cls.block || '').trim();
+    const level = (cls.level || '').trim();
+
+    if (block && level) {
+      return `Block ${block} • ${level}`;
+    }
+
+    if (section) {
+      return section;
+    }
+
+    if (block) {
+      return `Block ${block}`;
+    }
+
+    if (level) {
+      return level;
+    }
+
+    return 'Section TBA';
+  })();
+
   return (
     <div className="animate-fade-in">
       {/* Banner */}
@@ -259,7 +284,7 @@ export default function ClassDetail() {
           </div>
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white">{cls.name}</h1>
           <p className="text-xs md:text-sm text-white/80 mt-0.5 md:mt-1">
-            {cls.block ? `Block ${cls.block}${cls.level ? ` • ${cls.level}` : ''}` : cls.section}
+            {classSubtitle}
           </p>
           <p className="text-xs md:text-sm text-white/70 mt-0.5 md:mt-1">{cls.room} • {cls.schedule}</p>
           <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-3">
@@ -267,7 +292,7 @@ export default function ClassDetail() {
               <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {cls.students} students
             </Badge>
             <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm">
-              Code: {cls.id.toUpperCase()}XK3
+              Code: {classCode}
             </Badge>
           </div>
         </div>

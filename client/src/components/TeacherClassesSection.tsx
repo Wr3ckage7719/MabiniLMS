@@ -212,6 +212,30 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
     return schedule;
   };
 
+  const formatSectionLine = (cls: ClassItem) => {
+    const block = (cls.block || '').trim();
+    const level = (cls.level || '').trim();
+    const section = (cls.section || '').trim();
+
+    if (block && level) {
+      return `Block ${block} • ${level}`;
+    }
+
+    if (section) {
+      return section;
+    }
+
+    if (block) {
+      return `Block ${block}`;
+    }
+
+    if (level) {
+      return level;
+    }
+
+    return 'Section TBA';
+  };
+
   const getClassColorGradient = (color: string) => {
     const gradients: Record<string, string> = {
       blue: 'from-blue-400 to-blue-600',
@@ -370,7 +394,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                           <h3 className="text-lg font-semibold line-clamp-2 group-hover:text-primary transition-colors">
                             {cls.name}
                           </h3>
-                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                          <p className="text-sm text-muted-foreground">{formatSectionLine(cls)}</p>
                         </div>
 
                         {/* Room and Schedule */}
@@ -418,7 +442,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                           <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">
                             {cls.name}
                           </h3>
-                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                          <p className="text-sm text-muted-foreground">{formatSectionLine(cls)}</p>
                           <div className="text-xs text-muted-foreground mt-1">
                             {cls.room} • {formatSchedule(cls.schedule)}
                           </div>
@@ -538,7 +562,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                           <h3 className="text-lg font-semibold line-clamp-2">
                             {cls.name}
                           </h3>
-                          <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                          <p className="text-sm text-muted-foreground">{formatSectionLine(cls)}</p>
                         </div>
 
                         {/* Room and Schedule */}
@@ -581,7 +605,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                             <h3 className="font-semibold line-clamp-1">
                               {cls.name}
                             </h3>
-                            <p className="text-sm text-muted-foreground">Block {cls.block} • {cls.level}</p>
+                            <p className="text-sm text-muted-foreground">{formatSectionLine(cls)}</p>
                             <div className="text-xs text-muted-foreground mt-1">
                               {cls.room} • {formatSchedule(cls.schedule)}
                             </div>
