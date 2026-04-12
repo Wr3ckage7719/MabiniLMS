@@ -16,7 +16,7 @@ import { InviteStudentDialog } from '@/components/InviteStudentDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -245,6 +245,9 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                     {/* Student Info */}
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <Avatar className="h-10 w-10 flex-shrink-0">
+                        {student.avatarUrl ? (
+                          <AvatarImage src={student.avatarUrl} alt={`${student.name} avatar`} />
+                        ) : null}
                         <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {student.avatar}
                         </AvatarFallback>
@@ -370,6 +373,9 @@ function StudentDetailsDialog({
         <DialogHeader>
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10">
+              {student.avatarUrl ? (
+                <AvatarImage src={student.avatarUrl} alt={`${student.name} avatar`} />
+              ) : null}
               <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                 {student.avatar}
               </AvatarFallback>

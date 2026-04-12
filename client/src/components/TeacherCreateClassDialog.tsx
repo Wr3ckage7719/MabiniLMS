@@ -95,9 +95,7 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
     const sectionValue = [section.trim(), level.trim()].filter(Boolean).join(' • ');
     const scheduleValue = formatSchedule();
     const themeValue =
-      themeMode === 'color'
-        ? (showCustomColor && selectedColor === 'custom' ? customColor : selectedColor)
-        : undefined;
+      showCustomColor && selectedColor === 'custom' ? customColor : selectedColor;
 
     return buildCourseMetadata({
       section: sectionValue || undefined,
@@ -106,6 +104,7 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
       room: room.trim() || undefined,
       schedule: scheduleValue || undefined,
       theme: themeValue,
+      coverImage: themeMode === 'image' ? uploadedImage || undefined : undefined,
     });
   };
 

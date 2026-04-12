@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   Copy,
+  Image as ImageIcon,
   Palette,
   Plus,
   Send,
@@ -41,16 +42,26 @@ import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
+import { useStudents } from '@/hooks-api/useStudents';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { announcementsService } from '@/services/announcements.service';
 import { assignmentsService } from '@/services/assignments.service';
+import { coursesService } from '@/services/courses.service';
+import {
+  buildCourseMetadata,
+  parseCourseMetadataFromDescription,
+  parseCourseMetadataFromSyllabus,
+  serializeCourseMetadata,
+} from '@/services/course-metadata';
 import { teacherService } from '@/services/teacher.service';
 import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface TeacherClassStreamProps {
   classId: string;
   className: string;
   classColor: string;
+  classCoverImage?: string;
   block?: string;
   level?: string;
   room?: string;
@@ -107,6 +118,7 @@ export function TeacherClassStream({
   classId,
   className,
   classColor,
+  classCoverImage,
   block,
   level,
   room,
@@ -114,6 +126,7 @@ export function TeacherClassStream({
 }: TeacherClassStreamProps) {
   const [announcementText, setAnnouncementText] = useState('');
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const {
     data: apiAnnouncements = [],
     isLoading: announcementsLoading,
@@ -127,12 +140,18 @@ export function TeacherClassStream({
     submissions: apiSubmissions = [],
     refetch: refetchCourseSubmissions,
   } = useCourseSubmissions(classId);
+  const { data: enrolledStudents = [] } = useStudents(classId);
   const [announcements, setAnnouncements] = useState(apiAnnouncements);
   const [classCode] = useState(() => classId.toUpperCase().slice(0, 8));
   const [showThemeSettings, setShowThemeSettings] = useState(false);
-  const [selectedTheme, setSelectedTheme] = useState(classColor);
+  const [persistedTheme, setPersistedTheme] = useState(classColor || 'blue');
+  const [selectedTheme, setSelectedTheme] = useState(classColor || 'blue');
   const [copied, setCopied] = useState(false);
-  const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null);
+  const [persistedBackgroundImage, setPersistedBackgroundImage] = useState<string | null>(
+    classCoverImage || null
+  );
+  const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(classCoverImage || null);
+  const [savingAppearance, setSavingAppearance] = useState(false);
   const [activeTab, setActiveTab] = useState('stream');
   const [showCreateAssignment, setShowCreateAssignment] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<ClassworkAssignment | null>(null);
@@ -162,6 +181,24 @@ export function TeacherClassStream({
   useEffect(() => {
     setAnnouncements(apiAnnouncements);
   }, [apiAnnouncements]);
+
+  useEffect(() => {
+    const nextTheme = classColor || 'blue';
+    setPersistedTheme(nextTheme);
+
+    if (!showThemeSettings) {
+      setSelectedTheme(nextTheme);
+    }
+  }, [classColor, showThemeSettings]);
+
+  useEffect(() => {
+    const nextCoverImage = classCoverImage || null;
+    setPersistedBackgroundImage(nextCoverImage);
+
+    if (!showThemeSettings) {
+      setCustomBackgroundImage(nextCoverImage);
+    }
+  }, [classCoverImage, showThemeSettings]);
 
   useEffect(() => {
     const assignmentSubmissions = apiSubmissions.reduce<Record<string, number>>((acc, submission) => {
@@ -273,17 +310,105 @@ export function TeacherClassStream({
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCustomBackgroundImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please select an image file.',
+        variant: 'destructive',
+      });
+      return;
     }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: 'Image too large',
+        description: 'Please upload an image smaller than 2MB.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setCustomBackgroundImage(reader.result as string);
+    };
+    reader.onerror = () => {
+      toast({
+        title: 'Upload failed',
+        description: 'Could not read this image file. Please try another file.',
+        variant: 'destructive',
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const openBackgroundImagePicker = () => {
-    backgroundUploadInputRef.current?.click();
+    if (backgroundUploadInputRef.current) {
+      backgroundUploadInputRef.current.value = '';
+      backgroundUploadInputRef.current.click();
+    }
+  };
+
+  const handleCancelAppearanceChanges = () => {
+    setSelectedTheme(persistedTheme);
+    setCustomBackgroundImage(persistedBackgroundImage);
+    setShowThemeSettings(false);
+  };
+
+  const handleSaveAppearance = async () => {
+    if (savingAppearance) return;
+
+    setSavingAppearance(true);
+    try {
+      const courseResponse = await coursesService.getCourseById(classId);
+      const course = courseResponse?.data || {};
+
+      const descriptionMetadata = parseCourseMetadataFromDescription(course.description);
+      const syllabusMetadata = parseCourseMetadataFromSyllabus(course.syllabus);
+      const existingMetadata = {
+        ...descriptionMetadata,
+        ...syllabusMetadata,
+      };
+
+      const metadata = buildCourseMetadata({
+        section: existingMetadata.section,
+        block: existingMetadata.block || block,
+        level: existingMetadata.level || level,
+        room: existingMetadata.room || room,
+        schedule: existingMetadata.schedule || schedule,
+        theme: selectedTheme,
+        coverImage: customBackgroundImage || undefined,
+      });
+
+      await coursesService.updateCourse(classId, {
+        syllabus: serializeCourseMetadata(metadata) || null,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['classes'] }),
+        queryClient.invalidateQueries({ queryKey: ['class', classId] }),
+      ]);
+
+      toast({
+        title: 'Appearance updated',
+        description: 'Your class theme and header image have been saved.',
+      });
+
+      setPersistedTheme(selectedTheme);
+      setPersistedBackgroundImage(customBackgroundImage || null);
+      setShowThemeSettings(false);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.message || 'Failed to save class appearance';
+      toast({
+        title: 'Save failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingAppearance(false);
+    }
   };
 
   const copyClassCode = () => {
@@ -648,7 +773,7 @@ export function TeacherClassStream({
               <div className="grid grid-cols-2 gap-3">
                 <div className="text-center p-2 rounded-lg bg-blue-50">
                   <p className="text-lg font-bold text-blue-600">
-                    {new Set(recentSubmissions.map((item) => item.student)).size}
+                    {enrolledStudents.length}
                   </p>
                   <p className="text-xs text-muted-foreground">Students</p>
                 </div>
@@ -666,7 +791,17 @@ export function TeacherClassStream({
         {/* Main Content */}
         <div className="lg:col-span-3 space-y-4 animate-fade-in" style={{ animationDelay: '0.2s' }}>
           {/* Theme Customization Dialog */}
-          <Dialog open={showThemeSettings} onOpenChange={setShowThemeSettings}>
+          <Dialog
+            open={showThemeSettings}
+            onOpenChange={(open) => {
+              if (!open) {
+                handleCancelAppearanceChanges();
+                return;
+              }
+
+              setShowThemeSettings(open);
+            }}
+          >
             <DialogContent className="w-full max-w-md rounded-xl">
               <DialogHeader>
                 <DialogTitle className="text-left">Customize appearance</DialogTitle>
@@ -694,7 +829,7 @@ export function TeacherClassStream({
                       className="rounded-lg text-xs"
                       onClick={openBackgroundImagePicker}
                     >
-                      <Copy className="h-3 w-3 mr-1.5" />
+                      <ImageIcon className="h-3 w-3 mr-1.5" />
                       Select photo
                     </Button>
                     <Button
@@ -758,16 +893,20 @@ export function TeacherClassStream({
               <DialogFooter className="flex gap-2 justify-end pt-4">
                 <Button 
                   variant="ghost" 
-                  onClick={() => setShowThemeSettings(false)}
+                  onClick={handleCancelAppearanceChanges}
                   className="rounded-lg"
+                  disabled={savingAppearance}
                 >
                   Cancel
                 </Button>
                 <Button 
-                  onClick={() => setShowThemeSettings(false)}
+                  onClick={() => {
+                    void handleSaveAppearance();
+                  }}
                   className="rounded-lg"
+                  disabled={savingAppearance}
                 >
-                  Save
+                  {savingAppearance ? 'Saving...' : 'Save'}
                 </Button>
               </DialogFooter>
             </DialogContent>

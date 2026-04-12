@@ -116,6 +116,23 @@ function parseSection(section?: string): { section: string; block?: string; leve
   };
 }
 
+function toInitials(fullName: string): string {
+  const words = fullName
+    .split(/\s+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return 'U';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0] || ''}${words[words.length - 1][0] || ''}`.toUpperCase();
+}
+
 export function transformCourseToClassItem(course: BackendCourse, index: number = 0): ClassItem {
   const teacherFullName = [course.teacher?.first_name, course.teacher?.last_name]
     .filter(Boolean)
@@ -158,7 +175,7 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     pendingAssignments: course.pending_assignments_count || 0,
     room: course.room || metadata.room || 'Room TBA',
     schedule: course.schedule || metadata.schedule || 'Schedule TBA',
-    coverImage: course.cover_image,
+    coverImage: course.cover_image || metadata.coverImage,
     archived: Boolean(course.archived || course.status === 'archived'),
   };
 }
@@ -201,7 +218,8 @@ export function transformUserToStudent(user: BackendUser): Student {
     id: user.id,
     name: fullName,
     email: user.email,
-    avatar: user.avatar_url || fullName.charAt(0).toUpperCase(),
+    avatar: toInitials(fullName),
+    avatarUrl: user.avatar_url || undefined,
     grade: user.grade,
   };
 }

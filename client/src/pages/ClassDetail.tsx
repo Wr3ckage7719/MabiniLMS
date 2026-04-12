@@ -13,7 +13,7 @@ import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, Lo
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
 import { AnnouncementCard } from '@/components/AnnouncementCard';
@@ -209,6 +209,7 @@ export default function ClassDetail() {
   if (!cls) return <div className="p-8">Class not found.</div>;
 
   const classCode = cls.id.slice(0, 8).toUpperCase();
+  const displayedStudentCount = classStudents.length || cls.students || 0;
   const classSubtitle = (() => {
     const section = (cls.section || '').trim();
     const block = (cls.block || '').trim();
@@ -289,7 +290,7 @@ export default function ClassDetail() {
           <p className="text-xs md:text-sm text-white/70 mt-0.5 md:mt-1">{cls.room} • {cls.schedule}</p>
           <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-3">
             <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5">
-              <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {cls.students} students
+              <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {displayedStudentCount} students
             </Badge>
             <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm">
               Code: {classCode}
@@ -464,6 +465,9 @@ export default function ClassDetail() {
                 {classStudents.map((s) => (
                   <div key={s.id} className="flex items-center gap-2 md:gap-3 p-2 md:p-3 rounded-lg md:rounded-xl hover:bg-secondary/50 transition-colors">
                     <Avatar className="h-8 w-8 md:h-10 md:w-10 flex-shrink-0">
+                      {s.avatarUrl ? (
+                        <AvatarImage src={s.avatarUrl} alt={`${s.name} avatar`} />
+                      ) : null}
                       <AvatarFallback className="bg-secondary text-secondary-foreground text-xs md:text-sm">{s.avatar}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">

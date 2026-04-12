@@ -43,6 +43,7 @@ export function TeacherClassDetail(props: TeacherClassDetailProps) {
             classId={propClassId || cls.id}
             className={cls.name}
             classColor={cls.color}
+            classCoverImage={cls.coverImage}
             block={cls.block}
             level={cls.level}
             room={cls.room}

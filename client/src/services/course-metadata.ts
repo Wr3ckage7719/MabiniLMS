@@ -5,6 +5,7 @@ export interface CourseMetadata {
   room?: string;
   schedule?: string;
   theme?: string;
+  coverImage?: string;
 }
 
 interface StoredCourseMetadata extends CourseMetadata {
@@ -45,6 +46,9 @@ const parseMetadataLines = (source?: string): CourseMetadata => {
     if (key === 'room') metadata.room = value;
     if (key === 'schedule') metadata.schedule = value;
     if (key === 'theme') metadata.theme = value;
+    if (key === 'cover_image' || key === 'coverimage' || key === 'headerimage') {
+      metadata.coverImage = value;
+    }
   }
 
   return metadata;
@@ -72,6 +76,7 @@ export const parseCourseMetadataFromSyllabus = (syllabus?: string): CourseMetada
       room: trimOrUndefined(parsed.room),
       schedule: trimOrUndefined(parsed.schedule),
       theme: trimOrUndefined(parsed.theme),
+      coverImage: trimOrUndefined(parsed.coverImage),
     };
   } catch {
     return parseMetadataLines(syllabus);
@@ -86,6 +91,7 @@ export const buildCourseMetadata = (metadata: CourseMetadata): CourseMetadata =>
     room: trimOrUndefined(metadata.room),
     schedule: trimOrUndefined(metadata.schedule),
     theme: trimOrUndefined(metadata.theme),
+    coverImage: trimOrUndefined(metadata.coverImage),
   };
 };
 

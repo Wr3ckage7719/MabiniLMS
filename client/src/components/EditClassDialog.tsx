@@ -65,6 +65,7 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
         room: room.trim() || undefined,
         schedule: newSchedule || undefined,
         theme: classItem.color,
+        coverImage: classItem.coverImage,
       });
 
       await coursesService.updateCourse(classItem.id, {
