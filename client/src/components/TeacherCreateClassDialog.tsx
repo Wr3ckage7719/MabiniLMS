@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sparkles, Plus, Upload, X } from 'lucide-react';
 import { coursesService } from '@/services/courses.service';
+import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -90,28 +91,22 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
     return `${selectedDays.join('-')} ${startTime} - ${endTime}`;
   };
 
-  const buildCourseDescription = () => {
+  const buildCourseMetadataPayload = () => {
     const sectionValue = [section.trim(), level.trim()].filter(Boolean).join(' • ');
     const scheduleValue = formatSchedule();
     const themeValue =
-      themeMode === 'image'
-        ? uploadedImage
-          ? 'custom image'
-          : ''
-        : showCustomColor && selectedColor === 'custom'
-          ? `custom color ${customColor}`
-          : selectedColor;
+      themeMode === 'color'
+        ? (showCustomColor && selectedColor === 'custom' ? customColor : selectedColor)
+        : undefined;
 
-    const summaryParts = [
-      sectionValue ? `Section: ${sectionValue}` : '',
-      room.trim() ? `Room: ${room.trim()}` : '',
-      scheduleValue ? `Schedule: ${scheduleValue}` : '',
-      themeValue ? `Theme: ${themeValue}` : '',
-    ].filter(Boolean);
-
-    return summaryParts.length > 0
-      ? `Class setup details\n${summaryParts.join('\n')}`
-      : undefined;
+    return buildCourseMetadata({
+      section: sectionValue || undefined,
+      block: section.trim() || undefined,
+      level: level.trim() || undefined,
+      room: room.trim() || undefined,
+      schedule: scheduleValue || undefined,
+      theme: themeValue,
+    });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,9 +134,12 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
   const handleCreateClass = async () => {
     setIsCreating(true);
     try {
+      const metadata = buildCourseMetadataPayload();
+
       await coursesService.createCourse({
         title: className.trim(),
-        description: buildCourseDescription(),
+        syllabus: serializeCourseMetadata(metadata),
+        status: 'published',
       });
 
       toast({

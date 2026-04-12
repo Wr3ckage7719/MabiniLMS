@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { coursesService } from '@/services/courses.service';
+import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -51,14 +52,16 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
     setError(null);
 
     try {
-      const detailLines = [
-        section.trim() ? `Section: ${section.trim()}` : '',
-        selectedColor ? `Theme: ${selectedColor}` : '',
-      ].filter(Boolean);
+      const metadata = buildCourseMetadata({
+        section: section.trim() || undefined,
+        theme: selectedColor,
+      });
 
       await coursesService.createCourse({
         title: className.trim(),
-        description: [description.trim(), ...detailLines].filter(Boolean).join('\n') || undefined,
+        description: description.trim() || undefined,
+        syllabus: serializeCourseMetadata(metadata),
+        status: 'published',
       });
 
       toast({

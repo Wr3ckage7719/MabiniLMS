@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { ClassItem } from '@/lib/data';
 import { Pencil } from 'lucide-react';
 import { coursesService } from '@/services/courses.service';
+import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface EditClassDialogProps {
@@ -57,18 +58,25 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
     try {
       const newSchedule = formatSchedule(selectedDays, startTime, endTime);
       const sectionValue = [block.trim(), level.trim()].filter(Boolean).join(' • ');
+      const metadata = buildCourseMetadata({
+        section: sectionValue || undefined,
+        block: block.trim() || undefined,
+        level: level.trim() || undefined,
+        room: room.trim() || undefined,
+        schedule: newSchedule || undefined,
+        theme: classItem.color,
+      });
 
       await coursesService.updateCourse(classItem.id, {
         title: name.trim(),
-        section: sectionValue || undefined,
-        room: room.trim() || undefined,
-        schedule: newSchedule || undefined,
+        syllabus: serializeCourseMetadata(metadata),
       });
 
       await queryClient.invalidateQueries({ queryKey: ['classes'] });
 
       onSave({
         name,
+        section: sectionValue || classItem.section,
         block,
         level,
         room,

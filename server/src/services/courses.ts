@@ -80,14 +80,17 @@ export const createCourse = async (
   input: CreateCourseInput,
   teacherId: string
 ): Promise<Course> => {
+  const insertPayload = {
+    ...input,
+    status: input.status || CourseStatus.PUBLISHED,
+    teacher_id: teacherId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
   const { data, error } = await supabaseAdmin
     .from('courses')
-    .insert({
-      ...input,
-      teacher_id: teacherId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select(COURSE_BASE_SELECT)
     .single();
 

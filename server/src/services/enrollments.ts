@@ -119,10 +119,15 @@ export const enrollStudent = async (
     throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404);
   }
 
-  if (course.status !== CourseStatus.PUBLISHED && !options?.allowNonPublished) {
+  const normalizedCourseStatus = String(course.status || CourseStatus.PUBLISHED).toLowerCase();
+  const isJoinableStatus =
+    normalizedCourseStatus === CourseStatus.PUBLISHED ||
+    normalizedCourseStatus === CourseStatus.DRAFT;
+
+  if (!isJoinableStatus && !options?.allowNonPublished) {
     throw new ApiError(
       ErrorCode.VALIDATION_ERROR,
-      'Can only enroll in published courses',
+      'This class is archived and cannot accept new enrollments',
       400
     );
   }

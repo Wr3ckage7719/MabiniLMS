@@ -11,6 +11,20 @@ import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 
+interface LocalSettingsPreferences {
+  darkMode: boolean;
+  emailNotifications: boolean;
+  pushNotifications: boolean;
+  dueDateReminders: boolean;
+}
+
+const DEFAULT_LOCAL_SETTINGS: LocalSettingsPreferences = {
+  darkMode: false,
+  emailNotifications: true,
+  pushNotifications: true,
+  dueDateReminders: true,
+};
+
 export default function SettingsPage() {
   const { user, updateAvatar } = useAuth();
   const { toast } = useToast();
@@ -20,22 +34,55 @@ export default function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(user?.avatarUrl || null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark' || document.documentElement.classList.contains('dark');
-    }
-    return false;
-  });
+  const [darkMode, setDarkMode] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(DEFAULT_LOCAL_SETTINGS.emailNotifications);
+  const [pushNotifications, setPushNotifications] = useState(DEFAULT_LOCAL_SETTINGS.pushNotifications);
+  const [dueDateReminders, setDueDateReminders] = useState(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+
+  const settingsStorageKey = user?.id ? `mabini:settings:${user.id}` : null;
 
   useEffect(() => {
+    if (!settingsStorageKey || typeof window === 'undefined') {
+      setPreferencesReady(true);
+      return;
+    }
+
+    try {
+      const rawValue = localStorage.getItem(settingsStorageKey);
+      if (!rawValue) {
+        setDarkMode(DEFAULT_LOCAL_SETTINGS.darkMode);
+        setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
+        setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
+        setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+      } else {
+        const parsed = JSON.parse(rawValue) as Partial<LocalSettingsPreferences>;
+        setDarkMode(Boolean(parsed.darkMode));
+        setEmailNotifications(parsed.emailNotifications ?? DEFAULT_LOCAL_SETTINGS.emailNotifications);
+        setPushNotifications(parsed.pushNotifications ?? DEFAULT_LOCAL_SETTINGS.pushNotifications);
+        setDueDateReminders(parsed.dueDateReminders ?? DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+      }
+    } catch {
+      setDarkMode(DEFAULT_LOCAL_SETTINGS.darkMode);
+      setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
+      setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
+      setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+    } finally {
+      setPreferencesReady(true);
+    }
+  }, [settingsStorageKey]);
+
+  useEffect(() => {
+    if (!preferencesReady) {
+      return;
+    }
+
     if (darkMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
     }
-  }, [darkMode]);
+  }, [darkMode, preferencesReady]);
 
   useEffect(() => {
     setAvatarUrl(user?.avatarUrl || null);
@@ -128,29 +175,45 @@ export default function SettingsPage() {
     }
 
     setIsSavingProfile(true);
+    let profileSaveError: string | null = null;
+
     try {
       await usersService.updateProfile({
         first_name: firstName.trim() || undefined,
         last_name: lastName.trim() || undefined,
       });
-
-      toast({
-        title: 'Profile updated',
-        description: 'Your profile details have been saved.',
-      });
     } catch (error) {
       const responseMessage = axios.isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
+      profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
+    }
 
+    if (settingsStorageKey && typeof window !== 'undefined') {
+      const preferences: LocalSettingsPreferences = {
+        darkMode,
+        emailNotifications,
+        pushNotifications,
+        dueDateReminders,
+      };
+      localStorage.setItem(settingsStorageKey, JSON.stringify(preferences));
+      localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+    }
+
+    if (profileSaveError) {
       toast({
-        title: 'Save failed',
-        description: responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.'),
+        title: 'Profile save failed',
+        description: `${profileSaveError} Appearance and notification settings were saved locally.`,
         variant: 'destructive',
       });
-    } finally {
-      setIsSavingProfile(false);
+    } else {
+      toast({
+        title: 'Settings saved',
+        description: 'Your profile and preferences have been saved.',
+      });
     }
+
+    setIsSavingProfile(false);
   };
 
   return (
@@ -227,19 +290,27 @@ export default function SettingsPage() {
       <Card className="border-0 shadow-sm">
         <CardHeader><CardTitle className="text-base">Notifications</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {[
-            { label: 'Email notifications', desc: 'Get notified about new assignments' },
-            { label: 'Push notifications', desc: 'Browser push notifications' },
-            { label: 'Due date reminders', desc: 'Remind me 24h before deadlines' },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-sm">{item.label}</p>
-                <p className="text-xs text-muted-foreground">{item.desc}</p>
-              </div>
-              <Switch defaultChecked />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">Email notifications</p>
+              <p className="text-xs text-muted-foreground">Get notified about new assignments</p>
             </div>
-          ))}
+            <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">Push notifications</p>
+              <p className="text-xs text-muted-foreground">Browser push notifications</p>
+            </div>
+            <Switch checked={pushNotifications} onCheckedChange={setPushNotifications} />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">Due date reminders</p>
+              <p className="text-xs text-muted-foreground">Remind me 24h before deadlines</p>
+            </div>
+            <Switch checked={dueDateReminders} onCheckedChange={setDueDateReminders} />
+          </div>
         </CardContent>
       </Card>
 

@@ -1,10 +1,15 @@
 import { ClassItem, Assignment, Student, LearningMaterial, Announcement } from '@/lib/data';
+import {
+  parseCourseMetadataFromDescription,
+  parseCourseMetadataFromSyllabus,
+} from '@/services/course-metadata';
 
 // Backend types (simplified - adjust based on actual backend responses)
 interface BackendCourse {
   id: string;
   title: string;
   description?: string;
+  syllabus?: string;
   section?: string;
   room?: string;
   schedule?: string;
@@ -70,40 +75,6 @@ function getCourseColor(index: number): 'blue' | 'teal' | 'purple' | 'orange' | 
   return COURSE_COLORS[index % COURSE_COLORS.length];
 }
 
-function parseCourseMetadataFromDescription(description?: string): {
-  section?: string;
-  room?: string;
-  schedule?: string;
-  theme?: string;
-} {
-  if (!description) {
-    return {};
-  }
-
-  const lines = description
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const metadata: { section?: string; room?: string; schedule?: string; theme?: string } = {};
-
-  for (const line of lines) {
-    const separatorIndex = line.indexOf(':');
-    if (separatorIndex < 0) continue;
-
-    const key = line.slice(0, separatorIndex).trim().toLowerCase();
-    const value = line.slice(separatorIndex + 1).trim();
-    if (!value) continue;
-
-    if (key === 'section') metadata.section = value;
-    if (key === 'room') metadata.room = value;
-    if (key === 'schedule') metadata.schedule = value;
-    if (key === 'theme') metadata.theme = value;
-  }
-
-  return metadata;
-}
-
 function resolveCourseColor(
   requestedColor: string | undefined,
   fallbackColor: 'blue' | 'teal' | 'purple' | 'orange' | 'pink' | 'green'
@@ -151,8 +122,28 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     .filter(Boolean)
     .join(' ')
     .trim();
-  const metadata = parseCourseMetadataFromDescription(course.description);
-  const parsedSection = parseSection(course.section || metadata.section);
+  const descriptionMetadata = parseCourseMetadataFromDescription(course.description);
+  const syllabusMetadata = parseCourseMetadataFromSyllabus(course.syllabus);
+  const metadata = {
+    ...descriptionMetadata,
+    ...syllabusMetadata,
+  };
+
+  const sectionValue =
+    metadata.section ||
+    [metadata.block, metadata.level].filter(Boolean).join(' • ') ||
+    course.section;
+
+  const parsedSection = parseSection(sectionValue);
+
+  if (metadata.block) {
+    parsedSection.block = metadata.block;
+  }
+
+  if (metadata.level) {
+    parsedSection.level = metadata.level;
+  }
+
   const fallbackColor = getCourseColor(index);
   const resolvedColor = resolveCourseColor(course.cover_image || metadata.theme, fallbackColor);
 

@@ -3,6 +3,8 @@ import { apiClient } from './api-client';
 export interface CourseData {
   title: string;
   description?: string;
+  syllabus?: string;
+  status?: 'draft' | 'published' | 'archived';
   section?: string;
   room?: string;
   schedule?: string;

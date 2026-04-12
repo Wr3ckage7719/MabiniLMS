@@ -155,6 +155,7 @@ export function TeacherClassStream({
   const [editAnnouncementTitle, setEditAnnouncementTitle] = useState('');
   const [editAnnouncementContent, setEditAnnouncementContent] = useState('');
   const [editAnnouncementPinned, setEditAnnouncementPinned] = useState(false);
+  const [postingAnnouncement, setPostingAnnouncement] = useState(false);
   const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -293,12 +294,19 @@ export function TeacherClassStream({
 
   const handlePostAnnouncement = () => {
     const content = announcementText.trim();
-    if (!content) return;
+    if (!content || postingAnnouncement) return;
 
     void (async () => {
+      setPostingAnnouncement(true);
       try {
+        const firstLine = content.split(/\r?\n/)[0]?.trim() || '';
+        const normalizedTitle =
+          firstLine && firstLine.toLowerCase() !== content.toLowerCase()
+            ? firstLine.slice(0, 80)
+            : 'Announcement';
+
         await announcementsService.createAnnouncement(classId, {
-          title: content.slice(0, 80),
+          title: normalizedTitle,
           content,
         });
         setAnnouncementText('');
@@ -314,6 +322,8 @@ export function TeacherClassStream({
           description: message,
           variant: 'destructive',
         });
+      } finally {
+        setPostingAnnouncement(false);
       }
     })();
   };
@@ -869,11 +879,11 @@ export function TeacherClassStream({
                     </div>
                     <Button
                       onClick={handlePostAnnouncement}
-                      disabled={!announcementText.trim()}
+                      disabled={!announcementText.trim() || postingAnnouncement}
                       className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300"
                     >
                       <Send className="h-4 w-4 mr-2" />
-                      Post
+                      {postingAnnouncement ? 'Posting...' : 'Post'}
                     </Button>
                   </div>
                 </CardContent>
@@ -954,7 +964,9 @@ export function TeacherClassStream({
                             </div>
 
                             {/* Content */}
-                            {announcement.title && (
+                            {announcement.title &&
+                              announcement.title.trim().toLowerCase() !== announcement.content.trim().toLowerCase() &&
+                              announcement.title.trim().toLowerCase() !== 'announcement' && (
                               <p className="text-sm font-semibold text-foreground">{announcement.title}</p>
                             )}
                             <p className="text-sm leading-relaxed text-foreground/90">{announcement.content}</p>
