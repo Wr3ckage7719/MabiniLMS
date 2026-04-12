@@ -1,5 +1,5 @@
 import { ClassItem, CLASS_COLORS } from '@/lib/data';
-import { Users, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
@@ -47,7 +47,19 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
         className={`group overflow-hidden ${!isArchived ? 'cursor-pointer' : ''} card-interactive border-0 shadow-sm hover:shadow-glow`}
         onClick={() => !isArchived && navigate(`/class/${classItem.id}`)}
       >
-        <div className={`${CLASS_COLORS[classItem.color]} h-28 p-5 relative overflow-hidden ${isArchived ? 'opacity-60' : ''}`}>
+        <div
+          className={`h-28 p-5 relative overflow-hidden ${isArchived ? 'opacity-60' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
+          style={
+            classItem.coverImage
+              ? {
+                  backgroundImage: `url(${classItem.coverImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }
+              : undefined
+          }
+        >
+          {classItem.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
           <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
           <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10 group-hover:scale-110 transition-transform duration-500" />
           <div className="absolute -right-8 -top-8 w-20 h-20 rounded-full bg-white/5" />
@@ -65,11 +77,7 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
         <div className={`p-5 ${isArchived ? 'opacity-70' : ''}`}>
           <p className="text-sm text-muted-foreground mb-2">{classItem.teacher}</p>
           <p className="text-xs text-muted-foreground mb-4">{classItem.room} • {classItem.schedule}</p>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Users className="h-4 w-4" />
-              <span className="text-sm">{classItem.students}</span>
-            </div>
+          <div className="flex items-center justify-end">
             {classItem.pendingAssignments > 0 && !isArchived && (
               <div className="flex items-center gap-1.5 text-primary">
                 <FileText className="h-4 w-4" />

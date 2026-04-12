@@ -237,7 +237,19 @@ export default function ClassDetail() {
   return (
     <div className="animate-fade-in">
       {/* Banner */}
-      <div className={`${CLASS_COLORS[cls.color]} relative overflow-hidden`}>
+      <div
+        className={`relative overflow-hidden ${!cls.coverImage ? CLASS_COLORS[cls.color] : ''}`}
+        style={
+          cls.coverImage
+            ? {
+                backgroundImage: `url(${cls.coverImage})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }
+            : undefined
+        }
+      >
+        {cls.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
         <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/30" />
         <div className="absolute -right-12 -bottom-12 w-48 h-48 rounded-full bg-white/10" />
         <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-white/5" />

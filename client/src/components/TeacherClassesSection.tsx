@@ -377,10 +377,20 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                     >
                       {/* Class Header Image */}
                       <div
-                        className={`h-32 bg-gradient-to-br ${getClassColorGradient(
-                          cls.color
-                        )} relative overflow-hidden group-hover:opacity-90 transition-opacity`}
+                        className={`h-32 relative overflow-hidden group-hover:opacity-90 transition-opacity ${
+                          !cls.coverImage ? `bg-gradient-to-br ${getClassColorGradient(cls.color)}` : ''
+                        }`}
+                        style={
+                          cls.coverImage
+                            ? {
+                                backgroundImage: `url(${cls.coverImage})`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                              }
+                            : undefined
+                        }
                       >
+                        {cls.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
                         {/* Decorative elements */}
                         <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-white/10" />
                         <div className="absolute -left-8 -bottom-8 w-32 h-32 rounded-full bg-white/5" />
@@ -428,9 +438,18 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                       <div className="flex items-center gap-4">
                         {/* Color Badge */}
                         <div
-                          className={`h-12 w-12 rounded-lg bg-gradient-to-br ${getClassColorGradient(
-                            cls.color
-                          )} flex-shrink-0 cursor-pointer`}
+                          className={`h-12 w-12 rounded-lg flex-shrink-0 cursor-pointer ${
+                            !cls.coverImage ? `bg-gradient-to-br ${getClassColorGradient(cls.color)}` : ''
+                          }`}
+                          style={
+                            cls.coverImage
+                              ? {
+                                  backgroundImage: `url(${cls.coverImage})`,
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center',
+                                }
+                              : undefined
+                          }
                           onClick={() => onSelectClass(cls.id)}
                         />
 
@@ -544,10 +563,20 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
 
                       {/* Class Header Image */}
                       <div
-                        className={`h-32 bg-gradient-to-br ${getClassColorGradient(
-                          cls.color
-                        )} relative overflow-hidden group-hover:opacity-90 transition-opacity`}
+                        className={`h-32 relative overflow-hidden group-hover:opacity-90 transition-opacity ${
+                          !cls.coverImage ? `bg-gradient-to-br ${getClassColorGradient(cls.color)}` : ''
+                        }`}
+                        style={
+                          cls.coverImage
+                            ? {
+                                backgroundImage: `url(${cls.coverImage})`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                              }
+                            : undefined
+                        }
                       >
+                        {cls.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
                         {/* Decorative elements */}
                         <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-white/10" />
                         <div className="absolute -left-8 -bottom-8 w-32 h-32 rounded-full bg-white/5" />
@@ -595,9 +624,18 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                         <div className="flex items-center gap-4">
                           {/* Color Badge */}
                           <div
-                            className={`h-12 w-12 rounded-lg bg-gradient-to-br ${getClassColorGradient(
-                              cls.color
-                            )} flex-shrink-0`}
+                              className={`h-12 w-12 rounded-lg flex-shrink-0 ${
+                                !cls.coverImage ? `bg-gradient-to-br ${getClassColorGradient(cls.color)}` : ''
+                              }`}
+                              style={
+                                cls.coverImage
+                                  ? {
+                                      backgroundImage: `url(${cls.coverImage})`,
+                                      backgroundSize: 'cover',
+                                      backgroundPosition: 'center',
+                                    }
+                                  : undefined
+                              }
                           />
 
                           {/* Class Info */}

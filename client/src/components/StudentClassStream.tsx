@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Heart, Loader2, Paperclip, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRole } from '@/contexts/RoleContext';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -16,6 +16,7 @@ interface StudentPost {
   id: string;
   studentName: string;
   studentAvatar: string;
+  studentAvatarUrl?: string | null;
   content: string;
   timestamp: string;
   likes: number;
@@ -39,6 +40,7 @@ const toDisplayPost = (post: DiscussionPost): StudentPost => {
     id: post.id,
     studentName,
     studentAvatar,
+    studentAvatarUrl: post.author?.avatar_url || null,
     content: post.content,
     timestamp: post.created_at,
     likes: post.likes_count,
@@ -47,7 +49,7 @@ const toDisplayPost = (post: DiscussionPost): StudentPost => {
 };
 
 export function StudentClassStream({ classId }: StudentClassStreamProps) {
-  const { currentUserAvatar } = useRole();
+  const { currentUserAvatar, currentUserAvatarUrl, currentUserName } = useRole();
   const { toast } = useToast();
   const { data: apiPosts = [], isLoading: postsLoading } = useDiscussionPosts(classId);
   const createPostMutation = useCreateDiscussionPost(classId);
@@ -140,6 +142,9 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                 {/* Header */}
                 <div className="flex gap-3 mb-3">
                   <Avatar className="h-9 w-9 flex-shrink-0">
+                    {post.studentAvatarUrl ? (
+                      <AvatarImage src={post.studentAvatarUrl} alt={`${post.studentName} avatar`} />
+                    ) : null}
                     <AvatarFallback className="bg-secondary text-secondary-foreground text-xs">{post.studentAvatar}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
@@ -179,6 +184,9 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
         <CardContent className="p-4 md:p-6">
           <div className="flex gap-3">
             <Avatar className="h-10 w-10 flex-shrink-0">
+              {currentUserAvatarUrl ? (
+                <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />
+              ) : null}
               <AvatarFallback className="bg-primary text-primary-foreground text-sm">{currentUserAvatar}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
