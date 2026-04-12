@@ -41,6 +41,27 @@ export interface NotificationPayload {
   createdAt?: string;
 }
 
+interface AssignmentEventPayload {
+  id?: string;
+  title?: string;
+  courseId?: string;
+  courseName?: string;
+  assignmentType?: string;
+}
+
+const getAssignmentLabel = (assignmentType?: string): string => {
+  switch ((assignmentType || '').toLowerCase()) {
+    case 'exam':
+      return 'Exam';
+    case 'quiz':
+      return 'Quiz';
+    case 'activity':
+      return 'Activity';
+    default:
+      return 'Assignment';
+  }
+};
+
 const resolveSocketUrl = (): string => {
   const normalizeForSecureContext = (url: string): string => {
     if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
@@ -82,8 +103,7 @@ const SOCKET_URL = resolveSocketUrl();
  * Hook for WebSocket connection and real-time notifications
  */
 export function useWebSocket() {
-  const { session, user } = useAuth();
-  const { toast } = useToast();
+  const { session } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -185,12 +205,124 @@ export function useWebSocket() {
  */
 export function useRealtimeNotifications() {
   const { subscribe, isAuthenticated } = useWebSocket();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [unreadCount, setUnreadCount] = useState(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const playNotificationSound = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      type WindowWithWebkitAudio = Window & typeof globalThis & {
+        webkitAudioContext?: typeof AudioContext;
+      };
+
+      const windowWithWebkit = window as WindowWithWebkitAudio;
+      const AudioContextConstructor =
+        windowWithWebkit.AudioContext || windowWithWebkit.webkitAudioContext;
+
+      if (!AudioContextConstructor) {
+        return;
+      }
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextConstructor();
+      }
+
+      const audioContext = audioContextRef.current;
+      if (audioContext.state === 'suspended') {
+        void audioContext.resume().catch(() => undefined);
+      }
+
+      const startAt = audioContext.currentTime;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(932, startAt);
+      oscillator.frequency.exponentialRampToValueAtTime(659, startAt + 0.22);
+
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.08, startAt + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.24);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+
+      oscillator.start(startAt);
+      oscillator.stop(startAt + 0.24);
+    } catch (error) {
+      console.debug('Unable to play realtime notification sound', error);
+    }
+  }, []);
+
+  const showDeviceNotification = useCallback(
+    async (
+      title: string,
+      message: string,
+      options?: {
+        courseId?: string;
+        assignmentId?: string;
+      }
+    ) => {
+      if (typeof window === 'undefined' || !('Notification' in window)) {
+        return;
+      }
+
+      try {
+        let permission = Notification.permission;
+
+        if (permission === 'default') {
+          permission = await Notification.requestPermission();
+        }
+
+        if (permission !== 'granted') {
+          return;
+        }
+
+        const notification = new Notification(title, {
+          body: message,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-192x192.png',
+          tag: options?.assignmentId
+            ? `assignment-${options.assignmentId}`
+            : 'assignment-alert',
+          renotify: true,
+        });
+
+        notification.onclick = () => {
+          window.focus();
+
+          if (options?.courseId) {
+            window.location.href = `/class/${options.courseId}`;
+          }
+
+          notification.close();
+        };
+      } catch (error) {
+        console.debug('Unable to display browser notification', error);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        void audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    const isStudent = (user?.role || '').toLowerCase() === 'student';
 
     // Subscribe to general notifications
     const unsubNotification = subscribe<NotificationPayload>(
@@ -226,11 +358,31 @@ export function useRealtimeNotifications() {
     // Subscribe to new assignments
     const unsubAssignment = subscribe<any>(
       SocketEvent.ASSIGNMENT_CREATED,
-      (data) => {
+      (data: AssignmentEventPayload) => {
+        if (!isStudent) {
+          return;
+        }
+
+        const assignmentLabel = getAssignmentLabel(data.assignmentType);
+        const courseName = data.courseName || 'your class';
+
         toast({
-          title: '📝 New Assignment',
-          description: `New assignment "${data.title}" in ${data.courseName}`,
+          title: `📝 New ${assignmentLabel}`,
+          description: `New ${assignmentLabel.toLowerCase()} "${data.title || 'Untitled'}" in ${courseName}`,
         });
+
+        setUnreadCount((prev) => prev + 1);
+        playNotificationSound();
+        void showDeviceNotification(
+          `New ${assignmentLabel} in ${courseName}`,
+          data.title
+            ? `"${data.title}" was just posted.`
+            : `A new ${assignmentLabel.toLowerCase()} was just posted.`,
+          {
+            courseId: data.courseId,
+            assignmentId: data.id,
+          }
+        );
       }
     );
 
@@ -295,7 +447,15 @@ export function useRealtimeNotifications() {
       unsubSubmissionReceived();
       unsubStandingUpdated();
     };
-  }, [isAuthenticated, queryClient, subscribe, toast]);
+  }, [
+    isAuthenticated,
+    playNotificationSound,
+    queryClient,
+    showDeviceNotification,
+    subscribe,
+    toast,
+    user?.role,
+  ]);
 
   return { unreadCount, setUnreadCount };
 }

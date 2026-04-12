@@ -470,6 +470,49 @@ export const sendAssignmentDueSoonNotification = async (
 }
 
 /**
+ * Send assignment created notification to multiple users
+ */
+export const sendAssignmentCreatedNotification = async (
+  userIds: string[],
+  courseTitle: string,
+  courseId: string,
+  assignmentTitle: string,
+  assignmentId: string,
+  assignmentType: 'activity' | 'quiz' | 'exam' = 'activity'
+): Promise<void> => {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
+
+  if (uniqueUserIds.length === 0) {
+    return
+  }
+
+  const assignmentLabelByType: Record<'activity' | 'quiz' | 'exam', string> = {
+    activity: 'Activity',
+    quiz: 'Quiz',
+    exam: 'Exam',
+  }
+
+  const assignmentLabel = assignmentLabelByType[assignmentType] || 'Assignment'
+
+  await createBulkNotifications({
+    user_ids: uniqueUserIds,
+    type: NotificationType.ASSIGNMENT_CREATED,
+    title: `New ${assignmentLabel}`,
+    message: `New ${assignmentLabel.toLowerCase()} "${assignmentTitle}" posted in ${courseTitle}`,
+    priority:
+      assignmentType === 'exam' || assignmentType === 'quiz'
+        ? NotificationPriority.HIGH
+        : NotificationPriority.NORMAL,
+    action_url: `/class/${courseId}`,
+    metadata: {
+      course_id: courseId,
+      assignment_id: assignmentId,
+      assignment_type: assignmentType,
+    },
+  })
+}
+
+/**
  * Send course enrollment notification
  */
 export const sendEnrollmentNotification = async (

@@ -19,6 +19,7 @@ import {
 import * as driveService from './google-drive.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
+import { sendAssignmentCreatedNotification } from './notifications.js';
 import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
@@ -448,9 +449,53 @@ export const createAssignment = async (
   await notifyAssignmentCreated(courseId, {
     id: data.id,
     title: data.title,
+    courseId,
     courseName: course.title || 'Course',
+    assignmentType,
     dueDate: data.due_date || '',
   });
+
+  try {
+    const { data: enrollments, error: enrollmentError } = await supabaseAdmin
+      .from('enrollments')
+      .select('student_id')
+      .eq('course_id', courseId)
+      .eq('status', 'active');
+
+    if (enrollmentError) {
+      logger.warn('Failed to load student recipients for assignment notifications', {
+        courseId,
+        assignmentId: data.id,
+        error: enrollmentError.message,
+      });
+    } else {
+      const recipientIds = Array.from(
+        new Set(
+          (enrollments || [])
+            .map((enrollment) => enrollment.student_id)
+            .filter((studentId): studentId is string => Boolean(studentId) && studentId !== userId)
+        )
+      );
+
+      await sendAssignmentCreatedNotification(
+        recipientIds,
+        course.title || 'Course',
+        courseId,
+        data.title,
+        data.id,
+        assignmentType
+      );
+    }
+  } catch (notificationError) {
+    logger.warn('Failed to dispatch assignment notifications', {
+      courseId,
+      assignmentId: data.id,
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+    });
+  }
 
   return normalizeAssignmentRecord(data) as Assignment;
 };

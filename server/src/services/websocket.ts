@@ -447,7 +447,14 @@ export const notifyAnnouncementCreated = async (
  */
 export const notifyAssignmentCreated = async (
   courseId: string,
-  assignment: { id: string; title: string; courseName: string; dueDate: string }
+  assignment: {
+    id: string;
+    title: string;
+    courseId?: string;
+    courseName: string;
+    assignmentType?: 'activity' | 'quiz' | 'exam';
+    dueDate: string;
+  }
 ): Promise<void> => {
   await sendToCourse(courseId, SocketEvent.ASSIGNMENT_CREATED, assignment);
 };
