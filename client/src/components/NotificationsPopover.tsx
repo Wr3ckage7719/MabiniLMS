@@ -1,5 +1,6 @@
 import { Bell, Clock, MessageSquare, Send, Heart, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,6 +11,9 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useNotifications } from '@/hooks/useTeacherData';
+import { resolveNotificationLink } from '@/lib/notification-links';
+import { useToast } from '@/hooks/use-toast';
+import { pushNotificationsService } from '@/services/push-notifications.service';
 
 interface NotificationsPopoverProps {
   role?: 'student' | 'teacher';
@@ -59,11 +63,73 @@ function getAvatarUrlFromNotification(notif: any): string | null {
 
 export function NotificationsPopover({ role = 'student' }: NotificationsPopoverProps) {
   const [open, setOpen] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const navigate = useNavigate();
+  const { toast } = useToast();
   
   // Fetch real notifications from API
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications({
     limit: 20,
   });
+
+  useEffect(() => {
+    const supported = pushNotificationsService.isSupported();
+    setPushSupported(supported);
+    setPushPermission(pushNotificationsService.getPermission());
+
+    if (supported && pushNotificationsService.getPermission() === 'granted') {
+      void pushNotificationsService.syncExistingSubscription().catch((error) => {
+        console.debug('Push sync skipped from notifications popover', error);
+      });
+    }
+  }, [open]);
+
+  const handleEnablePushNotifications = async () => {
+    setPushBusy(true);
+    try {
+      const enabled = await pushNotificationsService.enablePushNotifications();
+      setPushPermission(pushNotificationsService.getPermission());
+
+      toast({
+        title: enabled ? 'Push notifications enabled' : 'Push permission not granted',
+        description: enabled
+          ? 'You will now receive class notifications on this device, even in the background.'
+          : 'Push notifications stay disabled until browser permission is granted.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Unable to enable push notifications',
+        description:
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Push notifications could not be enabled on this device.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleNotificationClick = async (notification: any) => {
+    const metadata = getNotificationMetadata(notification);
+    const destination = resolveNotificationLink(notification.action_url, metadata, role);
+
+    if (!notification.read) {
+      await markAsRead([notification.id]);
+    }
+
+    setOpen(false);
+
+    if (destination.external) {
+      window.location.href = destination.href;
+      return;
+    }
+
+    navigate(destination.href);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -111,6 +177,24 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
               </div>
             )}
 
+            {pushSupported && pushPermission !== 'granted' && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Enable push notifications to receive Android, iOS, and desktop alerts even when this tab is closed.
+                </p>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    void handleEnablePushNotifications();
+                  }}
+                  disabled={pushBusy}
+                >
+                  {pushBusy ? 'Enabling...' : 'Enable Push Notifications'}
+                </Button>
+              </div>
+            )}
+
             {/* Notifications List */}
             {!loading && notifications.length > 0 && (
               <div className="space-y-2">
@@ -123,7 +207,9 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
                     <div
                       key={notification.id}
                       className={`p-3 rounded-lg ${bgColor} hover:bg-secondary/60 transition-colors cursor-pointer border border-transparent hover:border-primary/20`}
-                      onClick={() => !notification.read && markAsRead([notification.id])}
+                      onClick={() => {
+                        void handleNotificationClick(notification);
+                      }}
                     >
                       <div className="flex items-start gap-3">
                         <Avatar className={`h-8 w-8 flex-shrink-0`}>

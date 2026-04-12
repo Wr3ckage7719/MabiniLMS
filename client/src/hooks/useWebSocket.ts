@@ -3,6 +3,8 @@ import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { resolveNotificationLink } from '@/lib/notification-links';
+import { pushNotificationsService } from '@/services/push-notifications.service';
 
 // Socket event types (must match server)
 export enum SocketEvent {
@@ -298,47 +300,33 @@ export function useRealtimeNotifications() {
       options?: {
         courseId?: string;
         assignmentId?: string;
+        actionUrl?: string;
+        metadata?: Record<string, unknown>;
+        notificationId?: string;
       }
     ) => {
-      if (typeof window === 'undefined' || !('Notification' in window)) {
-        return;
-      }
-
       try {
-        let permission = Notification.permission;
+        const role = (user?.role || '').toLowerCase() === 'teacher' ? 'teacher' : 'student';
+        const resolvedLink = resolveNotificationLink(
+          options?.actionUrl || (options?.courseId ? `/class/${options.courseId}` : null),
+          options?.metadata,
+          role
+        );
 
-        if (permission === 'default') {
-          permission = await Notification.requestPermission();
-        }
-
-        if (permission !== 'granted') {
-          return;
-        }
-
-        const notification = new Notification(title, {
-          body: message,
-          icon: '/icons/icon-192x192.png',
-          badge: '/icons/icon-192x192.png',
+        await pushNotificationsService.showLocalNotification(title, message, {
+          url: resolvedLink.href,
           tag: options?.assignmentId
             ? `assignment-${options.assignmentId}`
-            : 'assignment-alert',
-          renotify: true,
+            : options?.notificationId
+            ? `notification-${options.notificationId}`
+            : 'mabini-notification',
+          notificationId: options?.notificationId,
         });
-
-        notification.onclick = () => {
-          window.focus();
-
-          if (options?.courseId) {
-            window.location.href = `/class/${options.courseId}`;
-          }
-
-          notification.close();
-        };
       } catch (error) {
         console.debug('Unable to display browser notification', error);
       }
     },
-    []
+    [user?.role]
   );
 
   useEffect(() => {
@@ -349,6 +337,34 @@ export function useRealtimeNotifications() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    void pushNotificationsService.syncExistingSubscription().catch((error) => {
+      console.debug('Push subscription sync skipped', error);
+    });
+
+    if (!('serviceWorker' in navigator)) {
+      return;
+    }
+
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'mabini:push-subscription-changed') {
+        void pushNotificationsService.syncExistingSubscription().catch((error) => {
+          console.debug('Push subscription re-sync skipped', error);
+        });
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', onServiceWorkerMessage);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onServiceWorkerMessage);
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -365,6 +381,17 @@ export function useRealtimeNotifications() {
         });
         setUnreadCount(prev => prev + 1);
         dispatchNotificationsRefresh();
+
+        void showDeviceNotification(notification.title, notification.message, {
+          actionUrl:
+            typeof notification.data?.action_url === 'string'
+              ? notification.data.action_url
+              : typeof notification.data?.actionUrl === 'string'
+              ? notification.data.actionUrl
+              : undefined,
+          metadata: notification.data,
+          notificationId: notification.id,
+        });
       }
     );
 
@@ -416,6 +443,10 @@ export function useRealtimeNotifications() {
           {
             courseId: data.courseId,
             assignmentId: data.id,
+            actionUrl: data.courseId ? `/class/${data.courseId}` : undefined,
+            metadata: {
+              course_id: data.courseId,
+            },
           }
         );
       }

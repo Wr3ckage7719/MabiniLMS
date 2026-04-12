@@ -143,6 +143,33 @@ export const notificationIdParamSchema = z.object({
 })
 
 // ============================================
+// Web Push Subscription Schemas
+// ============================================
+
+export const webPushSubscriptionSchema = z.object({
+  endpoint: z.string().url(),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1),
+  }),
+})
+
+export const registerWebPushSubscriptionSchema = z.object({
+  subscription: webPushSubscriptionSchema,
+  user_agent: z.string().max(512).optional(),
+  platform: z.string().max(120).optional(),
+})
+
+export const unregisterWebPushSubscriptionSchema = z.object({
+  endpoint: z.string().url(),
+})
+
+export type WebPushSubscriptionInput = z.infer<typeof webPushSubscriptionSchema>
+export type RegisterWebPushSubscriptionInput = z.infer<typeof registerWebPushSubscriptionSchema>
+export type UnregisterWebPushSubscriptionInput = z.infer<typeof unregisterWebPushSubscriptionSchema>
+
+// ============================================
 // Notification Settings Schema
 // ============================================
 

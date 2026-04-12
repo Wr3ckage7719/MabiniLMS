@@ -108,6 +108,66 @@ export const getNotificationCount = async (
   }
 }
 
+export const getWebPushPublicKey = async (
+  _req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const publicKey = notificationService.getWebPushPublicKey()
+
+    res.json({
+      success: true,
+      data: {
+        public_key: publicKey,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const registerWebPushSubscription = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await notificationService.registerWebPushSubscription(req.user!.id, req.body)
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Push subscription registered',
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const unregisterWebPushSubscription = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await notificationService.unregisterWebPushSubscription(
+      req.user!.id,
+      req.body.endpoint
+    )
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Push subscription removed',
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 // ============================================
 // Single Notification Operations
 // ============================================

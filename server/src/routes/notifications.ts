@@ -11,6 +11,8 @@ import {
   listNotificationsQuerySchema,
   notificationIdParamSchema,
   markReadSchema,
+  registerWebPushSubscriptionSchema,
+  unregisterWebPushSubscriptionSchema,
 } from '../types/notifications.js'
 import * as notificationController from '../controllers/notifications.js'
 
@@ -43,6 +45,29 @@ router.get(
  * GET /api/notifications/count - Get notification counts
  */
 router.get('/count', notificationController.getNotificationCount)
+
+/**
+ * GET /api/notifications/push/public-key - Get Web Push VAPID public key
+ */
+router.get('/push/public-key', notificationController.getWebPushPublicKey)
+
+/**
+ * POST /api/notifications/push/subscribe - Register Web Push subscription
+ */
+router.post(
+  '/push/subscribe',
+  validate({ body: registerWebPushSubscriptionSchema }),
+  notificationController.registerWebPushSubscription
+)
+
+/**
+ * POST /api/notifications/push/unsubscribe - Unregister Web Push subscription
+ */
+router.post(
+  '/push/unsubscribe',
+  validate({ body: unregisterWebPushSubscriptionSchema }),
+  notificationController.unregisterWebPushSubscription
+)
 
 // ============================================
 // Bulk Operations (before :id to avoid conflicts)

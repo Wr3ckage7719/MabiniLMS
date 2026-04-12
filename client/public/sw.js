@@ -1,5 +1,5 @@
 // Service Worker for Mabini Classroom PWA
-const CACHE_NAME = 'mabini-classroom-v1';
+const CACHE_NAME = 'mabini-classroom-v2';
 const OFFLINE_URL = '/offline.html';
 
 // Assets to cache on install
@@ -73,5 +73,74 @@ self.addEventListener('fetch', (event) => {
           return new Response('Offline', { status: 503 });
         });
       })
+  );
+});
+
+const toAbsoluteUrl = (url) => {
+  try {
+    return new URL(url || '/dashboard', self.location.origin).toString();
+  } catch {
+    return new URL('/dashboard', self.location.origin).toString();
+  }
+};
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = {
+        title: 'Mabini Classroom',
+        body: event.data.text(),
+      };
+    }
+  }
+
+  const title = payload.title || 'Mabini Classroom';
+  const body = payload.body || 'You have a new update.';
+  const url = payload.url || payload.data?.url || '/dashboard';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: payload.icon || '/icons/icon-192x192.svg',
+      badge: payload.badge || '/icons/icon-192x192.svg',
+      tag: payload.tag || 'mabini-notification',
+      data: {
+        url,
+        notificationId: payload.data?.notificationId || null,
+      },
+      renotify: true,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const targetUrl = toAbsoluteUrl(event.notification.data?.url || '/dashboard');
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url === targetUrl) {
+          return client.focus();
+        }
+      }
+
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      windowClients.forEach((client) => {
+        client.postMessage({ type: 'mabini:push-subscription-changed' });
+      });
+    })
   );
 });

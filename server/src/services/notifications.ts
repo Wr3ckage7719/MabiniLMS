@@ -5,6 +5,7 @@
  */
 
 import { supabaseAdmin } from '../lib/supabase.js'
+import webpush from 'web-push'
 import { ApiError, ErrorCode } from '../types/index.js'
 import {
   Notification,
@@ -14,6 +15,7 @@ import {
   BulkNotificationInput,
   ListNotificationsQuery,
   NotificationCount,
+  RegisterWebPushSubscriptionInput,
 } from '../types/notifications.js'
 import logger from '../utils/logger.js'
 
@@ -21,6 +23,336 @@ type NotificationActor = {
   id?: string
   name?: string
   avatar_url?: string | null
+}
+
+type PushSubscriptionRecord = {
+  id: string
+  user_id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+}
+
+type PushPayload = {
+  title: string
+  body: string
+  icon: string
+  badge: string
+  tag: string
+  url: string
+  data: {
+    notificationId: string
+    type: string
+    url: string
+  }
+}
+
+const WEB_PUSH_VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim()
+const WEB_PUSH_VAPID_PRIVATE_KEY = (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '').trim()
+const WEB_PUSH_SUBJECT = (process.env.WEB_PUSH_SUBJECT || '').trim() || 'mailto:support@mabinilms.local'
+
+const hasWebPushEnvConfig = Boolean(
+  WEB_PUSH_VAPID_PUBLIC_KEY &&
+    WEB_PUSH_VAPID_PRIVATE_KEY &&
+    WEB_PUSH_SUBJECT
+)
+
+let webPushReady = hasWebPushEnvConfig
+
+const isWebPushConfigured = (): boolean => {
+  return webPushReady
+}
+
+if (hasWebPushEnvConfig) {
+  try {
+    webpush.setVapidDetails(
+      WEB_PUSH_SUBJECT,
+      WEB_PUSH_VAPID_PUBLIC_KEY,
+      WEB_PUSH_VAPID_PRIVATE_KEY
+    )
+  } catch (error) {
+    webPushReady = false
+    logger.warn('Web Push VAPID configuration is invalid. Push delivery disabled.', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+const getMetadataCourseId = (metadata: Notification['metadata']): string | null => {
+  if (!metadata || typeof metadata !== 'object') {
+    return null
+  }
+
+  const value = metadata.course_id || metadata.courseId
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+const resolveNotificationActionPath = (
+  actionUrl: string | null | undefined,
+  metadata: Notification['metadata']
+): string => {
+  const courseId = getMetadataCourseId(metadata)
+
+  if (courseId) {
+    return `/class/${courseId}`
+  }
+
+  const trimmedActionUrl = (actionUrl || '').trim()
+  if (!trimmedActionUrl) {
+    return '/dashboard'
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedActionUrl, 'https://mabinilms.local')
+    const pathname = parsedUrl.pathname
+    const suffix = `${parsedUrl.search}${parsedUrl.hash}`
+
+    if (pathname.startsWith('/courses/')) {
+      const courseIdFromPath = pathname.split('/').filter(Boolean)[1]
+      if (courseIdFromPath) {
+        return `/class/${courseIdFromPath}`
+      }
+      return '/dashboard'
+    }
+
+    if (pathname.startsWith('/class/')) {
+      return `${pathname}${suffix}`
+    }
+
+    if (pathname.startsWith('/assignments/')) {
+      return '/dashboard'
+    }
+
+    if (pathname === '/' || pathname === '/index.html') {
+      return '/dashboard'
+    }
+
+    return `${pathname}${suffix}`
+  } catch {
+    return '/dashboard'
+  }
+}
+
+const toPushPayload = (notification: Notification): PushPayload => {
+  const url = resolveNotificationActionPath(notification.action_url, notification.metadata)
+
+  return {
+    title: notification.title,
+    body: notification.message,
+    icon: '/icons/icon-192x192.svg',
+    badge: '/icons/icon-192x192.svg',
+    tag: `notification-${notification.id}`,
+    url,
+    data: {
+      notificationId: notification.id,
+      type: notification.type,
+      url,
+    },
+  }
+}
+
+const deactivateStalePushSubscriptions = async (
+  subscriptionIds: string[]
+): Promise<void> => {
+  if (subscriptionIds.length === 0) {
+    return
+  }
+
+  const { error } = await supabaseAdmin
+    .from('push_subscriptions')
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .in('id', subscriptionIds)
+
+  if (error) {
+    logger.warn('Failed to deactivate stale push subscriptions', {
+      count: subscriptionIds.length,
+      error: error.message,
+    })
+  }
+}
+
+const dispatchWebPushNotifications = async (
+  notifications: Notification[]
+): Promise<void> => {
+  if (!isWebPushConfigured() || notifications.length === 0) {
+    return
+  }
+
+  const userIds = Array.from(
+    new Set(notifications.map((notification) => notification.user_id).filter(Boolean))
+  )
+
+  if (userIds.length === 0) {
+    return
+  }
+
+  const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
+    .from('push_subscriptions')
+    .select('id, user_id, endpoint, p256dh, auth')
+    .in('user_id', userIds)
+    .eq('is_active', true)
+
+  if (subscriptionsError) {
+    logger.warn('Failed to load push subscriptions for notifications', {
+      error: subscriptionsError.message,
+    })
+    return
+  }
+
+  const subscriptionRows = (subscriptions || []) as PushSubscriptionRecord[]
+  if (subscriptionRows.length === 0) {
+    return
+  }
+
+  const subscriptionsByUserId = new Map<string, PushSubscriptionRecord[]>()
+
+  subscriptionRows.forEach((subscription) => {
+    const existing = subscriptionsByUserId.get(subscription.user_id) || []
+    existing.push(subscription)
+    subscriptionsByUserId.set(subscription.user_id, existing)
+  })
+
+  const staleSubscriptionIds = new Set<string>()
+
+  for (const notification of notifications) {
+    const userSubscriptions = subscriptionsByUserId.get(notification.user_id) || []
+    if (userSubscriptions.length === 0) {
+      continue
+    }
+
+    const payload = toPushPayload(notification)
+
+    await Promise.all(
+      userSubscriptions.map(async (subscription) => {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: subscription.endpoint,
+              keys: {
+                p256dh: subscription.p256dh,
+                auth: subscription.auth,
+              },
+            },
+            JSON.stringify(payload),
+            {
+              TTL: 60 * 60,
+            }
+          )
+        } catch (error: any) {
+          const statusCode = Number(error?.statusCode || 0)
+
+          if (statusCode === 404 || statusCode === 410) {
+            staleSubscriptionIds.add(subscription.id)
+            return
+          }
+
+          logger.warn('Failed to deliver web push notification', {
+            notificationId: notification.id,
+            userId: notification.user_id,
+            endpoint: subscription.endpoint,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      })
+    )
+  }
+
+  if (staleSubscriptionIds.size > 0) {
+    await deactivateStalePushSubscriptions(Array.from(staleSubscriptionIds))
+  }
+}
+
+export const getWebPushPublicKey = (): string => {
+  if (!isWebPushConfigured()) {
+    throw new ApiError(
+      ErrorCode.NOT_FOUND,
+      'Web Push is not configured on this server',
+      404
+    )
+  }
+
+  return WEB_PUSH_VAPID_PUBLIC_KEY
+}
+
+export const registerWebPushSubscription = async (
+  userId: string,
+  input: RegisterWebPushSubscriptionInput
+): Promise<void> => {
+  if (!isWebPushConfigured()) {
+    throw new ApiError(
+      ErrorCode.NOT_FOUND,
+      'Web Push is not configured on this server',
+      404
+    )
+  }
+
+  const expirationTime =
+    typeof input.subscription.expirationTime === 'number'
+      ? new Date(input.subscription.expirationTime).toISOString()
+      : null
+
+  const { error } = await supabaseAdmin
+    .from('push_subscriptions')
+    .upsert(
+      {
+        user_id: userId,
+        endpoint: input.subscription.endpoint,
+        p256dh: input.subscription.keys.p256dh,
+        auth: input.subscription.keys.auth,
+        expiration_time: expirationTime,
+        user_agent: input.user_agent || null,
+        platform: input.platform || null,
+        is_active: true,
+        last_used_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'endpoint',
+      }
+    )
+
+  if (error) {
+    logger.error('Failed to register web push subscription', {
+      userId,
+      endpoint: input.subscription.endpoint,
+      error: error.message,
+    })
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to register push subscription',
+      500
+    )
+  }
+}
+
+export const unregisterWebPushSubscription = async (
+  userId: string,
+  endpoint: string
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('push_subscriptions')
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId)
+    .eq('endpoint', endpoint)
+
+  if (error) {
+    logger.error('Failed to unregister web push subscription', {
+      userId,
+      endpoint,
+      error: error.message,
+    })
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to remove push subscription',
+      500
+    )
+  }
 }
 
 // ============================================
@@ -56,6 +388,14 @@ export const createNotification = async (
       500
     )
   }
+
+  void dispatchWebPushNotifications([data as Notification]).catch((pushError) => {
+    logger.warn('Failed to dispatch web push notification', {
+      notificationId: data.id,
+      userId: data.user_id,
+      error: pushError instanceof Error ? pushError.message : String(pushError),
+    })
+  })
 
   logger.info('Notification created', { id: data.id, type: input.type, user_id: input.user_id })
   return data
@@ -94,6 +434,15 @@ export const createBulkNotifications = async (
 
   const created = data?.length || 0
   const failed = input.user_ids.length - created
+
+  if (created > 0) {
+    void dispatchWebPushNotifications((data || []) as Notification[]).catch((pushError) => {
+      logger.warn('Failed to dispatch bulk web push notifications', {
+        created,
+        error: pushError instanceof Error ? pushError.message : String(pushError),
+      })
+    })
+  }
 
   logger.info('Bulk notifications created', { created, failed, type: input.type })
   return { created, failed }
@@ -564,7 +913,7 @@ export const sendEnrollmentNotification = async (
     title: 'Enrolled in Course',
     message: `You have been enrolled in "${courseTitle}"`,
     priority: NotificationPriority.NORMAL,
-    action_url: `/courses/${courseId}`,
+    action_url: `/class/${courseId}`,
     metadata,
   })
 }
@@ -607,7 +956,7 @@ export const sendAnnouncementNotification = async (
     title: 'New Announcement',
     message: `New announcement in ${courseTitle}: "${announcementTitle}"`,
     priority: NotificationPriority.NORMAL,
-    action_url: `/courses/${courseId}/announcements`,
+    action_url: `/class/${courseId}`,
     metadata,
   })
 }
