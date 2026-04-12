@@ -84,3 +84,53 @@ export const toggleDiscussionPostLike = async (
     next(error);
   }
 };
+
+export const hideDiscussionPost = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId, postId } = req.params;
+
+    const post = await discussionService.hideDiscussionPost(
+      courseId,
+      postId,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: post,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteDiscussionPost = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId, postId } = req.params;
+
+    await discussionService.deleteDiscussionPost(
+      courseId,
+      postId,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Discussion post removed',
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

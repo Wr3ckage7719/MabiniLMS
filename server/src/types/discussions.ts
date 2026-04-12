@@ -8,10 +8,12 @@ export const courseDiscussionPostsParamSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
 });
 
-export const discussionPostLikeParamSchema = z.object({
+export const discussionPostParamSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
   postId: z.string().uuid('Invalid post ID'),
 });
+
+export const discussionPostLikeParamSchema = discussionPostParamSchema;
 
 export const listDiscussionPostsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -40,4 +42,5 @@ export interface DiscussionPostWithAuthor extends DiscussionPost {
   };
   likes_count: number;
   liked_by_me: boolean;
+  is_hidden: boolean;
 }

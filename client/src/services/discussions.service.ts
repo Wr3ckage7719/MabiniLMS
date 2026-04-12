@@ -17,6 +17,7 @@ export interface DiscussionPost {
   updated_at: string;
   likes_count: number;
   liked_by_me: boolean;
+  is_hidden: boolean;
   author: DiscussionAuthor;
 }
 
@@ -50,5 +51,25 @@ export const discussionsService = {
     return apiClient.post<{ data: { post: DiscussionPost; liked: boolean } }>(
       `/courses/${courseId}/discussions/posts/${postId}/like`
     );
+  },
+
+  async hideDiscussionPost(courseId: string, postId: string) {
+    return apiClient.patch<{ data: DiscussionPost }>(
+      `/courses/${courseId}/discussions/posts/${postId}/hide`
+    );
+  },
+
+  async deleteDiscussionPost(courseId: string, postId: string) {
+    try {
+      return await apiClient.delete<{ data: { message: string } }>(
+        `/courses/${courseId}/discussions/posts/${postId}`
+      );
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return { data: { message: 'Discussion post already removed' } };
+      }
+
+      throw error;
+    }
   },
 };

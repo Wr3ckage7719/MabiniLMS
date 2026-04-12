@@ -21,6 +21,7 @@ interface StudentPost {
   timestamp: string;
   likes: number;
   liked: boolean;
+  isHidden: boolean;
 }
 
 interface StudentClassStreamProps {
@@ -45,6 +46,7 @@ const toDisplayPost = (post: DiscussionPost): StudentPost => {
     timestamp: post.created_at,
     likes: post.likes_count,
     liked: post.liked_by_me,
+    isHidden: Boolean(post.is_hidden),
   };
 };
 
@@ -156,7 +158,13 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                 </div>
 
                 {/* Content */}
-                <p className="text-sm text-foreground mb-3 leading-relaxed">{post.content}</p>
+                {post.isHidden ? (
+                  <p className="text-sm text-muted-foreground italic mb-3 leading-relaxed">
+                    This post was hidden by the teacher.
+                  </p>
+                ) : (
+                  <p className="text-sm text-foreground mb-3 leading-relaxed">{post.content}</p>
+                )}
 
                 {/* Actions */}
                 <div className="flex items-center gap-4 pt-2 border-t border-border">
@@ -164,7 +172,7 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                     onClick={() => {
                       void toggleLike(post.id);
                     }}
-                    disabled={toggleLikeMutation.isPending && likingPostId === post.id}
+                    disabled={post.isHidden || (toggleLikeMutation.isPending && likingPostId === post.id)}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group mt-2"
                   >
                     <Heart

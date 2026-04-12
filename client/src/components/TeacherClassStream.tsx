@@ -17,7 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -42,6 +42,13 @@ import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
+import {
+  DiscussionPost,
+  useDeleteDiscussionPost,
+  useDiscussionPosts,
+  useHideDiscussionPost,
+  useToggleDiscussionPostLike,
+} from '@/hooks-api/useDiscussions';
 import { useStudents } from '@/hooks-api/useStudents';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { announcementsService } from '@/services/announcements.service';
@@ -105,6 +112,18 @@ interface EditableAnnouncement {
   id: string;
 }
 
+interface TeacherDiscussionPost {
+  id: string;
+  authorName: string;
+  authorAvatar: string;
+  authorAvatarUrl?: string | null;
+  content: string;
+  timestamp: string;
+  likes: number;
+  liked: boolean;
+  isHidden: boolean;
+}
+
 const parseGradeInput = (value: string): number | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -112,6 +131,48 @@ const parseGradeInput = (value: string): number | null => {
   const numericPart = trimmed.includes('/') ? trimmed.split('/')[0] : trimmed;
   const parsed = Number.parseFloat(numericPart);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const formatRelativeTime = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const toTeacherDiscussionPost = (post: DiscussionPost): TeacherDiscussionPost => {
+  const firstName = post.author?.first_name?.trim() || '';
+  const lastName = post.author?.last_name?.trim() || '';
+  const authorName =
+    `${firstName} ${lastName}`.trim() || post.author?.email || 'Student';
+  const authorAvatar =
+    `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() ||
+    authorName.slice(0, 2).toUpperCase();
+
+  return {
+    id: post.id,
+    authorName,
+    authorAvatar,
+    authorAvatarUrl: post.author?.avatar_url || null,
+    content: post.content,
+    timestamp: post.created_at,
+    likes: post.likes_count,
+    liked: post.liked_by_me,
+    isHidden: Boolean(post.is_hidden),
+  };
 };
 
 export function TeacherClassStream({
@@ -136,6 +197,13 @@ export function TeacherClassStream({
     data: apiAssignments = [],
     refetch: refetchAssignments,
   } = useAssignments(classId);
+  const {
+    data: apiDiscussionPosts = [],
+    isLoading: discussionPostsLoading,
+  } = useDiscussionPosts(classId);
+  const toggleDiscussionPostLikeMutation = useToggleDiscussionPostLike(classId);
+  const hideDiscussionPostMutation = useHideDiscussionPost(classId);
+  const deleteDiscussionPostMutation = useDeleteDiscussionPost(classId);
   const {
     submissions: apiSubmissions = [],
     refetch: refetchCourseSubmissions,
@@ -178,6 +246,9 @@ export function TeacherClassStream({
   const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
   const [deletingAssignmentIds, setDeletingAssignmentIds] = useState<string[]>([]);
   const [deletingAnnouncementIds, setDeletingAnnouncementIds] = useState<string[]>([]);
+  const [likingDiscussionPostIds, setLikingDiscussionPostIds] = useState<string[]>([]);
+  const [hidingDiscussionPostIds, setHidingDiscussionPostIds] = useState<string[]>([]);
+  const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -262,6 +333,10 @@ export function TeacherClassStream({
       .sort((a, b) => new Date(b.submittedAtValue).getTime() - new Date(a.submittedAtValue).getTime())
       .slice(0, 10);
   }, [apiSubmissions]);
+
+  const discussionPosts: TeacherDiscussionPost[] = useMemo(() => {
+    return apiDiscussionPosts.map(toTeacherDiscussionPost);
+  }, [apiDiscussionPosts]);
 
   const handleSaveSubmissionGrade = async () => {
     if (!selectedSubmission) return;
@@ -510,6 +585,104 @@ export function TeacherClassStream({
       } finally {
         setDeletingAnnouncementIds((previous) =>
           previous.filter((id) => id !== announcementId)
+        );
+      }
+    })();
+  };
+
+  const handleToggleDiscussionPostLike = (postId: string) => {
+    if (likingDiscussionPostIds.includes(postId)) {
+      return;
+    }
+
+    void (async () => {
+      setLikingDiscussionPostIds((previous) => [...previous, postId]);
+
+      try {
+        await toggleDiscussionPostLikeMutation.mutateAsync(postId);
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to update post reaction';
+
+        toast({
+          title: 'Like failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setLikingDiscussionPostIds((previous) =>
+          previous.filter((id) => id !== postId)
+        );
+      }
+    })();
+  };
+
+  const handleHideDiscussionPost = (postId: string) => {
+    if (hidingDiscussionPostIds.includes(postId)) {
+      return;
+    }
+
+    void (async () => {
+      setHidingDiscussionPostIds((previous) => [...previous, postId]);
+
+      try {
+        await hideDiscussionPostMutation.mutateAsync(postId);
+        toast({
+          title: 'Post hidden',
+          description: 'The comment has been hidden from the class discussion feed.',
+        });
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to hide discussion post';
+
+        toast({
+          title: 'Hide failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setHidingDiscussionPostIds((previous) =>
+          previous.filter((id) => id !== postId)
+        );
+      }
+    })();
+  };
+
+  const handleDeleteDiscussionPost = (postId: string) => {
+    if (deletingDiscussionPostIds.includes(postId)) {
+      return;
+    }
+
+    void (async () => {
+      setDeletingDiscussionPostIds((previous) => [...previous, postId]);
+
+      try {
+        await deleteDiscussionPostMutation.mutateAsync(postId);
+        toast({
+          title: 'Post removed',
+          description: 'The comment was removed from class discussion.',
+        });
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to remove discussion post';
+
+        toast({
+          title: 'Remove failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setDeletingDiscussionPostIds((previous) =>
+          previous.filter((id) => id !== postId)
         );
       }
     })();
@@ -1189,6 +1362,145 @@ export function TeacherClassStream({
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Post one to get started!
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              {/* Class Discussion Feed */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                    Class Discussion
+                  </h3>
+                  <span className="text-xs text-muted-foreground">
+                    {discussionPosts.length} {discussionPosts.length === 1 ? 'post' : 'posts'}
+                  </span>
+                </div>
+
+                {discussionPostsLoading ? (
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-12 text-center text-muted-foreground">
+                      Loading class discussion...
+                    </CardContent>
+                  </Card>
+                ) : discussionPosts.length > 0 ? (
+                  <div className="space-y-3">
+                    {discussionPosts.map((post, idx) => (
+                      <Card
+                        key={post.id}
+                        className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group"
+                        style={{
+                          animation: `slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 40}ms both`,
+                        }}
+                      >
+                        <CardContent className="p-4 md:p-5">
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <Avatar className="h-10 w-10 flex-shrink-0">
+                                  {post.authorAvatarUrl ? (
+                                    <AvatarImage
+                                      src={post.authorAvatarUrl}
+                                      alt={`${post.authorName} avatar`}
+                                    />
+                                  ) : null}
+                                  <AvatarFallback className="bg-gradient-to-br from-slate-400 to-slate-600 text-white font-semibold text-sm">
+                                    {post.authorAvatar}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-sm">{post.authorName}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {formatRelativeTime(post.timestamp)}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-lg flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="rounded-lg">
+                                  <DropdownMenuItem
+                                    disabled={
+                                      post.isHidden || hidingDiscussionPostIds.includes(post.id)
+                                    }
+                                    onClick={() => handleHideDiscussionPost(post.id)}
+                                  >
+                                    {hidingDiscussionPostIds.includes(post.id)
+                                      ? 'Hiding...'
+                                      : post.isHidden
+                                      ? 'Already hidden'
+                                      : 'Hide comment'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    disabled={deletingDiscussionPostIds.includes(post.id)}
+                                    onClick={() => handleDeleteDiscussionPost(post.id)}
+                                  >
+                                    {deletingDiscussionPostIds.includes(post.id)
+                                      ? 'Removing...'
+                                      : 'Remove comment'}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+
+                            {post.isHidden ? (
+                              <div className="rounded-lg border border-dashed border-muted px-3 py-2">
+                                <p className="text-sm text-muted-foreground italic">
+                                  This post was hidden by the teacher.
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-sm leading-relaxed text-foreground/90">{post.content}</p>
+                            )}
+
+                            <div className="flex gap-4 pt-2 border-t border-muted opacity-80 group-hover:opacity-100 transition-opacity">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-all"
+                                disabled={
+                                  post.isHidden || likingDiscussionPostIds.includes(post.id)
+                                }
+                                onClick={() => handleToggleDiscussionPostLike(post.id)}
+                              >
+                                <Heart
+                                  className={`h-4 w-4 mr-1.5 ${
+                                    post.liked ? 'fill-destructive text-destructive' : ''
+                                  }`}
+                                />
+                                <span className="text-xs">{post.likes}</span>
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-12 text-center">
+                      <div className="mb-4 flex justify-center">
+                        <div className="rounded-full bg-slate-100 p-4">
+                          <Bell className="h-8 w-8 text-slate-500" />
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground font-medium">
+                        No student discussion posts yet.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        New student posts will appear here automatically.
                       </p>
                     </CardContent>
                   </Card>

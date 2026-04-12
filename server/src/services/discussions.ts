@@ -36,6 +36,26 @@ type DiscussionLikeRow = {
   user_id: string;
 };
 
+type CourseDiscussionAccessInfo = {
+  course_id: string;
+  teacher_id: string | null;
+};
+
+type DiscussionPostPermissionRow = {
+  id: string;
+  course_id: string;
+  author_id: string;
+  content: string;
+};
+
+type DiscussionModerationAction = 'hide' | 'delete';
+
+const HIDDEN_DISCUSSION_POST_CONTENT = '[Hidden by teacher]';
+
+const isHiddenDiscussionContent = (content: string): boolean => {
+  return content.trim().toLowerCase() === HIDDEN_DISCUSSION_POST_CONTENT.toLowerCase();
+};
+
 const isMissingRelationError = (
   error?: { code?: string; message?: string } | null
 ): boolean => {
@@ -72,6 +92,7 @@ const toDiscussionPostWithAuthor = (
     updated_at: row.updated_at,
     likes_count: likesCount,
     liked_by_me: likedByMe,
+    is_hidden: isHiddenDiscussionContent(row.content),
     author: {
       id: author?.id || row.author_id,
       email: author?.email || '',
@@ -86,7 +107,7 @@ const ensureCourseDiscussionAccess = async (
   courseId: string,
   userId: string,
   userRole: UserRole
-): Promise<void> => {
+): Promise<CourseDiscussionAccessInfo> => {
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
     .select('id, teacher_id')
@@ -97,8 +118,13 @@ const ensureCourseDiscussionAccess = async (
     throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404);
   }
 
+  const accessInfo: CourseDiscussionAccessInfo = {
+    course_id: course.id,
+    teacher_id: course.teacher_id || null,
+  };
+
   if (userRole === UserRole.ADMIN || course.teacher_id === userId) {
-    return;
+    return accessInfo;
   }
 
   if (userRole === UserRole.STUDENT) {
@@ -120,13 +146,78 @@ const ensureCourseDiscussionAccess = async (
     }
 
     if (enrollment) {
-      return;
+      return accessInfo;
     }
   }
 
   throw new ApiError(
     ErrorCode.FORBIDDEN,
     'You do not have access to this course discussion stream',
+    403
+  );
+};
+
+const getDiscussionPostPermissionRow = async (
+  courseId: string,
+  postId: string
+): Promise<DiscussionPostPermissionRow> => {
+  const { data: row, error } = await supabaseAdmin
+    .from('course_discussion_posts')
+    .select('id, course_id, author_id, content')
+    .eq('id', postId)
+    .eq('course_id', courseId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Discussion stream is not available yet. Please run the latest database migrations.',
+        503
+      );
+    }
+
+    logger.error('Failed to verify discussion post', {
+      courseId,
+      postId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to verify discussion post', 500);
+  }
+
+  if (!row) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Discussion post not found', 404);
+  }
+
+  return row as DiscussionPostPermissionRow;
+};
+
+const ensureDiscussionModerationPermission = (
+  action: DiscussionModerationAction,
+  userId: string,
+  userRole: UserRole,
+  courseAccess: CourseDiscussionAccessInfo,
+  postAuthorId: string
+): void => {
+  const isAdmin = userRole === UserRole.ADMIN;
+  const isTeacher = courseAccess.teacher_id === userId;
+  const isAuthor = postAuthorId === userId;
+
+  if (isAdmin || isTeacher || (action === 'delete' && isAuthor)) {
+    return;
+  }
+
+  if (action === 'hide') {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only the course teacher can hide discussion posts',
+      403
+    );
+  }
+
+  throw new ApiError(
+    ErrorCode.FORBIDDEN,
+    'You are not allowed to remove this discussion post',
     403
   );
 };
@@ -159,11 +250,15 @@ const getDiscussionPostById = async (
     .eq('post_id', postId);
 
   if (likesError) {
-    logger.error('Failed to load discussion post likes', {
-      postId,
-      error: likesError.message,
-    });
-    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load discussion post likes', 500);
+    if (!isMissingRelationError(likesError)) {
+      logger.error('Failed to load discussion post likes', {
+        postId,
+        error: likesError.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load discussion post likes', 500);
+    }
+
+    return toDiscussionPostWithAuthor(postRow as DiscussionPostJoinedRow, 0, false);
   }
 
   const likeRows = (likes || []) as DiscussionLikeRow[];
@@ -457,4 +552,111 @@ export const toggleDiscussionPostLike = async (
 
   const post = await getDiscussionPostById(postId, userId);
   return { post, liked };
+};
+
+export const hideDiscussionPost = async (
+  courseId: string,
+  postId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<DiscussionPostWithAuthor> => {
+  const courseAccess = await ensureCourseDiscussionAccess(courseId, userId, userRole);
+  const postRow = await getDiscussionPostPermissionRow(courseId, postId);
+
+  ensureDiscussionModerationPermission(
+    'hide',
+    userId,
+    userRole,
+    courseAccess,
+    postRow.author_id
+  );
+
+  if (isHiddenDiscussionContent(postRow.content)) {
+    return getDiscussionPostById(postId, userId);
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('course_discussion_posts')
+    .update({
+      content: HIDDEN_DISCUSSION_POST_CONTENT,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', postId)
+    .eq('course_id', courseId);
+
+  if (updateError) {
+    if (isMissingRelationError(updateError)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Discussion stream is not available yet. Please run the latest database migrations.',
+        503
+      );
+    }
+
+    logger.error('Failed to hide discussion post', {
+      courseId,
+      postId,
+      userId,
+      error: updateError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to hide discussion post', 500);
+  }
+
+  const { error: clearLikesError } = await supabaseAdmin
+    .from('course_discussion_post_likes')
+    .delete()
+    .eq('post_id', postId);
+
+  if (clearLikesError && !isMissingRelationError(clearLikesError)) {
+    logger.warn('Failed to clear likes for hidden discussion post', {
+      courseId,
+      postId,
+      userId,
+      error: clearLikesError.message,
+    });
+  }
+
+  return getDiscussionPostById(postId, userId);
+};
+
+export const deleteDiscussionPost = async (
+  courseId: string,
+  postId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<void> => {
+  const courseAccess = await ensureCourseDiscussionAccess(courseId, userId, userRole);
+  const postRow = await getDiscussionPostPermissionRow(courseId, postId);
+
+  ensureDiscussionModerationPermission(
+    'delete',
+    userId,
+    userRole,
+    courseAccess,
+    postRow.author_id
+  );
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('course_discussion_posts')
+    .delete()
+    .eq('id', postId)
+    .eq('course_id', courseId);
+
+  if (deleteError) {
+    if (isMissingRelationError(deleteError)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Discussion stream is not available yet. Please run the latest database migrations.',
+        503
+      );
+    }
+
+    logger.error('Failed to delete discussion post', {
+      courseId,
+      postId,
+      userId,
+      error: deleteError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to delete discussion post', 500);
+  }
 };

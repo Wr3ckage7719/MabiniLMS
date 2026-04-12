@@ -5,6 +5,7 @@ import { UserRole } from '../types/index.js';
 import {
   courseDiscussionPostsParamSchema,
   createDiscussionPostSchema,
+  discussionPostParamSchema,
   discussionPostLikeParamSchema,
   listDiscussionPostsQuerySchema,
 } from '../types/discussions.js';
@@ -42,6 +43,20 @@ router.post(
   '/courses/:courseId/discussions/posts/:postId/like',
   validate({ params: discussionPostLikeParamSchema }),
   discussionController.toggleDiscussionPostLike
+);
+
+// PATCH /api/courses/:courseId/discussions/posts/:postId/hide - hide post content (teacher/admin)
+router.patch(
+  '/courses/:courseId/discussions/posts/:postId/hide',
+  validate({ params: discussionPostParamSchema }),
+  discussionController.hideDiscussionPost
+);
+
+// DELETE /api/courses/:courseId/discussions/posts/:postId - remove a discussion post
+router.delete(
+  '/courses/:courseId/discussions/posts/:postId',
+  validate({ params: discussionPostParamSchema }),
+  discussionController.deleteDiscussionPost
 );
 
 export default router;
