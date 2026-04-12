@@ -109,7 +109,18 @@ export const assignmentsService = {
   },
 
   async deleteAssignment(courseId: string, assignmentId: string) {
-    return apiClient.delete(`/assignments/${assignmentId}`);
+    try {
+      return await apiClient.delete(`/assignments/${assignmentId}`);
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return {
+          success: true,
+          alreadyDeleted: true,
+        };
+      }
+
+      throw error;
+    }
   },
 
   async submitAssignment(

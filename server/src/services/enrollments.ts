@@ -187,37 +187,75 @@ export const enrollStudent = async (
     }
   }
 
-  // Check for existing enrollment
-  const { data: existing } = await supabaseAdmin
+  // Check for existing enrollment records (including inactive duplicates)
+  const { data: existingEnrollments, error: existingEnrollmentError } = await supabaseAdmin
     .from('enrollments')
-    .select('id, status')
+    .select('id, status, enrolled_at')
     .eq('course_id', courseId)
     .eq('student_id', studentId)
-    .single();
+    .order('enrolled_at', { ascending: false });
 
-  if (existing) {
-    if (existing.status === EnrollmentStatus.ACTIVE) {
-      throw new ApiError(
-        ErrorCode.VALIDATION_ERROR,
-        'Already enrolled in this course',
-        400
-      );
-    }
-    // Re-activate dropped enrollment
-    const { data, error } = await supabaseAdmin
+  if (existingEnrollmentError) {
+    logger.error('Failed to check existing enrollment records', {
+      courseId,
+      studentId,
+      error: existingEnrollmentError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to check existing enrollment records',
+      500,
+      {
+        reason: 'ENROLLMENT_LOOKUP_FAILED',
+        db_code: existingEnrollmentError.code,
+        db_message: existingEnrollmentError.message,
+      }
+    );
+  }
+
+  const enrollmentRows = existingEnrollments || [];
+  const activeEnrollment = enrollmentRows.find(
+    (enrollment) => enrollment.status === EnrollmentStatus.ACTIVE
+  );
+
+  if (activeEnrollment) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Already enrolled in this course',
+      400,
+      {
+        reason: 'ALREADY_ENROLLED',
+        enrollment_id: activeEnrollment.id,
+      }
+    );
+  }
+
+  if (enrollmentRows.length > 0) {
+    // Re-activate any existing enrollment rows for this student in this course.
+    const { data: reactivatedRows, error: reactivationError } = await supabaseAdmin
       .from('enrollments')
       .update({
         status: EnrollmentStatus.ACTIVE,
         enrolled_at: new Date().toISOString(),
       })
-      .eq('id', existing.id)
-      .select()
-      .single();
+      .eq('course_id', courseId)
+      .eq('student_id', studentId)
+      .select();
 
-    if (error) {
-      logger.error('Failed to re-enroll student', { courseId, studentId, error: error.message });
-      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to enroll in course', 500);
+    if (reactivationError) {
+      logger.error('Failed to reactivate enrollment', {
+        courseId,
+        studentId,
+        error: reactivationError.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to reactivate existing enrollment', 500, {
+        reason: 'ENROLLMENT_REACTIVATE_FAILED',
+        db_code: reactivationError.code,
+        db_message: reactivationError.message,
+      });
     }
+
+    const reactivated = (reactivatedRows || [])[0] || enrollmentRows[0];
 
     try {
       await sendEnrollmentNotification(studentId, course.title || 'Course', courseId, enrollmentActor);
@@ -232,7 +270,7 @@ export const enrollStudent = async (
       });
     }
 
-    return data as Enrollment;
+    return reactivated as Enrollment;
   }
 
   // Create new enrollment
@@ -249,7 +287,20 @@ export const enrollStudent = async (
 
   if (error) {
     logger.error('Failed to enroll student', { courseId, studentId, error: error.message });
-    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to enroll in course', 500);
+
+    if (error.code === '23505') {
+      throw new ApiError(ErrorCode.CONFLICT, 'Enrollment record already exists for this student', 409, {
+        reason: 'ENROLLMENT_DUPLICATE_RECORD',
+        db_code: error.code,
+        db_message: error.message,
+      });
+    }
+
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to enroll in course', 500, {
+      reason: 'ENROLLMENT_INSERT_FAILED',
+      db_code: error.code,
+      db_message: error.message,
+    });
   }
 
   try {
@@ -487,15 +538,24 @@ export const isStudentEnrolled = async (
   courseId: string,
   studentId: string
 ): Promise<boolean> => {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('enrollments')
     .select('id')
     .eq('course_id', courseId)
     .eq('student_id', studentId)
     .eq('status', EnrollmentStatus.ACTIVE)
-    .single();
+    .limit(1);
 
-  return !!data;
+  if (error) {
+    logger.warn('Failed to check active enrollment state', {
+      courseId,
+      studentId,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
 };
 
 /**

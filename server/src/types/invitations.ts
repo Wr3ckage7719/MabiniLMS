@@ -58,6 +58,7 @@ export interface DirectEnrollmentResult {
   student_email: string;
   status: DirectEnrollmentStatus;
   message: string;
+  error_code?: string;
   student_id?: string | null;
   enrollment_id?: string | null;
 }

@@ -44,6 +44,28 @@ const isMissingRelationError = (
   );
 };
 
+const isMissingColumnError = (
+  error: { message?: string } | null | undefined,
+  columnName: string
+): boolean => {
+  const message = (error?.message || '').toLowerCase();
+  return (
+    message.includes('column') &&
+    message.includes(columnName.toLowerCase()) &&
+    message.includes('does not exist')
+  );
+};
+
+const isMissingProctoringColumnError = (
+  error: { message?: string } | null | undefined
+): boolean => {
+  return (
+    isMissingColumnError(error, 'is_proctored') ||
+    isMissingColumnError(error, 'exam_duration_minutes') ||
+    isMissingColumnError(error, 'proctoring_policy')
+  );
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normalizeAssignmentRecord = (assignment: any): any => {
   if (!assignment || typeof assignment !== 'object') {
@@ -435,11 +457,32 @@ export const createAssignment = async (
     };
   }
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('assignments')
     .insert(insertPayload)
     .select()
     .single();
+
+  if (error && isMissingProctoringColumnError(error)) {
+    logger.warn('Assignment proctoring columns missing. Retrying create assignment without proctoring fields.', {
+      courseId,
+      assignmentType,
+      error: error.message,
+    });
+
+    delete insertPayload.is_proctored;
+    delete insertPayload.exam_duration_minutes;
+    delete insertPayload.proctoring_policy;
+
+    const fallbackInsert = await supabaseAdmin
+      .from('assignments')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    data = fallbackInsert.data;
+    error = fallbackInsert.error;
+  }
 
   if (error) {
     logger.error('Failed to create assignment', { courseId, error: error.message });

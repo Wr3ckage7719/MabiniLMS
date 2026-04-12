@@ -176,6 +176,8 @@ export function TeacherClassStream({
   const [editAnnouncementPinned, setEditAnnouncementPinned] = useState(false);
   const [postingAnnouncement, setPostingAnnouncement] = useState(false);
   const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
+  const [deletingAssignmentIds, setDeletingAssignmentIds] = useState<string[]>([]);
+  const [deletingAnnouncementIds, setDeletingAnnouncementIds] = useState<string[]>([]);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -454,9 +456,16 @@ export function TeacherClassStream({
   };
 
   const handleDeleteAssignment = (id: string) => {
+    if (deletingAssignmentIds.includes(id)) {
+      return;
+    }
+
     void (async () => {
+      setDeletingAssignmentIds((previous) => [...previous, id]);
+
       try {
         await assignmentsService.deleteAssignment(classId, id);
+        setAssignments((previous) => previous.filter((assignment) => assignment.id !== id));
         await refetchAssignments();
         toast({
           title: 'Classwork removed',
@@ -469,14 +478,23 @@ export function TeacherClassStream({
           description: message,
           variant: 'destructive',
         });
+      } finally {
+        setDeletingAssignmentIds((previous) => previous.filter((assignmentId) => assignmentId !== id));
       }
     })();
   };
 
   const handleDeleteAnnouncement = (announcementId: string) => {
+    if (deletingAnnouncementIds.includes(announcementId)) {
+      return;
+    }
+
     void (async () => {
+      setDeletingAnnouncementIds((previous) => [...previous, announcementId]);
+
       try {
         await announcementsService.deleteAnnouncement(announcementId);
+        setAnnouncements((previous) => previous.filter((announcement) => announcement.id !== announcementId));
         await refetchAnnouncements();
         toast({
           title: 'Announcement deleted',
@@ -489,6 +507,10 @@ export function TeacherClassStream({
           description: message,
           variant: 'destructive',
         });
+      } finally {
+        setDeletingAnnouncementIds((previous) =>
+          previous.filter((id) => id !== announcementId)
+        );
       }
     })();
   };
@@ -1094,9 +1116,10 @@ export function TeacherClassStream({
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
                                     className="text-destructive"
+                                    disabled={deletingAnnouncementIds.includes(announcement.id)}
                                     onClick={() => handleDeleteAnnouncement(announcement.id)}
                                   >
-                                    Delete
+                                    {deletingAnnouncementIds.includes(announcement.id) ? 'Deleting...' : 'Delete'}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1279,12 +1302,13 @@ export function TeacherClassStream({
                               <DropdownMenuSeparator />
                               <DropdownMenuItem 
                                 className="text-destructive"
+                                disabled={deletingAssignmentIds.includes(item.id)}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeleteAssignment(item.id);
                                 }}
                               >
-                                Delete
+                                {deletingAssignmentIds.includes(item.id) ? 'Deleting...' : 'Delete'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

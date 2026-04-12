@@ -131,6 +131,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.INVALID_DOMAIN,
       message: `Student email must use @${ALLOWED_DOMAIN}.`,
+      error_code: 'INVALID_DOMAIN',
     };
   }
 
@@ -151,6 +152,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.FAILED,
       message: 'Failed to lookup student account.',
+      error_code: 'STUDENT_LOOKUP_FAILED',
     };
   }
 
@@ -159,6 +161,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.STUDENT_NOT_FOUND,
       message: 'No student account found for this email.',
+      error_code: 'STUDENT_NOT_FOUND',
     };
   }
 
@@ -167,6 +170,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.NOT_STUDENT,
       message: 'This account is not a student account.',
+      error_code: 'NOT_STUDENT',
       student_id: studentProfile.id,
     };
   }
@@ -179,6 +183,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.ALREADY_ENROLLED,
       message: 'Student is already enrolled.',
+      error_code: 'ALREADY_ENROLLED',
       student_id: studentProfile.id,
     };
   }
@@ -198,6 +203,46 @@ const processDirectEnrollment = async (
       enrollment_id: enrollment.id,
     };
   } catch (error) {
+    if (error instanceof ApiError) {
+      const apiReason =
+        typeof error.details?.reason === 'string'
+          ? error.details.reason
+          : error.code;
+
+      if (
+        (error.code === ErrorCode.CONFLICT &&
+          String(error.message || '').toLowerCase().includes('enrollment')) ||
+        (error.code === ErrorCode.VALIDATION_ERROR &&
+          String(error.message || '').toLowerCase().includes('already enrolled'))
+      ) {
+        await syncPendingInvitationStatus(course.id, normalizedEmail, studentProfile.id);
+        return {
+          student_email: normalizedEmail,
+          status: DirectEnrollmentStatus.ALREADY_ENROLLED,
+          message: 'Student is already enrolled.',
+          error_code: 'ALREADY_ENROLLED',
+          student_id: studentProfile.id,
+        };
+      }
+
+      logger.error('Direct enrollment failed with ApiError', {
+        courseId: course.id,
+        studentId: studentProfile.id,
+        studentEmail: normalizedEmail,
+        apiErrorCode: error.code,
+        apiReason,
+        error: error.message,
+      });
+
+      return {
+        student_email: normalizedEmail,
+        status: DirectEnrollmentStatus.FAILED,
+        message: error.message || 'Failed to enroll student.',
+        error_code: apiReason,
+        student_id: studentProfile.id,
+      };
+    }
+
     logger.error('Direct enrollment failed', {
       courseId: course.id,
       studentId: studentProfile.id,
@@ -209,6 +254,7 @@ const processDirectEnrollment = async (
       student_email: normalizedEmail,
       status: DirectEnrollmentStatus.FAILED,
       message: error instanceof Error ? error.message : 'Failed to enroll student.',
+      error_code: 'ENROLLMENT_FAILED',
       student_id: studentProfile.id,
     };
   }

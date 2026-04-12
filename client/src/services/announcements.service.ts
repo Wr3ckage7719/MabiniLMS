@@ -48,6 +48,17 @@ export const announcementsService = {
   },
 
   async deleteAnnouncement(announcementId: string) {
-    return apiClient.delete(`/announcements/${announcementId}`);
+    try {
+      return await apiClient.delete(`/announcements/${announcementId}`);
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return {
+          success: true,
+          alreadyDeleted: true,
+        };
+      }
+
+      throw error;
+    }
   },
 };

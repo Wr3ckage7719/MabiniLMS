@@ -93,6 +93,35 @@ export function InviteStudentDialog({
     }
   };
 
+  const getFailureReasonLabel = (result: DirectEnrollmentResult): string => {
+    const reasonCode = (result.error_code || '').toUpperCase();
+
+    switch (reasonCode) {
+      case 'INVALID_DOMAIN':
+        return 'Institutional domain required';
+      case 'STUDENT_NOT_FOUND':
+        return 'Student account not found';
+      case 'NOT_STUDENT':
+        return 'Account is not student role';
+      case 'ALREADY_ENROLLED':
+        return 'Student already enrolled';
+      case 'ENROLLMENT_LOOKUP_FAILED':
+        return 'Enrollment lookup failed';
+      case 'ENROLLMENT_REACTIVATE_FAILED':
+        return 'Reactivation of old enrollment failed';
+      case 'ENROLLMENT_DUPLICATE_RECORD':
+        return 'Duplicate enrollment record detected';
+      case 'ENROLLMENT_INSERT_FAILED':
+        return 'Enrollment insert failed';
+      case 'STUDENT_LOOKUP_FAILED':
+        return 'Student profile lookup failed';
+      case 'ENROLLMENT_FAILED':
+        return 'Unknown enrollment failure';
+      default:
+        return reasonCode ? reasonCode.replace(/_/g, ' ') : 'Unhandled failure';
+    }
+  };
+
   const handleDirectEnroll = async () => {
     const parsedEmails = parseEmails(emailsInput);
 
@@ -203,6 +232,11 @@ export function InviteStudentDialog({
                   <div className="min-w-0">
                     <p className="font-medium truncate">{result.student_email}</p>
                     <p className="text-xs text-muted-foreground">{result.message}</p>
+                    {result.status !== 'enrolled' && result.status !== 'already_enrolled' && (
+                      <p className="text-[11px] text-red-600 mt-1">
+                        Error Label: {getFailureReasonLabel(result)}
+                      </p>
+                    )}
                   </div>
                   <span
                     className={`rounded-full border px-2 py-1 text-xs whitespace-nowrap ${getResultBadgeClasses(result.status)}`}
