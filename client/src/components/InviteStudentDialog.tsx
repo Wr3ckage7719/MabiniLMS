@@ -32,7 +32,8 @@ export function InviteStudentDialog({
   const [results, setResults] = useState<DirectEnrollmentResult[]>([]);
   const { directEnrollStudentsByEmail } = useClasses();
 
-  const className = classId ? `Class ${classId.toUpperCase()}` : 'Class';
+  const classCode = classId ? classId.slice(0, 8).toUpperCase() : 'CLASS';
+  const className = `Class ${classCode}`;
 
   const parseEmails = (rawInput: string): string[] => {
     return rawInput
@@ -145,7 +146,7 @@ export function InviteStudentDialog({
             Enroll Students to {className}
           </DialogTitle>
           <DialogDescription>
-            Enter one or more institutional student emails. Separate with commas or new lines.
+            Add student institutional emails separated by commas or new lines.
           </DialogDescription>
         </DialogHeader>
 
@@ -171,7 +172,7 @@ export function InviteStudentDialog({
               className="rounded-lg min-h-[110px]"
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Direct enrollment only supports student accounts with @mabinicolleges.edu.ph.
+              Allowed email domain: @mabinicolleges.edu.ph only.
             </p>
           </div>
 
