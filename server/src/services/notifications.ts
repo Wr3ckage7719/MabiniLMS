@@ -499,8 +499,14 @@ export const sendAnnouncementNotification = async (
   courseId: string,
   announcementTitle: string
 ): Promise<void> => {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
+
+  if (uniqueUserIds.length === 0) {
+    return
+  }
+
   await createBulkNotifications({
-    user_ids: userIds,
+    user_ids: uniqueUserIds,
     type: NotificationType.COURSE_ANNOUNCEMENT,
     title: 'New Announcement',
     message: `New announcement in ${courseTitle}: "${announcementTitle}"`,
@@ -508,6 +514,36 @@ export const sendAnnouncementNotification = async (
     action_url: `/courses/${courseId}/announcements`,
     metadata: {
       course_id: courseId,
+    },
+  })
+}
+
+/**
+ * Send course discussion post notification
+ */
+export const sendDiscussionPostNotification = async (
+  userIds: string[],
+  courseTitle: string,
+  courseId: string,
+  authorName: string
+): Promise<void> => {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
+
+  if (uniqueUserIds.length === 0) {
+    return
+  }
+
+  await createBulkNotifications({
+    user_ids: uniqueUserIds,
+    type: NotificationType.COURSE_ANNOUNCEMENT,
+    title: 'New Discussion Post',
+    message: `${authorName} posted in ${courseTitle} discussion`,
+    priority: NotificationPriority.NORMAL,
+    action_url: `/class/${courseId}`,
+    metadata: {
+      course_id: courseId,
+      author_name: authorName,
+      source: 'discussion',
     },
   })
 }

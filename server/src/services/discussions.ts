@@ -5,6 +5,7 @@ import {
   DiscussionPostWithAuthor,
   ListDiscussionPostsQuery,
 } from '../types/discussions.js';
+import { sendDiscussionPostNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
 const DISCUSSION_POST_SELECT_BASE = `
@@ -287,6 +288,70 @@ export const createDiscussionPost = async (
       error: error.message,
     });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create discussion post', 500);
+  }
+
+  try {
+    const { data: course, error: courseError } = await supabaseAdmin
+      .from('courses')
+      .select('id, title, teacher_id')
+      .eq('id', courseId)
+      .maybeSingle();
+
+    if (courseError || !course) {
+      logger.warn('Failed to resolve discussion notification course details', {
+        courseId,
+        userId,
+        error: courseError?.message || 'Course not found',
+      });
+    } else {
+      const { data: enrollments, error: enrollmentError } = await supabaseAdmin
+        .from('enrollments')
+        .select('student_id')
+        .eq('course_id', courseId)
+        .eq('status', 'active');
+
+      if (enrollmentError) {
+        logger.warn('Failed to resolve discussion notification recipients', {
+          courseId,
+          userId,
+          error: enrollmentError.message,
+        });
+      } else {
+        const recipientIds = new Set<string>();
+
+        (enrollments || []).forEach((enrollment) => {
+          if (enrollment.student_id && enrollment.student_id !== userId) {
+            recipientIds.add(enrollment.student_id);
+          }
+        });
+
+        if (course.teacher_id && course.teacher_id !== userId) {
+          recipientIds.add(course.teacher_id);
+        }
+
+        const author = normalizeAuthor((data as DiscussionPostJoinedRow).author);
+        const authorDisplayName =
+          [author?.first_name, author?.last_name].filter(Boolean).join(' ').trim() ||
+          author?.email ||
+          'A classmate';
+
+        await sendDiscussionPostNotification(
+          Array.from(recipientIds),
+          course.title || 'Course',
+          courseId,
+          authorDisplayName
+        );
+      }
+    }
+  } catch (notificationError) {
+    logger.warn('Failed to dispatch discussion post notifications', {
+      courseId,
+      userId,
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+    });
   }
 
   return toDiscussionPostWithAuthor(data as DiscussionPostJoinedRow, 0, false);

@@ -15,7 +15,6 @@ import {
 import * as enrollmentService from './enrollments.js';
 import * as auditService from './audit.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
-import { sendEnrollmentNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
@@ -190,16 +189,6 @@ const processDirectEnrollment = async (
     });
 
     await syncPendingInvitationStatus(course.id, normalizedEmail, studentProfile.id);
-
-    try {
-      await sendEnrollmentNotification(studentProfile.id, course.title, course.id);
-    } catch (notificationError) {
-      logger.warn('Failed to send direct enrollment notification', {
-        courseId: course.id,
-        studentId: studentProfile.id,
-        error: notificationError instanceof Error ? notificationError.message : String(notificationError),
-      });
-    }
 
     return {
       student_email: normalizedEmail,

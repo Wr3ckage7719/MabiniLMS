@@ -13,6 +13,7 @@ import {
   ListAnnouncementsQuery,
 } from '../types/announcements.js';
 import { notifyAnnouncementCreated } from './websocket.js';
+import { sendAnnouncementNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
 const ANNOUNCEMENT_SELECT_BASE =
@@ -139,6 +140,50 @@ export const createAnnouncement = async (
     title: data.title,
     courseName: course.title || 'Course',
   });
+
+  try {
+    const { data: enrollments, error: enrollmentError } = await supabaseAdmin
+      .from('enrollments')
+      .select('student_id')
+      .eq('course_id', courseId)
+      .eq('status', 'active');
+
+    if (enrollmentError) {
+      logger.warn('Failed to load course recipients for announcement notifications', {
+        courseId,
+        announcementId: data.id,
+        error: enrollmentError.message,
+      });
+    } else {
+      const recipientIds = new Set<string>();
+
+      (enrollments || []).forEach((enrollment) => {
+        if (enrollment.student_id && enrollment.student_id !== authorId) {
+          recipientIds.add(enrollment.student_id);
+        }
+      });
+
+      if (course.teacher_id && course.teacher_id !== authorId) {
+        recipientIds.add(course.teacher_id);
+      }
+
+      await sendAnnouncementNotification(
+        Array.from(recipientIds),
+        course.title || 'Course',
+        courseId,
+        data.title
+      );
+    }
+  } catch (notificationError) {
+    logger.warn('Failed to dispatch announcement notifications', {
+      courseId,
+      announcementId: data.id,
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+    });
+  }
 
   logger.info('Announcement created', { announcementId: data.id, courseId, authorId });
   const [announcement] = await enrichAnnouncementsWithAuthors([data as AnnouncementRow]);

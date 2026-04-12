@@ -9,6 +9,7 @@ import {
   UpdateEnrollmentStatusInput,
 } from '../types/enrollments.js';
 import { CourseStatus } from '../types/courses.js';
+import { sendEnrollmentNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -111,7 +112,7 @@ export const enrollStudent = async (
   // Check if course exists and is published
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
-    .select('id, status')
+    .select('id, status, title')
     .eq('id', courseId)
     .single();
 
@@ -183,6 +184,19 @@ export const enrollStudent = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to enroll in course', 500);
     }
 
+    try {
+      await sendEnrollmentNotification(studentId, course.title || 'Course', courseId);
+    } catch (notificationError) {
+      logger.warn('Enrollment notification failed after re-enrollment', {
+        courseId,
+        studentId,
+        error:
+          notificationError instanceof Error
+            ? notificationError.message
+            : String(notificationError),
+      });
+    }
+
     return data as Enrollment;
   }
 
@@ -201,6 +215,19 @@ export const enrollStudent = async (
   if (error) {
     logger.error('Failed to enroll student', { courseId, studentId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to enroll in course', 500);
+  }
+
+  try {
+    await sendEnrollmentNotification(studentId, course.title || 'Course', courseId);
+  } catch (notificationError) {
+    logger.warn('Enrollment notification failed after new enrollment', {
+      courseId,
+      studentId,
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+    });
   }
 
   return data as Enrollment;
