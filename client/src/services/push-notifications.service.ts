@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import { supabase } from '@/lib/supabase';
 
 const SERVICE_WORKER_PATH = '/sw.js';
 
@@ -43,6 +44,53 @@ const getPlatformHint = (): string => {
   return navigator.platform || 'unknown';
 };
 
+type ApiErrorShape = {
+  error?: {
+    message?: string;
+    code?: string;
+  };
+};
+
+const extractApiErrorMessage = (error: unknown): string => {
+  const responseData = (error as { response?: { data?: ApiErrorShape } })?.response?.data;
+  return responseData?.error?.message || (error instanceof Error ? error.message : '');
+};
+
+const fetchPublicVapidKeyFromSameOrigin = async (): Promise<string | null> => {
+  if (!isBrowser()) {
+    return null;
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  const response = await fetch('/api/notifications/push/public-key', {
+    method: 'GET',
+    credentials: 'include',
+    headers,
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: { public_key?: string }; error?: { message?: string } }
+    | null;
+
+  if (!response.ok) {
+    const message = payload?.error?.message || `Failed to load Web Push public key (${response.status})`;
+    throw new Error(message);
+  }
+
+  return payload?.data?.public_key || null;
+};
+
 const toSerializableSubscription = (subscription: PushSubscription) => {
   const json = subscription.toJSON();
 
@@ -74,16 +122,49 @@ const postSubscriptionToServer = async (subscription: PushSubscription): Promise
 };
 
 const getPublicVapidKey = async (): Promise<string> => {
-  const response = await apiClient.get<{ data?: { public_key?: string } }>(
-    '/notifications/push/public-key'
-  );
+  try {
+    const response = await apiClient.get<{ data?: { public_key?: string } }>(
+      '/notifications/push/public-key'
+    );
 
-  const publicKey = response?.data?.public_key;
-  if (!publicKey) {
-    throw new Error('Web Push public key is not available from server');
+    const publicKey = response?.data?.public_key;
+    if (publicKey) {
+      return publicKey;
+    }
+  } catch (error) {
+    const message = extractApiErrorMessage(error).toLowerCase();
+    const routeMissing = message.includes('route get /api/notifications/push/public-key not found');
+
+    // Fallback to same-origin API in case VITE_API_URL points to an out-of-date backend.
+    if (routeMissing) {
+      try {
+        const fallbackKey = await fetchPublicVapidKeyFromSameOrigin();
+        if (fallbackKey) {
+          return fallbackKey;
+        }
+      } catch (fallbackError) {
+        const fallbackMessage = extractApiErrorMessage(fallbackError);
+        throw new Error(
+          fallbackMessage ||
+            'Push notifications backend route is missing. Deploy the latest server and verify your API URL points to that deployment.'
+        );
+      }
+
+      throw new Error(
+        'Push notifications backend route is missing. Deploy the latest server and verify your API URL points to that deployment.'
+      );
+    }
+
+    if (message.includes('web push is not configured')) {
+      throw new Error(
+        'Web Push is not configured on the server. Set WEB_PUSH_VAPID_PUBLIC_KEY, WEB_PUSH_VAPID_PRIVATE_KEY, and WEB_PUSH_SUBJECT.'
+      );
+    }
+
+    throw error instanceof Error ? error : new Error('Failed to load Web Push public key');
   }
 
-  return publicKey;
+  throw new Error('Web Push public key is not available from server');
 };
 
 const requestPermission = async (): Promise<NotificationPermission> => {
