@@ -173,6 +173,44 @@ const STUDENT_SIGNUP_CREDENTIALS_MESSAGE =
 const STUDENT_SIGNUP_RESET_LINK_MESSAGE =
   'Credentials email could not be delivered, so we sent a secure password setup link instead.';
 
+const shouldUseStudentSignupResetLinkFallback = (error: unknown): boolean => {
+  const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
+  const message = rawMessage.toLowerCase();
+
+  // Non-transient setup/auth/recipient errors should fail explicitly instead of switching flow.
+  if (
+    message.includes('email provider is set to mock') ||
+    message.includes('email credentials are missing') ||
+    message.includes('smtp host is missing') ||
+    message.includes('invalid login') ||
+    message.includes('badcredentials') ||
+    message.includes('username and password not accepted') ||
+    message.includes('authentication failed') ||
+    message.includes('authentication unsuccessful') ||
+    message.includes('535') ||
+    message.includes('user unknown') ||
+    message.includes('mailbox unavailable') ||
+    message.includes('recipient address rejected') ||
+    message.includes('550 5.1.1')
+  ) {
+    return false;
+  }
+
+  if (
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('econnreset') ||
+    message.includes('econnrefused') ||
+    message.includes('enotfound') ||
+    message.includes('socket hang up') ||
+    message.includes('failed to send email after')
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 const sendStudentSignupResetLinkFallback = async (email: string): Promise<boolean> => {
   const resetUrl = `${emailService.getClientUrl()}/auth/reset-password`;
 
@@ -513,6 +551,14 @@ export const requestStudentCredentialSignup = async (
       safeMessage,
       error: emailError instanceof Error ? emailError.message : 'Unknown error',
     });
+
+    if (!shouldUseStudentSignupResetLinkFallback(emailError)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        safeMessage,
+        500
+      );
+    }
 
     const fallbackSent = await sendStudentSignupResetLinkFallback(normalizedEmail);
     if (!fallbackSent) {

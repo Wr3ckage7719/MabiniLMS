@@ -180,19 +180,13 @@ export const listCourses = async (
     // Students only see published courses
     queryBuilder = queryBuilder.eq('status', CourseStatus.PUBLISHED);
   } else if (userRole === UserRole.TEACHER && userId) {
-    // Teachers see their own courses OR published courses
-    if (teacher_id === userId) {
-      // If explicitly filtering by their own, show all statuses
-      queryBuilder = queryBuilder.eq('teacher_id', userId);
-    } else if (!teacher_id) {
-      // Show their own courses + all published
-      queryBuilder = queryBuilder.or(`teacher_id.eq.${userId},status.eq.published`);
-    }
+    // Teachers can only access courses they own.
+    queryBuilder = queryBuilder.eq('teacher_id', userId);
   }
   // Admins see all courses
 
-  // Apply status filter (if admin or viewing own courses)
-  if (status && (userRole === UserRole.ADMIN || teacher_id === userId)) {
+  // Apply status filter
+  if (status) {
     queryBuilder = queryBuilder.eq('status', status);
   }
 
