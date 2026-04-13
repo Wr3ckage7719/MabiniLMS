@@ -49,6 +49,7 @@ let cachedSettings: Record<string, unknown> = {};
 let settingsLoadedAt = 0;
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
 const DEV_CLIENT_URL = 'http://localhost:8080';
+const PROD_FALLBACK_CLIENT_URL = 'https://mabinilms.vercel.app';
 
 export const invalidateEmailSettingsCache = (): void => {
   cachedSettings = {};
@@ -69,6 +70,26 @@ const normalizeClientUrl = (value: string): string | null => {
   }
 };
 
+const getFirstOriginFromCsv = (value: string | undefined): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const candidates = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const normalized = normalizeClientUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
 export const getClientUrl = (): string => {
   const configured = process.env.CLIENT_URL || process.env.FRONTEND_URL;
   const normalizedConfigured = configured ? normalizeClientUrl(configured) : null;
@@ -77,10 +98,16 @@ export const getClientUrl = (): string => {
     return normalizedConfigured;
   }
 
+  const normalizedCorsOrigin = getFirstOriginFromCsv(process.env.CORS_ORIGIN);
+  if (normalizedCorsOrigin) {
+    return normalizedCorsOrigin;
+  }
+
   if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'CLIENT_URL is not configured. Set CLIENT_URL to your public frontend URL before sending production emails.'
-    );
+    logger.warn('CLIENT_URL/FRONTEND_URL missing in production. Falling back to default client URL.', {
+      fallback: PROD_FALLBACK_CLIENT_URL,
+    });
+    return PROD_FALLBACK_CLIENT_URL;
   }
 
   return DEV_CLIENT_URL;
@@ -368,20 +395,26 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
   // Production email sending with retry
   const transport = getTransporter();
   const maxRetries = process.env.NODE_ENV === 'production' ? 2 : 3;
+  const primaryFrom = (config.from || '').trim() || (config.smtp?.auth.user || '').trim() || 'noreply@mabinilms.edu.ph';
+  const smtpAuthFrom = (config.smtp?.auth.user || '').trim();
+  const fallbackFrom =
+    smtpAuthFrom && smtpAuthFrom.toLowerCase() !== primaryFrom.toLowerCase()
+      ? smtpAuthFrom
+      : null;
   let lastError: Error | null = null;
+
+  const buildMailOptions = (fromAddress: string) => ({
+    from: `"${config.fromName}" <${fromAddress}>`,
+    to,
+    subject,
+    html: normalizedHtml,
+    text: normalizedText,
+    attachments,
+  });
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const mailOptions = {
-        from: `"${config.fromName}" <${config.from}>`,
-        to,
-        subject,
-        html: normalizedHtml,
-        text: normalizedText,
-        attachments,
-      };
-      
-      const info = await transport.sendMail(mailOptions);
+      const info = await transport.sendMail(buildMailOptions(primaryFrom));
       
       logger.info('Email sent successfully', { 
         to, 
@@ -393,6 +426,24 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
       return;
     } catch (error) {
       lastError = error as Error;
+
+      if (fallbackFrom && isSenderAddressError(lastError)) {
+        try {
+          const fallbackInfo = await transport.sendMail(buildMailOptions(fallbackFrom));
+          logger.warn('Email sent using SMTP auth sender fallback', {
+            to,
+            subject,
+            configuredFrom: primaryFrom,
+            fallbackFrom,
+            messageId: fallbackInfo.messageId,
+            attempt,
+          });
+          return;
+        } catch (fallbackError) {
+          lastError = fallbackError as Error;
+        }
+      }
+
       logger.warn(`Email send attempt ${attempt} failed`, { 
         to, 
         subject, 
@@ -471,6 +522,20 @@ const escapeHtml = (value: string): string =>
     .replace(/'/g, '&#39;');
 
 const escapeMultiline = (value: string): string => escapeHtml(value).replace(/\n/g, '<br>');
+
+const isSenderAddressError = (error: Error): boolean => {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('sender') ||
+    message.includes('from address') ||
+    message.includes('mail from') ||
+    message.includes('not owned by user') ||
+    message.includes('unauthenticated') ||
+    message.includes('553') ||
+    message.includes('550') ||
+    message.includes('5.7.1')
+  );
+};
 
 const supportEmail = (): string => process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@mabinilms.edu.ph';
 

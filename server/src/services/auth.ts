@@ -124,6 +124,29 @@ const issueTemporaryPassword = async (userId: string, temporaryPassword: string)
   }
 };
 
+const getStudentSignupEmailErrorMessage = (error: unknown): string => {
+  const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
+  const message = rawMessage.toLowerCase();
+
+  if (
+    message.includes('email provider is set to mock') ||
+    message.includes('email credentials are missing') ||
+    message.includes('smtp host is missing')
+  ) {
+    return 'Email service is not configured. Please contact the administrator.';
+  }
+
+  if (message.includes('failed to send email after')) {
+    return 'Could not deliver credentials email right now. Please try again in a few minutes.';
+  }
+
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return 'Credentials email timed out while sending. Please try again.';
+  }
+
+  return 'Could not send credentials email. Please try again.';
+};
+
 /**
  * Sign up a new user with email and password
  */
@@ -438,14 +461,16 @@ export const requestStudentCredentialSignup = async (
       temporaryPassword
     );
   } catch (emailError) {
+    const safeMessage = getStudentSignupEmailErrorMessage(emailError);
     logger.error('Failed to send student credentials email', {
       userId,
       email: normalizedEmail,
+      safeMessage,
       error: emailError instanceof Error ? emailError.message : 'Unknown error',
     });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
-      'Could not send credentials email. Please try again.',
+      safeMessage,
       500
     );
   }
