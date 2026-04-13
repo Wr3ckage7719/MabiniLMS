@@ -136,6 +136,26 @@ const getStudentSignupEmailErrorMessage = (error: unknown): string => {
     return 'Email service is not configured. Please contact the administrator.';
   }
 
+  if (
+    message.includes('invalid login') ||
+    message.includes('badcredentials') ||
+    message.includes('username and password not accepted') ||
+    message.includes('authentication failed') ||
+    message.includes('authentication unsuccessful') ||
+    message.includes('535')
+  ) {
+    return 'Email service authentication failed. Please contact the administrator.';
+  }
+
+  if (
+    message.includes('user unknown') ||
+    message.includes('mailbox unavailable') ||
+    message.includes('recipient address rejected') ||
+    message.includes('550 5.1.1')
+  ) {
+    return 'The institutional inbox could not receive email. Please verify the email address and try again.';
+  }
+
   if (message.includes('failed to send email after')) {
     return 'Could not deliver credentials email right now. Please try again in a few minutes.';
   }

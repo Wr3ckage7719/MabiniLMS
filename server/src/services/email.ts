@@ -449,6 +449,16 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
         subject, 
         error: lastError.message 
       });
+
+      if (isNonRetryableEmailError(lastError)) {
+        logger.warn('Email send failed with non-retryable error; skipping remaining retries', {
+          to,
+          subject,
+          attempt,
+          error: lastError.message,
+        });
+        break;
+      }
       
       if (attempt < maxRetries) {
         // Exponential backoff: 1s, 2s, 4s
@@ -535,6 +545,37 @@ const isSenderAddressError = (error: Error): boolean => {
     message.includes('550') ||
     message.includes('5.7.1')
   );
+};
+
+const isAuthenticationError = (error: Error): boolean => {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('invalid login') ||
+    message.includes('badcredentials') ||
+    message.includes('username and password not accepted') ||
+    message.includes('authentication failed') ||
+    message.includes('authentication unsuccessful') ||
+    message.includes('auth failed') ||
+    message.includes('eauth') ||
+    message.includes('535 5.7.8') ||
+    message.includes('535')
+  );
+};
+
+const isPermanentRecipientError = (error: Error): boolean => {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('user unknown') ||
+    message.includes('mailbox unavailable') ||
+    message.includes('recipient address rejected') ||
+    message.includes('no such user') ||
+    message.includes('550 5.1.1') ||
+    message.includes('550 5.1.0')
+  );
+};
+
+const isNonRetryableEmailError = (error: Error): boolean => {
+  return isAuthenticationError(error) || isPermanentRecipientError(error);
 };
 
 const supportEmail = (): string => process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@mabinilms.edu.ph';
