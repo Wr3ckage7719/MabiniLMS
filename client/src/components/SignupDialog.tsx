@@ -48,11 +48,11 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
     setIsLoading(true);
 
     try {
-      await requestStudentSignup(normalizedEmail);
+      const signupMessage = await requestStudentSignup(normalizedEmail);
 
       toast({
-        title: 'Credentials Sent',
-        description: 'Check your institutional inbox for your temporary login credentials.',
+        title: 'Signup Request Processed',
+        description: signupMessage,
       });
 
       resetForm();

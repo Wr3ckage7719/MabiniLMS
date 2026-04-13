@@ -147,6 +147,30 @@ const getStudentSignupEmailErrorMessage = (error: unknown): string => {
   return 'Could not send credentials email. Please try again.';
 };
 
+const STUDENT_SIGNUP_CREDENTIALS_MESSAGE =
+  'Temporary login credentials have been sent to your institutional inbox.';
+
+const STUDENT_SIGNUP_RESET_LINK_MESSAGE =
+  'Credentials email could not be delivered, so we sent a secure password setup link instead.';
+
+const sendStudentSignupResetLinkFallback = async (email: string): Promise<boolean> => {
+  const resetUrl = `${emailService.getClientUrl()}/auth/reset-password`;
+
+  const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+    redirectTo: resetUrl,
+  });
+
+  if (error) {
+    logger.error('Student signup fallback password reset email failed', {
+      email,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return true;
+};
+
 /**
  * Sign up a new user with email and password
  */
@@ -333,7 +357,7 @@ export const requestStudentCredentialSignup = async (
   input: StudentCredentialSignupInput,
   ipAddress?: string,
   userAgent?: string
-): Promise<void> => {
+): Promise<{ message: string; delivery: 'credentials_email' | 'password_reset_link' }> => {
   const normalizedEmail = normalizeEmail(input.email);
 
   assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
@@ -452,6 +476,7 @@ export const requestStudentCredentialSignup = async (
 
   await issueTemporaryPassword(userId, temporaryPassword);
 
+  let delivery: 'credentials_email' | 'password_reset_link' = 'credentials_email';
   const studentName = `${firstName} ${lastName}`.trim();
   try {
     await emailService.sendStudentCredentialsEmail(
@@ -468,11 +493,17 @@ export const requestStudentCredentialSignup = async (
       safeMessage,
       error: emailError instanceof Error ? emailError.message : 'Unknown error',
     });
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      safeMessage,
-      500
-    );
+
+    const fallbackSent = await sendStudentSignupResetLinkFallback(normalizedEmail);
+    if (!fallbackSent) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        safeMessage,
+        500
+      );
+    }
+
+    delivery = 'password_reset_link';
   }
 
   await auditService.logAuthEvent(
@@ -483,9 +514,18 @@ export const requestStudentCredentialSignup = async (
     {
       source: 'student_self_signup',
       email: normalizedEmail,
-      credentials_issued: true,
+      credentials_issued: delivery === 'credentials_email',
+      fallback_reset_link: delivery === 'password_reset_link',
     }
   );
+
+  return {
+    message:
+      delivery === 'credentials_email'
+        ? STUDENT_SIGNUP_CREDENTIALS_MESSAGE
+        : STUDENT_SIGNUP_RESET_LINK_MESSAGE,
+    delivery,
+  };
 };
 
 /**

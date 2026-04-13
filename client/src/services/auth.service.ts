@@ -42,6 +42,7 @@ export interface StudentSignupResponse {
   success: boolean;
   data?: {
     message: string;
+    delivery?: 'credentials_email' | 'password_reset_link';
   };
   error?: string;
 }

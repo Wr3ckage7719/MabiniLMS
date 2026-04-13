@@ -62,7 +62,7 @@ interface AuthContextType {
     portal?: 'app' | 'admin'
   ) => Promise<LoginResult>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
-  requestStudentSignup: (email: string) => Promise<void>;
+  requestStudentSignup: (email: string) => Promise<string>;
   loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
   logout: () => void;
   updateAvatar: (avatarUrl: string) => void;
@@ -331,7 +331,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const requestStudentSignup = async (email: string) => {
+  const requestStudentSignup = async (email: string): Promise<string> => {
     if (!email) {
       throw new Error('Institutional email is required');
     }
@@ -346,6 +346,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!response?.success) {
         throw new Error(response?.error || 'Failed to request student credentials');
       }
+
+      return response?.data?.message || 'Student signup request processed successfully.';
     } catch (err) {
       const message = getApiErrorMessage(err, 'Failed to request student credentials');
 

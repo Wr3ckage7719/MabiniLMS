@@ -109,12 +109,13 @@ export const studentSignup = async (
     const ipAddress = req.ip || req.socket.remoteAddress;
     const userAgent = req.get('User-Agent');
 
-    await authService.requestStudentCredentialSignup(input, ipAddress, userAgent);
+    const result = await authService.requestStudentCredentialSignup(input, ipAddress, userAgent);
 
     const response: ApiResponse = {
       success: true,
       data: {
-        message: 'If your institutional email is eligible, temporary login credentials have been sent.',
+        message: result.message,
+        delivery: result.delivery,
       },
     };
 
