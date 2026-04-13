@@ -81,7 +81,7 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: npx tsc --noEmit -p server/tsconfig.json
+        run: npm exec --workspace=server tsc -- --noEmit -p tsconfig.json
 
   test-report:
     runs-on: ubuntu-latest
