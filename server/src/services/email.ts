@@ -183,6 +183,19 @@ const parseNumber = (value: unknown, defaultValue: number): number => {
   return defaultValue;
 };
 
+const pickFirstNonEmptyString = (...values: Array<unknown>): string => {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  return '';
+};
+
 const getSetting = <T>(key: string): T | undefined => {
   return cachedSettings[key] as T | undefined;
 };
@@ -221,10 +234,10 @@ const refreshEmailSettings = async (): Promise<void> => {
 
 // Email configuration from environment
 const getEmailConfig = (): EmailConfig => {
-  const rawProvider = String(
-    getSetting<string>('email_provider') ||
-    process.env.EMAIL_PROVIDER ||
-    process.env.EMAIL_SERVICE ||
+  const rawProvider = pickFirstNonEmptyString(
+    getSetting<string>('email_provider'),
+    process.env.EMAIL_PROVIDER,
+    process.env.EMAIL_SERVICE,
     'mock'
   ).toLowerCase();
   let provider: 'smtp' | 'gmail' | 'mock' =
@@ -232,23 +245,24 @@ const getEmailConfig = (): EmailConfig => {
       ? rawProvider
       : 'mock';
 
-  const smtpHost =
-    getSetting<string>('smtp_host') ||
-    process.env.SMTP_HOST ||
-    'smtp.gmail.com';
+  const smtpHost = pickFirstNonEmptyString(
+    getSetting<string>('smtp_host'),
+    process.env.SMTP_HOST,
+    'smtp.gmail.com'
+  );
   const smtpPort = parseNumber(getSetting<number | string>('smtp_port') || process.env.SMTP_PORT, 587);
   const smtpSecure = parseBoolean(getSetting<boolean | string>('smtp_secure') || process.env.SMTP_SECURE, false);
-  const smtpUser =
-    getSetting<string>('smtp_user') ||
-    process.env.SMTP_USER ||
-    process.env.EMAIL_USER ||
-    '';
-  const smtpPass =
-    getSetting<string>('smtp_pass') ||
-    process.env.SMTP_PASS ||
-    process.env.EMAIL_PASSWORD ||
-    '';
-  const configuredFrom = getSetting<string>('email_from') || process.env.EMAIL_FROM || '';
+  const smtpUser = pickFirstNonEmptyString(
+    getSetting<string>('smtp_user'),
+    process.env.SMTP_USER,
+    process.env.EMAIL_USER
+  );
+  const smtpPass = pickFirstNonEmptyString(
+    getSetting<string>('smtp_pass'),
+    process.env.SMTP_PASS,
+    process.env.EMAIL_PASSWORD
+  );
+  const configuredFrom = pickFirstNonEmptyString(getSetting<string>('email_from'), process.env.EMAIL_FROM);
 
   if (process.env.NODE_ENV === 'production' && provider === 'mock' && smtpUser && smtpPass) {
     logger.warn(
@@ -258,7 +272,11 @@ const getEmailConfig = (): EmailConfig => {
   }
 
   const from = configuredFrom || smtpUser || 'noreply@mabinilms.edu.ph';
-  const fromName = getSetting<string>('email_from_name') || process.env.EMAIL_FROM_NAME || 'MabiniLMS';
+  const fromName = pickFirstNonEmptyString(
+    getSetting<string>('email_from_name'),
+    process.env.EMAIL_FROM_NAME,
+    'MabiniLMS'
+  );
   
   return {
     provider,

@@ -99,18 +99,22 @@ export default function SystemSettingsPage() {
   };
 
   const handleSave = () => {
+    const normalizedSmtpHost = smtpHost.trim();
+    const normalizedSmtpUser = smtpUser.trim();
+    const normalizedSmtpPass = smtpPass.trim();
+
     updateMutation.mutate({
       institutional_email_domains: emailDomains,
       require_teacher_approval: requireTeacherApproval,
       allow_student_self_signup: allowStudentSelfSignup,
       email_provider: emailProvider,
-      smtp_host: smtpHost,
+      smtp_host: normalizedSmtpHost,
       smtp_port: Number(smtpPort) || 587,
       smtp_secure: smtpSecure,
-      smtp_user: smtpUser,
+      smtp_user: normalizedSmtpUser,
       email_from: emailFrom.trim(),
       email_from_name: emailFromName.trim() || 'MabiniLMS',
-      ...(smtpPass ? { smtp_pass: smtpPass } : {}),
+      ...(normalizedSmtpPass ? { smtp_pass: normalizedSmtpPass } : {}),
     });
   };
 
