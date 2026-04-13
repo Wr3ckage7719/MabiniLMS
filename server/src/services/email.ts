@@ -305,6 +305,9 @@ const getTransporter = (): nodemailer.Transporter => {
   if (config.provider === 'gmail') {
     transporter = nodemailer.createTransport({
       service: 'gmail',
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
       auth: {
         user: config.smtp?.auth.user,
         pass: config.smtp?.auth.pass, // Use App Password for Gmail
@@ -319,6 +322,9 @@ const getTransporter = (): nodemailer.Transporter => {
     host: config.smtp?.host,
     port: config.smtp?.port,
     secure: config.smtp?.secure,
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 10_000,
     auth: {
       user: config.smtp?.auth.user,
       pass: config.smtp?.auth.pass,
@@ -361,7 +367,7 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
   
   // Production email sending with retry
   const transport = getTransporter();
-  const maxRetries = 3;
+  const maxRetries = process.env.NODE_ENV === 'production' ? 2 : 3;
   let lastError: Error | null = null;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

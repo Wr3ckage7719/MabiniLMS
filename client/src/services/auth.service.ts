@@ -1,5 +1,7 @@
 import { apiClient } from './api-client';
 
+const STUDENT_SIGNUP_REQUEST_TIMEOUT_MS = 90_000;
+
 export interface SignupData {
   email: string;
   password: string;
@@ -62,7 +64,11 @@ export const authService = {
   },
 
   async requestStudentCredentials(email: string): Promise<StudentSignupResponse> {
-    return apiClient.post('/auth/student-signup', { email });
+    return apiClient.post(
+      '/auth/student-signup',
+      { email },
+      { timeout: STUDENT_SIGNUP_REQUEST_TIMEOUT_MS }
+    );
   },
 
   async login(data: LoginData): Promise<AuthResponse> {

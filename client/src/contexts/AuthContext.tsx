@@ -347,7 +347,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(response?.error || 'Failed to request student credentials');
       }
     } catch (err) {
-      throw new Error(getApiErrorMessage(err, 'Failed to request student credentials'));
+      const message = getApiErrorMessage(err, 'Failed to request student credentials');
+
+      if (message.toLowerCase().includes('request timed out')) {
+        throw new Error(
+          'Student signup is taking longer than expected. The server may be waking up. Please wait a few seconds and try again.'
+        );
+      }
+
+      throw new Error(message);
     }
   };
 
