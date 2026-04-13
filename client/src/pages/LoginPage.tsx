@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { GraduationCap } from 'lucide-react';
 import { SignupDialog } from '@/components/SignupDialog';
 import { ForgotPasswordDialog } from '@/components/ForgotPasswordDialog';
 import { useToast } from '@/hooks/use-toast';
+import { AppLogo } from '@/components/AppLogo';
 
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
@@ -144,9 +144,7 @@ export default function LoginPage() {
         <div className="text-center max-w-sm px-8 py-10">
           {/* Logo */}
           <div className={`flex justify-center mb-8 transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
-              <GraduationCap className="h-8 w-8 text-primary-foreground" />
-            </div>
+            <AppLogo className="h-16 w-16 drop-shadow-[0_10px_18px_rgba(10,111,174,0.45)]" />
           </div>
           
           {/* Title */}
@@ -164,9 +162,7 @@ export default function LoginPage() {
       {/* Right Side - Login Form */}
       <div className="relative z-10 w-full lg:w-1/2 flex flex-col items-center justify-center p-4 lg:p-8 min-h-screen lg:min-h-auto">{/* Logo on Mobile */}
         <div className={`lg:hidden mb-8 flex items-center gap-3 transition-all duration-700 ${showAnimation ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
-          <div className="h-12 w-12 shrink-0 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
-            <GraduationCap className="h-6 w-6 text-primary-foreground" />
-          </div>
+          <AppLogo className="h-12 w-12" />
           <span className="text-xl font-bold tracking-tight text-white">Mabini Classroom</span>
         </div>
 

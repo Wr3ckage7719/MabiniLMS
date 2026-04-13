@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Search, Settings, GraduationCap, Plus, LogOut, User, Download } from 'lucide-react';
+import { Menu, Search, Settings, Plus, LogOut, User, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -8,6 +8,7 @@ import { useRole } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationsPopover } from '@/components/NotificationsPopover';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
+import { AppLogo } from '@/components/AppLogo';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,9 +49,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
               <Menu className="h-5 w-5" />
             </Button>
             <button onClick={handleHomeClick} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-              <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center shadow-glow">
-                <GraduationCap className="h-5 w-5 text-primary-foreground" />
-              </div>
+              <AppLogo className="h-9 w-9" />
               <span className="text-lg font-bold hidden sm:block">Mabini Classroom</span>
             </button>
           </div>

@@ -1,4 +1,4 @@
-import { Menu, Search, Settings, GraduationCap, LogOut, Plus } from 'lucide-react';
+import { Menu, Search, Settings, LogOut, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { NotificationsPopover } from './NotificationsPopover';
+import { AppLogo } from './AppLogo';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,9 +51,7 @@ export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: Te
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
-            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
-              <GraduationCap className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <AppLogo className="h-8 w-8" />
             <span className="text-base font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent hidden sm:block">
               Mabini Classroom
             </span>
