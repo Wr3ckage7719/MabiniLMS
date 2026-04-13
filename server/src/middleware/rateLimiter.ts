@@ -6,6 +6,7 @@ import { ApiResponse, ErrorCode } from '../types/index.js';
 import logger from '../utils/logger.js';
 
 const redisUrl = (process.env.REDIS_URL || '').trim();
+const isProduction = process.env.NODE_ENV === 'production';
 const redisClient = redisUrl
   ? new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
@@ -74,7 +75,7 @@ export const apiLimiter = createLimiter('api', {
 // Strict rate limiter for authentication endpoints - 5 requests per 15 minutes
 export const authLimiter = createLimiter('auth', {
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: isProduction ? 5 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
@@ -93,7 +94,7 @@ export const googleOAuthLimiter = createLimiter('google-oauth', {
 // Admin operations rate limiter - 50 requests per 15 minutes
 export const adminLimiter = createLimiter('admin', {
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50,
+  max: isProduction ? 50 : 500,
   standardHeaders: true,
   legacyHeaders: false,
   handler: createRateLimitHandler('Too many admin requests, please try again later'),
