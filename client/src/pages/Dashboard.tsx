@@ -47,8 +47,8 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-3 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 animate-fade-in">
-      <div>
+    <div className="p-2 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-3 md:space-y-8 animate-fade-in">
+      <div className="hidden md:block">
         <h1 className="text-xl md:text-3xl font-bold">Welcome back, {currentUserName}</h1>
         {isArchivedView ? (
           <p className="text-muted-foreground mt-1">View and restore your archived classes.</p>
@@ -57,9 +57,17 @@ export default function Dashboard() {
         )}
       </div>
 
-      {!isArchivedView && <StatsBar />}
+      {!isArchivedView && (
+        <div className="hidden md:block">
+          <StatsBar />
+        </div>
+      )}
 
-      {!isArchivedView && <StudentInvitations />}
+      {!isArchivedView && (
+        <div className="hidden md:block">
+          <StudentInvitations />
+        </div>
+      )}
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
@@ -90,12 +98,11 @@ export default function Dashboard() {
       {!isLoading && !error && (isArchivedView ? (
         <div className="space-y-5">
           {displayedArchivedClasses.length > 0 ? (
-            <div className="space-y-5">
-              <h2 className="text-lg font-semibold">Archived Classes ({displayedArchivedClasses.length})</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-stagger">
+            <>
+              <div className="md:hidden space-y-2 animate-stagger">
                 {displayedArchivedClasses.map((cls) => (
-                  <ClassCard 
-                    key={cls.id} 
+                  <ClassCard
+                    key={cls.id}
                     classItem={{ ...cls, archived: true }}
                     onArchive={handleArchiveClass}
                     onUnenroll={handleUnenrollClass}
@@ -103,7 +110,22 @@ export default function Dashboard() {
                   />
                 ))}
               </div>
-            </div>
+
+              <div className="hidden md:block space-y-5">
+                <h2 className="text-lg font-semibold">Archived Classes ({displayedArchivedClasses.length})</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-stagger">
+                  {displayedArchivedClasses.map((cls) => (
+                    <ClassCard
+                      key={cls.id}
+                      classItem={{ ...cls, archived: true }}
+                      onArchive={handleArchiveClass}
+                      onUnenroll={handleUnenrollClass}
+                      onRestore={handleRestoreClass}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 px-4">
               <div className="mb-3 p-2 bg-blue-100 rounded-full">
@@ -117,40 +139,75 @@ export default function Dashboard() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-          <div className="lg:col-span-2 space-y-4 md:space-y-5">
+        <>
+          <div className="md:hidden space-y-2">
             {activeClasses.length > 0 ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Your Classes</h2>
-                  {displayedArchivedClasses.length > 0 && (
-                    <Button variant="ghost" size="sm" className="rounded-xl text-muted-foreground" onClick={() => navigate('/archived')}>
-                      View Archived ({displayedArchivedClasses.length})
-                    </Button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 animate-stagger">
-                  {activeClasses.map((cls) => (
-                    <ClassCard 
-                      key={cls.id} 
-                      classItem={cls}
-                      onArchive={handleArchiveClass}
-                      onUnenroll={handleUnenrollClass}
-                      onRestore={handleRestoreClass}
-                    />
-                  ))}
-                </div>
-              </>
+              <div className="space-y-2 animate-stagger">
+                {activeClasses.map((cls) => (
+                  <ClassCard
+                    key={cls.id}
+                    classItem={cls}
+                    onArchive={handleArchiveClass}
+                    onUnenroll={handleUnenrollClass}
+                    onRestore={handleRestoreClass}
+                  />
+                ))}
+              </div>
             ) : (
               <div className="text-center py-12 text-muted-foreground">
-                <p className="text-lg">No active classes. Join a class to get started!</p>
+                <p className="text-sm">No active classes. Join a class to get started!</p>
+              </div>
+            )}
+
+            {displayedArchivedClasses.length > 0 && (
+              <div className="pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-xl text-muted-foreground"
+                  onClick={() => navigate('/archived')}
+                >
+                  View Archived ({displayedArchivedClasses.length})
+                </Button>
               </div>
             )}
           </div>
-          <div>
-            <UpcomingWidget />
+
+          <div className="hidden md:grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+            <div className="lg:col-span-2 space-y-4 md:space-y-5">
+              {activeClasses.length > 0 ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Your Classes</h2>
+                    {displayedArchivedClasses.length > 0 && (
+                      <Button variant="ghost" size="sm" className="rounded-xl text-muted-foreground" onClick={() => navigate('/archived')}>
+                        View Archived ({displayedArchivedClasses.length})
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 animate-stagger">
+                    {activeClasses.map((cls) => (
+                      <ClassCard
+                        key={cls.id}
+                        classItem={cls}
+                        onArchive={handleArchiveClass}
+                        onUnenroll={handleUnenrollClass}
+                        onRestore={handleRestoreClass}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-lg">No active classes. Join a class to get started!</p>
+                </div>
+              )}
+            </div>
+            <div>
+              <UpcomingWidget />
+            </div>
           </div>
-        </div>
+        </>
       ))}
     </div>
   );

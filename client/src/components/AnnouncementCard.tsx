@@ -13,25 +13,25 @@ export function AnnouncementCard({ announcement }: AnnouncementCardProps) {
   const [showCommentsNotice, setShowCommentsNotice] = useState(false);
 
   return (
-    <Card className="border-0 shadow-sm card-interactive">
-      <CardContent className="p-5">
+    <Card className="rounded-xl border border-border/70 shadow-none md:border-0 md:shadow-sm card-interactive">
+      <CardContent className="p-3 md:p-5">
         <div className="flex items-start gap-3">
-          <Avatar className="h-10 w-10">
+          <Avatar className="h-8 w-8 md:h-10 md:w-10">
             <AvatarFallback className="bg-accent text-accent-foreground text-sm">{announcement.avatar}</AvatarFallback>
           </Avatar>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">{announcement.author}</span>
+              <span className="font-semibold text-[13px] md:text-sm">{announcement.author}</span>
               <span className="text-xs text-muted-foreground">{announcement.timestamp}</span>
             </div>
             {announcement.title && (
-              <p className="mt-2 text-sm font-semibold">{announcement.title}</p>
+              <p className="mt-1.5 text-[13px] md:text-sm font-semibold">{announcement.title}</p>
             )}
-            <p className="mt-2 text-sm leading-relaxed">{announcement.content}</p>
+            <p className="mt-1.5 text-[13px] md:text-sm leading-relaxed">{announcement.content}</p>
             <Button
               variant="ghost"
               size="sm"
-              className="mt-2 -ml-2 text-muted-foreground rounded-lg"
+              className="mt-1.5 -ml-2 text-muted-foreground rounded-lg h-7 px-2"
               onClick={() => setShowCommentsNotice(!showCommentsNotice)}
             >
               <MessageSquare className="h-4 w-4 mr-1" /> {announcement.comments} comments

@@ -1,4 +1,4 @@
-import { Home, BookOpen, Calendar, BarChart3, Archive, Settings, ChevronLeft, GraduationCap } from 'lucide-react';
+import { Home, Calendar, BarChart3, Archive, ChevronLeft, GraduationCap, Clock3 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { CLASS_COLORS } from '@/lib/data';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ interface SidebarProps {
 
 const navItems = [
   { label: 'Home', icon: Home, path: '/dashboard' },
+  { label: 'Upcoming Deadline', icon: Clock3, path: '/upcoming', mobileOnly: true },
   { label: 'Calendar', icon: Calendar, path: '/calendar' },
   { label: 'Grades', icon: BarChart3, path: '/grades' },
   { label: 'Archived', icon: Archive, path: '/archived' },
@@ -23,23 +24,23 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
   return (
     <>
       {open && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/28 backdrop-blur-[1px] z-40 md:hidden" onClick={onClose} />
       )}
       <aside
         className={cn(
-          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-64 bg-card border-r flex flex-col transition-transform duration-300',
+          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-[62vw] max-w-[240px] bg-[#f8fafc] md:bg-card border-r flex flex-col transition-transform duration-300',
           open ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
           'md:w-60'
         )}
       >
-        <div className="flex items-center justify-between p-4 md:hidden">
-          <span className="font-semibold">Menu</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+        <div className="flex items-center justify-between p-3 md:hidden">
+          <span className="font-semibold text-sm">Menu</span>
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onClose}>
             <ChevronLeft className="h-5 w-5" />
           </Button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-2 md:px-3 py-4 space-y-1 overflow-y-auto">
           <div className="mb-6">
             {navItems.map((item) => (
               <NavLink
@@ -48,7 +49,8 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
                 end={item.path === '/'}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                    'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] md:text-sm font-medium transition-all',
+                    item.mobileOnly ? 'md:hidden' : '',
                     isActive
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
@@ -62,7 +64,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
             ))}
           </div>
 
-          <div className="pt-4 border-t">
+          <div className="hidden md:block pt-4 border-t">
             <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Your Classes
             </p>

@@ -9,7 +9,7 @@ import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
-import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -238,7 +238,7 @@ export default function ClassDetail() {
     <div className="animate-fade-in">
       {/* Banner */}
       <div
-        className={`relative overflow-hidden ${!cls.coverImage ? CLASS_COLORS[cls.color] : ''}`}
+        className={`relative overflow-hidden mx-2 mt-2 rounded-2xl md:mx-0 md:mt-0 md:rounded-none ${!cls.coverImage ? CLASS_COLORS[cls.color] : ''}`}
         style={
           cls.coverImage
             ? {
@@ -251,14 +251,14 @@ export default function ClassDetail() {
       >
         {cls.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
         <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/30" />
-        <div className="absolute -right-12 -bottom-12 w-48 h-48 rounded-full bg-white/10" />
-        <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-white/5" />
-        <div className="relative z-10 p-3 md:p-6 lg:p-8 pb-6 md:pb-10">
-          <div className="flex items-center justify-between mb-2 md:mb-4 gap-2">
+        <div className="absolute -right-12 -bottom-12 w-44 h-44 md:w-48 md:h-48 rounded-full bg-white/10" />
+        <div className="absolute -left-8 -top-8 w-24 h-24 md:w-32 md:h-32 rounded-full bg-white/5" />
+        <div className="relative z-10 p-2.5 md:p-6 lg:p-8 pb-4 md:pb-10">
+          <div className="flex items-center justify-between mb-1.5 md:mb-4 gap-2">
             <Button
               variant="ghost"
               size="sm"
-              className="text-white/80 hover:text-white hover:bg-white/20 -ml-2 rounded-xl h-8 md:h-9 text-sm md:text-base"
+              className="text-white/80 hover:text-white hover:bg-white/20 -ml-2 rounded-xl h-8 md:h-9 text-xs md:text-base"
               onClick={() => navigate(-1)}
             >
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
@@ -270,7 +270,7 @@ export default function ClassDetail() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-white/80 hover:text-white hover:bg-white/20 rounded-lg h-8 w-8 md:h-9 md:w-9"
+                    className="text-white/80 hover:text-white hover:bg-white/20 rounded-lg h-7 w-7 md:h-9 md:w-9"
                   >
                     <MessageSquare className="h-4 w-4 md:h-5 md:w-5" />
                   </Button>
@@ -295,12 +295,12 @@ export default function ClassDetail() {
               </DropdownMenu>
             </div>
           </div>
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-white">{cls.name}</h1>
-          <p className="text-xs md:text-sm text-white/80 mt-0.5 md:mt-1">
+          <h1 className="text-[34px] leading-none md:text-2xl lg:text-3xl font-bold text-white tracking-tight">{cls.name}</h1>
+          <p className="text-[11px] md:text-sm text-white/80 mt-0.5 md:mt-1">
             {classSubtitle}
           </p>
-          <p className="text-xs md:text-sm text-white/70 mt-0.5 md:mt-1">{cls.room} • {cls.schedule}</p>
-          <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-3">
+          <p className="text-[11px] md:text-sm text-white/70 mt-0.5 md:mt-1">{cls.room} • {cls.schedule}</p>
+          <div className="hidden md:flex flex-wrap items-center gap-2 mt-2 md:mt-3">
             <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5">
               <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {displayedStudentCount} students
             </Badge>
@@ -311,7 +311,7 @@ export default function ClassDetail() {
         </div>
       </div>
 
-      <div className="p-3 md:p-6 lg:p-8 max-w-5xl mx-auto">
+      <div className="p-2 md:p-6 lg:p-8 max-w-5xl mx-auto">
         {hasSupplementaryError && (
           <div className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
             Some class sections could not be loaded. You can still access available data and retry.
@@ -319,12 +319,22 @@ export default function ClassDetail() {
         )}
 
         <Tabs defaultValue="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
-          <TabsList className="bg-secondary/50 p-0.5 md:p-1 rounded-lg md:rounded-xl w-full justify-start md:justify-center overflow-x-auto flex-nowrap scrollbar-hide">
-            <TabsTrigger value="stream" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Stream</TabsTrigger>
-            <TabsTrigger value="materials" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Materials</TabsTrigger>
-            <TabsTrigger value="assignments" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Assignments</TabsTrigger>
-            <TabsTrigger value="people" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">People</TabsTrigger>
-            <TabsTrigger value="grades" className="rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Grades</TabsTrigger>
+          <TabsList className="bg-secondary/50 p-1 rounded-xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
+            <TabsTrigger value="stream" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+              <Monitor className="h-3.5 w-3.5 md:hidden" />
+              Stream
+            </TabsTrigger>
+            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-lg data-[state=active]:shadow-sm text-[11px] px-2 py-1.5 gap-1">
+              <ClipboardList className="h-3.5 w-3.5" />
+              Classwork
+            </TabsTrigger>
+            <TabsTrigger value="materials" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Materials</TabsTrigger>
+            <TabsTrigger value="assignments" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Assignments</TabsTrigger>
+            <TabsTrigger value="people" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+              <UserRound className="h-3.5 w-3.5 md:hidden" />
+              People
+            </TabsTrigger>
+            <TabsTrigger value="grades" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Grades</TabsTrigger>
           </TabsList>
 
           {/* Stream */}
@@ -332,7 +342,7 @@ export default function ClassDetail() {
             {/* Announcements Section */}
             {announcements.length > 0 && (
               <div className="space-y-2 md:space-y-3 lg:space-y-4">
-                <h3 className="font-semibold text-sm md:text-base">Announcements</h3>
+                <h3 className="font-semibold text-[13px] md:text-base">Announcements</h3>
                 {announcements.map((a) => (
                   <AnnouncementCard key={a.id} announcement={a} />
                 ))}
@@ -341,13 +351,79 @@ export default function ClassDetail() {
 
             {/* Student Discussion Section */}
             <div>
-              <h3 className="font-semibold text-sm md:text-base mb-4">Class Discussion</h3>
+              <h3 className="font-semibold text-[13px] md:text-base mb-2 md:mb-4">Class Discussion</h3>
               <StudentClassStream classId={classId} />
             </div>
           </TabsContent>
 
+          {/* Mobile Classwork */}
+          <TabsContent value="classwork" className="md:hidden space-y-3">
+            <div className="space-y-1.5">
+              <h3 className="font-semibold text-[13px]">Assignments</h3>
+              {assignments.length > 0 ? (
+                assignments.map((a) => {
+                  const Icon = TYPE_ICONS[a.type] || FileText;
+                  return (
+                    <Card
+                      key={`mobile-assignment-${a.id}`}
+                      className="rounded-xl border border-border/70 shadow-none"
+                      onClick={() => setSelectedAssignment(a)}
+                    >
+                      <CardContent className="p-3">
+                        <div className="flex items-start gap-2.5">
+                          <div className={`mt-0.5 p-2 rounded-lg ${a.status === 'late' ? 'bg-destructive/10' : 'bg-primary/10'}`}>
+                            <Icon className={`h-3.5 w-3.5 ${a.status === 'late' ? 'text-destructive' : 'text-primary'}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-medium leading-tight truncate">{a.title}</p>
+                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{a.description}</p>
+                            <p className={`text-[11px] mt-1 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                              Due {new Date(a.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              ) : (
+                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                  No assignments yet
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="font-semibold text-[13px]">Materials</h3>
+              {materials.length > 0 ? (
+                materials.map((material) => {
+                  const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
+                  return (
+                    <Card key={`mobile-material-${material.id}`} className="rounded-xl border border-border/70 shadow-none">
+                      <CardContent className="p-3">
+                        <div className="flex items-start gap-2.5">
+                          <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
+                            <Icon className="h-3.5 w-3.5 text-primary" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-medium leading-tight truncate">{material.title}</p>
+                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{material.description}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              ) : (
+                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                  No materials uploaded yet
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
           {/* Materials */}
-          <TabsContent value="materials" className="space-y-2 md:space-y-3 lg:space-y-4">
+          <TabsContent value="materials" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 mb-3 md:mb-4 lg:mb-6">
               <h3 className="font-semibold text-base md:text-lg">Learning Materials</h3>
               <Button variant="outline" size="sm" className="rounded-lg gap-2 w-full md:w-fit text-xs md:text-sm">
@@ -413,7 +489,7 @@ export default function ClassDetail() {
           </TabsContent>
 
           {/* Assignments */}
-          <TabsContent value="assignments" className="space-y-2 md:space-y-3 lg:space-y-4">
+          <TabsContent value="assignments" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
             <h3 className="font-semibold text-sm md:text-base">All Assignments</h3>
             <div className="space-y-1 md:space-y-2 lg:space-y-3 animate-stagger">
               {assignments.map((a) => {
@@ -493,7 +569,7 @@ export default function ClassDetail() {
           </TabsContent>
 
           {/* Grades */}
-          <TabsContent value="grades" className="space-y-3 md:space-y-4 lg:space-y-6">
+          <TabsContent value="grades" className="hidden md:block space-y-3 md:space-y-4 lg:space-y-6">
             <h3 className="font-semibold text-sm md:text-base">My Grades</h3>
             
             {/* Overall Grade Card */}

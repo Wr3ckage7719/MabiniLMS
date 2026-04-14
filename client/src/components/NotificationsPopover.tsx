@@ -17,9 +17,11 @@ import {
   getPushEnableErrorMessage,
   pushNotificationsService,
 } from '@/services/push-notifications.service';
+import { cn } from '@/lib/utils';
 
 interface NotificationsPopoverProps {
   role?: 'student' | 'teacher';
+  buttonClassName?: string;
 }
 
 // Helper to get initials from notification
@@ -64,7 +66,7 @@ function getAvatarUrlFromNotification(notif: any): string | null {
     : null;
 }
 
-export function NotificationsPopover({ role = 'student' }: NotificationsPopoverProps) {
+export function NotificationsPopover({ role = 'student', buttonClassName }: NotificationsPopoverProps) {
   const [open, setOpen] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
   const [pushSupported, setPushSupported] = useState(false);
@@ -136,7 +138,7 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
         <Button
           variant="ghost"
           size="icon"
-          className="relative rounded-xl hover:bg-primary/10"
+          className={cn('relative rounded-xl hover:bg-primary/10', buttonClassName)}
         >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (

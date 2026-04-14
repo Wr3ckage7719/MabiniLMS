@@ -11,6 +11,7 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import ClassDetail from "./pages/ClassDetail";
 import CalendarPage from "./pages/CalendarPage";
+import UpcomingPage from "./pages/UpcomingPage";
 import GradesPage from "./pages/GradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
@@ -81,6 +82,7 @@ const AppRoutes = () => (
     <Route element={<AppLayout />}>
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/class/:id" element={<ClassDetail />} />
+      <Route path="/upcoming" element={<UpcomingPage />} />
       <Route path="/calendar" element={<CalendarPage />} />
       <Route path="/grades" element={<GradesPage />} />
       <Route path="/settings" element={<SettingsPage />} />

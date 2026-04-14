@@ -121,29 +121,29 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
   };
 
   return (
-    <div className="flex flex-col h-full space-y-4 md:space-y-6">
-      <div className="rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+    <div className="flex flex-col h-full space-y-2 md:space-y-6">
+      <div className="hidden md:block rounded-lg border border-border/60 bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
         Discussion posts sync to your class stream across devices.
       </div>
 
       {/* Posts Feed */}
-      <div className="space-y-3 md:space-y-4 flex-1 overflow-y-auto">
+      <div className="space-y-2 md:space-y-4 flex-1 overflow-y-auto">
         {postsLoading ? (
           <div className="text-center py-8 md:py-12 text-muted-foreground">
             <Loader2 className="h-5 w-5 mx-auto mb-2 animate-spin" />
             <p className="text-sm md:text-base">Loading class discussion...</p>
           </div>
         ) : posts.length === 0 ? (
-          <div className="text-center py-8 md:py-12 text-muted-foreground">
-            <p className="text-sm md:text-base">No data present: class discussion posts</p>
+          <div className="text-center py-6 md:py-12 text-muted-foreground">
+            <p className="text-xs md:text-base">No data present: class discussion posts</p>
           </div>
         ) : (
           posts.map((post) => (
-            <Card key={post.id} className="border-0 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-4 md:p-6">
+            <Card key={post.id} className="rounded-xl border border-border/70 shadow-none md:border-0 md:shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-3 md:p-6">
                 {/* Header */}
-                <div className="flex gap-3 mb-3">
-                  <Avatar className="h-9 w-9 flex-shrink-0">
+                <div className="flex gap-2.5 mb-2">
+                  <Avatar className="h-8 w-8 md:h-9 md:w-9 flex-shrink-0">
                     {post.studentAvatarUrl ? (
                       <AvatarImage src={post.studentAvatarUrl} alt={`${post.studentName} avatar`} />
                     ) : null}
@@ -151,7 +151,7 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 flex-wrap">
-                      <p className="font-medium text-sm">{post.studentName}</p>
+                      <p className="font-medium text-[13px] md:text-sm">{post.studentName}</p>
                       <p className="text-xs text-muted-foreground">{formatTime(new Date(post.timestamp))}</p>
                     </div>
                   </div>
@@ -159,21 +159,21 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
 
                 {/* Content */}
                 {post.isHidden ? (
-                  <p className="text-sm text-muted-foreground italic mb-3 leading-relaxed">
+                  <p className="text-[13px] md:text-sm text-muted-foreground italic mb-2 leading-relaxed">
                     This post was hidden by the teacher.
                   </p>
                 ) : (
-                  <p className="text-sm text-foreground mb-3 leading-relaxed">{post.content}</p>
+                  <p className="text-[13px] md:text-sm text-foreground mb-2 leading-relaxed">{post.content}</p>
                 )}
 
                 {/* Actions */}
-                <div className="flex items-center gap-4 pt-2 border-t border-border">
+                <div className="flex items-center gap-4 pt-1.5 border-t border-border">
                   <button
                     onClick={() => {
                       void toggleLike(post.id);
                     }}
                     disabled={post.isHidden || (toggleLikeMutation.isPending && likingPostId === post.id)}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group mt-2"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group mt-1"
                   >
                     <Heart
                       className={`h-4 w-4 transition-all ${post.liked ? 'fill-destructive text-destructive' : 'group-hover:scale-110'}`}
@@ -188,10 +188,10 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
       </div>
 
       {/* Post Input - Sticky Bottom */}
-      <Card className="border-0 shadow-sm flex-shrink-0">
-        <CardContent className="p-4 md:p-6">
+      <Card className="rounded-xl border border-border/70 shadow-none md:border-0 md:shadow-sm flex-shrink-0">
+        <CardContent className="p-3 md:p-6">
           <div className="flex gap-3">
-            <Avatar className="h-10 w-10 flex-shrink-0">
+            <Avatar className="h-8 w-8 md:h-10 md:w-10 flex-shrink-0">
               {currentUserAvatarUrl ? (
                 <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />
               ) : null}
@@ -203,7 +203,7 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                   value={postContent}
                   onChange={(e) => setPostContent(e.target.value)}
                   placeholder="Share your thoughts, ask questions, or discuss with classmates..."
-                  className="w-full min-h-[80px] p-3 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all"
+                  className="w-full min-h-[56px] md:min-h-[80px] p-3 rounded-xl border border-input bg-secondary/30 md:bg-background text-[13px] md:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all"
                 />
 
                 {/* Actions */}
@@ -217,7 +217,7 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                         description: 'File attachments are not supported in discussion posts yet.',
                       });
                     }}
-                    className="gap-2 text-muted-foreground hover:text-foreground rounded-lg h-8"
+                    className="gap-2 text-muted-foreground hover:text-foreground rounded-lg h-8 w-8 p-0 md:w-auto md:px-2"
                   >
                     <Paperclip className="h-4 w-4" />
                     <span className="hidden sm:inline text-xs">Attach</span>
@@ -225,8 +225,9 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
                   <Button
                     onClick={handlePost}
                     disabled={!postContent.trim() || createPostMutation.isPending}
-                    className="gap-2 rounded-lg h-8"
+                    className="gap-2 rounded-full h-8 w-8 p-0 md:rounded-lg md:w-auto md:px-3"
                     size="sm"
+                    aria-label="Post discussion"
                   >
                     <Send className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline text-xs">
