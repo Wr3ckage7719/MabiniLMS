@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Announcement } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -7,10 +6,12 @@ import { MessageSquare } from 'lucide-react';
 
 interface AnnouncementCardProps {
   announcement: Announcement;
+  commentsCount?: number;
+  onOpenDiscussion?: () => void;
 }
 
-export function AnnouncementCard({ announcement }: AnnouncementCardProps) {
-  const [showCommentsNotice, setShowCommentsNotice] = useState(false);
+export function AnnouncementCard({ announcement, commentsCount, onOpenDiscussion }: AnnouncementCardProps) {
+  const totalComments = typeof commentsCount === 'number' ? commentsCount : announcement.comments;
 
   return (
     <Card className="rounded-xl border border-border/70 shadow-none md:border-0 md:shadow-sm card-interactive">
@@ -31,17 +32,12 @@ export function AnnouncementCard({ announcement }: AnnouncementCardProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="mt-1.5 -ml-2 text-muted-foreground rounded-lg h-7 px-2"
-              onClick={() => setShowCommentsNotice(!showCommentsNotice)}
+              className="mt-2 h-8 rounded-full bg-accent text-accent-foreground hover:bg-accent/90 px-3 text-xs"
+              onClick={onOpenDiscussion}
+              disabled={!onOpenDiscussion}
             >
-              <MessageSquare className="h-4 w-4 mr-1" /> {announcement.comments} comments
+              <MessageSquare className="h-4 w-4 mr-1" /> {totalComments} comments
             </Button>
-
-            {showCommentsNotice && (
-              <div className="mt-3 rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-                Announcement comments are currently unavailable in this class stream.
-              </div>
-            )}
           </div>
         </div>
       </CardContent>
