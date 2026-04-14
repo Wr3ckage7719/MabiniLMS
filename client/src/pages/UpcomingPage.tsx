@@ -79,10 +79,10 @@ export default function UpcomingPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-2 md:p-6 space-y-3 md:space-y-6 animate-fade-in">
-      <section className="rounded-2xl border bg-card p-3 md:p-5 shadow-sm">
+    <div className="max-w-3xl mx-auto p-2.5 md:p-6 space-y-2.5 md:space-y-6 animate-fade-in">
+      <section className="rounded-[14px] border border-border/70 bg-card p-3 md:p-5 shadow-none">
         <div className="flex items-start gap-2">
-          <Clock3 className="h-4 w-4 text-primary mt-0.5" />
+          <Clock3 className="h-3.5 w-3.5 text-primary mt-1" />
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Upcoming Deadline</h1>
             <p className="text-xs md:text-sm text-muted-foreground mt-1">
@@ -92,8 +92,8 @@ export default function UpcomingPage() {
         </div>
 
         <div className="mt-3 md:mt-5 grid grid-cols-2 gap-2 md:gap-3">
-          <Card className="rounded-xl border border-border/70 shadow-none">
-            <CardContent className="p-3 md:p-4">
+          <Card className="rounded-[14px] border border-border/70 shadow-none">
+            <CardContent className="p-2.5 md:p-4">
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
                   <BookOpen className="h-4 w-4" />
@@ -106,8 +106,8 @@ export default function UpcomingPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border border-border/70 shadow-none">
-            <CardContent className="p-3 md:p-4">
+          <Card className="rounded-[14px] border border-border/70 shadow-none">
+            <CardContent className="p-2.5 md:p-4">
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-warning/10 text-warning">
                   <CalendarClock className="h-4 w-4" />
@@ -120,8 +120,8 @@ export default function UpcomingPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border border-border/70 shadow-none">
-            <CardContent className="p-3 md:p-4">
+          <Card className="rounded-[14px] border border-border/70 shadow-none">
+            <CardContent className="p-2.5 md:p-4">
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success">
                   <CheckCircle2 className="h-4 w-4" />
@@ -134,8 +134,8 @@ export default function UpcomingPage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border border-border/70 shadow-none">
-            <CardContent className="p-3 md:p-4">
+          <Card className="rounded-[14px] border border-border/70 shadow-none">
+            <CardContent className="p-2.5 md:p-4">
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -150,7 +150,7 @@ export default function UpcomingPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border bg-card p-3 md:p-5 shadow-sm">
+      <section className="rounded-[14px] border border-border/70 bg-card p-3 md:p-5 shadow-none">
         <h2 className="text-sm md:text-base font-semibold mb-2 md:mb-3">Upcoming Deadlines</h2>
         {upcomingAssignments.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -166,7 +166,7 @@ export default function UpcomingPage() {
               return (
                 <div
                   key={assignment.id}
-                  className="flex items-start gap-3 rounded-xl border border-border/70 px-3 py-2.5"
+                  className="flex items-start gap-3 rounded-[12px] border border-border/70 px-3 py-2.5"
                 >
                   <span
                     className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full ${

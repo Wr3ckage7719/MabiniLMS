@@ -9,6 +9,7 @@ import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -55,6 +56,7 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
 export default function ClassDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { currentUserAvatar } = useRole();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
@@ -318,19 +320,19 @@ export default function ClassDetail() {
           </div>
         )}
 
-        <Tabs defaultValue="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
-          <TabsList className="bg-secondary/50 p-1 rounded-xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
-            <TabsTrigger value="stream" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+        <Tabs defaultValue={isMobile ? 'classwork' : 'stream'} className="space-y-3 md:space-y-4 lg:space-y-6">
+          <TabsList className="bg-secondary/60 border border-border/70 p-1 rounded-2xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
+            <TabsTrigger value="stream" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <Monitor className="h-3.5 w-3.5 md:hidden" />
               Stream
             </TabsTrigger>
-            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-lg data-[state=active]:shadow-sm text-[11px] px-2 py-1.5 gap-1">
+            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] px-2 py-1.5 gap-1">
               <ClipboardList className="h-3.5 w-3.5" />
               Classwork
             </TabsTrigger>
             <TabsTrigger value="materials" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Materials</TabsTrigger>
             <TabsTrigger value="assignments" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Assignments</TabsTrigger>
-            <TabsTrigger value="people" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+            <TabsTrigger value="people" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <UserRound className="h-3.5 w-3.5 md:hidden" />
               People
             </TabsTrigger>
@@ -366,7 +368,7 @@ export default function ClassDetail() {
                   return (
                     <Card
                       key={`mobile-assignment-${a.id}`}
-                      className="rounded-xl border border-border/70 shadow-none"
+                      className="rounded-[14px] border border-border/70 shadow-none"
                       onClick={() => setSelectedAssignment(a)}
                     >
                       <CardContent className="p-3">
@@ -387,7 +389,7 @@ export default function ClassDetail() {
                   );
                 })
               ) : (
-                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
                   No assignments yet
                 </div>
               )}
@@ -399,7 +401,7 @@ export default function ClassDetail() {
                 materials.map((material) => {
                   const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
                   return (
-                    <Card key={`mobile-material-${material.id}`} className="rounded-xl border border-border/70 shadow-none">
+                    <Card key={`mobile-material-${material.id}`} className="rounded-[14px] border border-border/70 shadow-none">
                       <CardContent className="p-3">
                         <div className="flex items-start gap-2.5">
                           <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
@@ -415,7 +417,7 @@ export default function ClassDetail() {
                   );
                 })
               ) : (
-                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
                   No materials uploaded yet
                 </div>
               )}
