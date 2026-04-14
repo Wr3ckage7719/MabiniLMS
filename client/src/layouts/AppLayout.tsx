@@ -9,7 +9,7 @@ import { RoleProvider } from '@/contexts/RoleContext';
 import { ClassesProvider } from '@/contexts/ClassesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeNotifications } from '@/hooks/useWebSocket';
-import { supabase } from '@/lib/supabase';
+import { passwordStatusService } from '@/services/password-status.service';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -40,22 +40,12 @@ export default function AppLayout() {
       }
 
       try {
-        const { data } = await supabase
-          .from('temporary_passwords')
-          .select('must_change_password, expires_at')
-          .eq('user_id', user.id)
-          .eq('must_change_password', true)
-          .is('used_at', null)
-          .gt('expires_at', new Date().toISOString())
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const requiresPasswordChange = await passwordStatusService.requiresPasswordChange(user.id);
 
         if (!isActive) {
           return;
         }
 
-        const requiresPasswordChange = Boolean(data?.must_change_password);
         setMustChangePassword(requiresPasswordChange);
         if (!requiresPasswordChange) {
           setPasswordNoticeDismissed(false);

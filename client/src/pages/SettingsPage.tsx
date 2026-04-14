@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usersService } from '@/services/users.service';
+import { passwordStatusService } from '@/services/password-status.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import {
   getPushEnableErrorMessage,
   pushNotificationsService,
@@ -130,22 +130,13 @@ export default function SettingsPage() {
       setIsCheckingPasswordRequirement(true);
 
       try {
-        const { data } = await supabase
-          .from('temporary_passwords')
-          .select('must_change_password, expires_at')
-          .eq('user_id', user.id)
-          .eq('must_change_password', true)
-          .is('used_at', null)
-          .gt('expires_at', new Date().toISOString())
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const requiresPasswordChange = await passwordStatusService.requiresPasswordChange(user.id);
 
         if (!isActive) {
           return;
         }
 
-        setRequiresPasswordChange(Boolean(data?.must_change_password));
+        setRequiresPasswordChange(requiresPasswordChange);
       } catch {
         if (!isActive) {
           return;

@@ -125,19 +125,46 @@ const issueTemporaryPassword = async (userId: string, temporaryPassword: string)
 };
 
 const clearTemporaryPasswordRequirement = async (userId: string): Promise<void> => {
-  const { error } = await supabaseAdmin
+  const clearedAt = new Date().toISOString();
+
+  const { data: activeRows, error: activeUpdateError } = await supabaseAdmin
     .from('temporary_passwords')
     .update({
-      used_at: new Date().toISOString(),
+      used_at: clearedAt,
       must_change_password: false,
     })
     .eq('user_id', userId)
-    .is('used_at', null);
+    .eq('must_change_password', true)
+    .is('used_at', null)
+    .select('id');
 
-  if (error) {
+  if (activeUpdateError) {
     logger.warn('Failed to clear temporary password requirement', {
       userId,
-      error: error.message,
+      stage: 'active-only',
+      error: activeUpdateError.message,
+    });
+    return;
+  }
+
+  if (Array.isArray(activeRows) && activeRows.length > 0) {
+    return;
+  }
+
+  const { error: fallbackUpdateError } = await supabaseAdmin
+    .from('temporary_passwords')
+    .update({
+      used_at: clearedAt,
+      must_change_password: false,
+    })
+    .eq('user_id', userId)
+    .eq('must_change_password', true);
+
+  if (fallbackUpdateError) {
+    logger.warn('Failed to clear temporary password requirement', {
+      userId,
+      stage: 'fallback-any-must-change',
+      error: fallbackUpdateError.message,
     });
   }
 };

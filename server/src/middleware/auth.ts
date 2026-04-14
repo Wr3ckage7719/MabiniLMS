@@ -9,6 +9,7 @@ import logger from '../utils/logger.js';
 let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const PASSWORD_CHANGE_TOKEN_GRACE_MS = 1000;
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
 const PROFILE_SELECT_WITH_SECURITY_TRACKING =
   'role, email, first_name, last_name, pending_approval, password_changed_at, two_factor_enabled';
@@ -65,6 +66,22 @@ const getTokenSessionId = (accessToken: string): string | undefined => {
   const payload = decodeJwtPayload(accessToken);
   const maybeSessionId = payload?.session_id;
   return typeof maybeSessionId === 'string' ? maybeSessionId : undefined;
+};
+
+const getTokenIssuedAt = (accessToken: string): number | undefined => {
+  const payload = decodeJwtPayload(accessToken);
+  const maybeIssuedAt = payload?.iat;
+
+  if (typeof maybeIssuedAt === 'number') {
+    return maybeIssuedAt;
+  }
+
+  if (typeof maybeIssuedAt === 'string') {
+    const parsedValue = Number(maybeIssuedAt);
+    return Number.isFinite(parsedValue) ? parsedValue : undefined;
+  }
+
+  return undefined;
 };
 
 const hasServerSessionProof = async (userId: string, accessToken: string): Promise<boolean> => {
@@ -262,13 +279,16 @@ export const authenticate = async (
       );
     }
 
-    // Check session timeout based on last sign-in time
+    // Check session timeout based on token issue time.
     const sessionTimeout = await getSessionTimeoutMinutes();
+    const tokenIssuedAt = getTokenIssuedAt(token);
     const lastSignInAt = user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() / 1000 : undefined;
+    const timeoutAnchor = tokenIssuedAt || lastSignInAt;
     
-    if (lastSignInAt && isSessionTimedOut(lastSignInAt, sessionTimeout)) {
+    if (timeoutAnchor && isSessionTimedOut(timeoutAnchor, sessionTimeout)) {
       logger.warn('Session timed out', {
         userId: user.id,
+        tokenIssuedAt,
         lastSignIn: user.last_sign_in_at,
         timeoutMinutes: sessionTimeout
       });
@@ -382,14 +402,20 @@ export const authenticate = async (
       }
     }
 
-    // Check if password was changed after token was issued (force re-login)
-    if (profile.password_changed_at && lastSignInAt) {
+    // Check if password was changed after token was issued (force re-login).
+    const passwordReferenceIssuedAt = tokenIssuedAt || lastSignInAt;
+    if (profile.password_changed_at && passwordReferenceIssuedAt) {
       const passwordChangedAtMs = new Date(profile.password_changed_at).getTime();
-      const lastSignInAtMs = lastSignInAt * 1000;
+      const referenceIssuedAtMs = passwordReferenceIssuedAt * 1000;
       
-      if (passwordChangedAtMs > lastSignInAtMs) {
+      if (
+        Number.isFinite(passwordChangedAtMs) &&
+        (passwordChangedAtMs - referenceIssuedAtMs) > PASSWORD_CHANGE_TOKEN_GRACE_MS
+      ) {
         logger.info('Session invalidated due to password change', {
           userId: user.id,
+          tokenIssuedAt,
+          lastSignInAt: user.last_sign_in_at,
           passwordChangedAt: profile.password_changed_at
         });
         throw new ApiError(
