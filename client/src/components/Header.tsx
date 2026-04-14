@@ -10,6 +10,7 @@ import { NotificationsPopover } from '@/components/NotificationsPopover';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from '@/hooks/use-toast';
+import { notifyError, notifySuccess } from '@/lib/feedback';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,18 +52,15 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
     setIsSwitchingAccount(true);
     try {
       await switchStudentAccount(targetUserId);
-      toast({
-        title: 'Account switched',
-        description: targetAccount ? `Now using ${targetAccount.email}.` : 'Student account session updated.',
-      });
+      notifySuccess(
+        toast,
+        targetAccount ? `Now using ${targetAccount.email}.` : 'Student account session updated.',
+        'Account switched'
+      );
       navigate('/dashboard', { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to switch account. Please try again.';
-      toast({
-        title: 'Switch account failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Switch account failed');
     } finally {
       setIsSwitchingAccount(false);
     }
@@ -73,11 +71,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
       await loginWithGoogle('student');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to open account chooser.';
-      toast({
-        title: 'Add account failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Add account failed');
     }
   };
 

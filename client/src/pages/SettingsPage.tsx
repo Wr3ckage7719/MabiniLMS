@@ -10,6 +10,7 @@ import { usersService } from '@/services/users.service';
 import { passwordStatusService } from '@/services/password-status.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFeedbackErrorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/feedback';
 import {
   getPushEnableErrorMessage,
   pushNotificationsService,
@@ -272,21 +273,13 @@ export default function SettingsPage() {
 
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
-      toast({
-        title: 'Invalid file type',
-        description: 'Please upload JPG, PNG, GIF, or WebP.',
-        variant: 'destructive',
-      });
+      notifyWarning(toast, 'Please upload JPG, PNG, GIF, or WebP.', 'Invalid file type');
       event.target.value = '';
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: 'File too large',
-        description: 'Avatar must be 5MB or less.',
-        variant: 'destructive',
-      });
+      notifyWarning(toast, 'Avatar must be 5MB or less.', 'File too large');
       event.target.value = '';
       return;
     }
@@ -299,10 +292,7 @@ export default function SettingsPage() {
         setAvatarUrl(uploadedAvatarUrl);
         updateAvatar(uploadedAvatarUrl);
       }
-      toast({
-        title: 'Avatar updated',
-        description: 'Your profile avatar has been updated.',
-      });
+      notifySuccess(toast, 'Your profile avatar has been updated.', 'Avatar updated');
     } catch (error) {
       const isNetworkError = axios.isAxiosError(error) && !error.response;
       const responseMessage = axios.isAxiosError(error)
@@ -315,11 +305,7 @@ export default function SettingsPage() {
           ? error.message
           : 'Unable to update avatar.');
 
-      toast({
-        title: 'Upload failed',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      notifyError(toast, errorMessage, 'Upload failed');
     } finally {
       setIsUploadingAvatar(false);
       event.target.value = '';
@@ -340,10 +326,7 @@ export default function SettingsPage() {
         last_name: lastName.trim() || undefined,
       });
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
-        ? error.response?.data?.error?.message || error.response?.data?.message
-        : undefined;
-      profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
+      profileSaveError = getFeedbackErrorMessage(error, 'Unable to update profile.');
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {
@@ -358,16 +341,13 @@ export default function SettingsPage() {
     }
 
     if (profileSaveError) {
-      toast({
-        title: 'Profile save failed',
-        description: `${profileSaveError} Appearance and notification settings were saved locally.`,
-        variant: 'destructive',
-      });
+      notifyError(
+        toast,
+        `${profileSaveError} Appearance and notification settings were saved locally.`,
+        'Profile save failed'
+      );
     } else {
-      toast({
-        title: 'Settings saved',
-        description: 'Your profile and preferences have been saved.',
-      });
+      notifySuccess(toast, 'Your profile and preferences have been saved.', 'Settings saved');
     }
 
     setIsSavingProfile(false);
@@ -387,18 +367,15 @@ export default function SettingsPage() {
       setPushNotifications(didEnable);
 
       if (!didEnable) {
-        toast({
-          title: 'Push permission not granted',
-          description: 'Allow notifications in your browser settings to enable push notifications.',
-        });
+        notifyWarning(
+          toast,
+          'Allow notifications in your browser settings to enable push notifications.',
+          'Push permission not granted'
+        );
       }
     } catch (error) {
       setPushNotifications(false);
-      toast({
-        title: 'Unable to enable push notifications',
-        description: getPushEnableErrorMessage(error),
-        variant: 'destructive',
-      });
+      notifyError(toast, getPushEnableErrorMessage(error), 'Unable to enable push notifications');
     } finally {
       setIsUpdatingPush(false);
     }
@@ -429,10 +406,7 @@ export default function SettingsPage() {
       setConfirmPassword('');
       setRequiresPasswordChange(false);
 
-      toast({
-        title: 'Password updated',
-        description: 'Your password has been changed successfully.',
-      });
+      notifySuccess(toast, 'Your password has been changed successfully.', 'Password updated');
     } catch (error) {
       const responseMessage = axios.isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
@@ -451,11 +425,7 @@ export default function SettingsPage() {
       await loginWithGoogle('student');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to open institutional account picker.';
-      toast({
-        title: 'Add account failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Add account failed');
     } finally {
       setIsAddingLinkedAccount(false);
     }
@@ -471,18 +441,15 @@ export default function SettingsPage() {
     setIsSwitchingLinkedAccount(targetUserId);
     try {
       await switchStudentAccount(targetUserId);
-      toast({
-        title: 'Account switched',
-        description: targetAccount ? `Now using ${targetAccount.email}.` : 'Student account switched.',
-      });
+      notifySuccess(
+        toast,
+        targetAccount ? `Now using ${targetAccount.email}.` : 'Student account switched.',
+        'Account switched'
+      );
       navigate('/dashboard', { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to switch linked account.';
-      toast({
-        title: 'Switch failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Switch failed');
     } finally {
       setIsSwitchingLinkedAccount(null);
     }
@@ -498,17 +465,14 @@ export default function SettingsPage() {
         ...previousDrafts,
         [accountId]: requestedName,
       }));
-      toast({
-        title: 'Account name updated',
-        description: requestedName ? 'Linked account label saved.' : 'Linked account label cleared.',
-      });
+      notifySuccess(
+        toast,
+        requestedName ? 'Linked account label saved.' : 'Linked account label cleared.',
+        'Account name updated'
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to rename linked account.';
-      toast({
-        title: 'Rename failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Rename failed');
     } finally {
       setIsRenamingLinkedAccount(null);
     }
@@ -516,11 +480,7 @@ export default function SettingsPage() {
 
   const handleRemoveLinkedAccount = (accountId: string, accountEmail: string) => {
     if (accountId === user?.id) {
-      toast({
-        title: 'Cannot remove active account',
-        description: 'Switch to another linked account first before removing this one.',
-        variant: 'destructive',
-      });
+      notifyWarning(toast, 'Switch to another linked account first before removing this one.', 'Cannot remove active account');
       return;
     }
 
@@ -534,17 +494,10 @@ export default function SettingsPage() {
     setIsRemovingLinkedAccount(accountId);
     try {
       removeLinkedStudentAccount(accountId);
-      toast({
-        title: 'Linked account removed',
-        description: `${accountEmail} was removed from this device.`,
-      });
+      notifySuccess(toast, `${accountEmail} was removed from this device.`, 'Linked account removed');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to remove linked account.';
-      toast({
-        title: 'Remove failed',
-        description: message,
-        variant: 'destructive',
-      });
+      notifyError(toast, message, 'Remove failed');
     } finally {
       setIsRemovingLinkedAccount(null);
     }
