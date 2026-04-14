@@ -1,35 +1,44 @@
 import { useState, useEffect } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
+import { Outlet, Navigate, useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { AppSidebar } from '@/components/Sidebar';
 import { CreateClassDialog } from '@/components/CreateClassDialog';
 import { JoinClassDialog } from '@/components/JoinClassDialog';
-import FirstLoginPasswordChange from '@/components/FirstLoginPasswordChange';
 import PendingApprovalOverlay from '@/components/PendingApprovalOverlay';
 import { RoleProvider } from '@/contexts/RoleContext';
 import { ClassesProvider } from '@/contexts/ClassesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeNotifications } from '@/hooks/useWebSocket';
 import { supabase } from '@/lib/supabase';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 export default function AppLayout() {
   const { isLoggedIn, isLoading, user } = useAuth();
+  const navigate = useNavigate();
   useRealtimeNotifications();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [checkingPassword, setCheckingPassword] = useState(true);
+  const [passwordNoticeDismissed, setPasswordNoticeDismissed] = useState(false);
 
-  // Check if user must change password (for student first login)
+  // Check if user still has an active temporary password requirement.
   useEffect(() => {
+    let isActive = true;
+
     const checkTempPassword = async () => {
-      if (!user?.id) {
-        setCheckingPassword(false);
+      if (!isLoggedIn || !user?.id) {
+        if (!isActive) {
+          return;
+        }
+
+        setMustChangePassword(false);
+        setPasswordNoticeDismissed(false);
         return;
       }
-      
+
       try {
         const { data } = await supabase
           .from('temporary_passwords')
@@ -41,29 +50,36 @@ export default function AppLayout() {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
-        
-        setMustChangePassword(data?.must_change_password || false);
+
+        if (!isActive) {
+          return;
+        }
+
+        const requiresPasswordChange = Boolean(data?.must_change_password);
+        setMustChangePassword(requiresPasswordChange);
+        if (!requiresPasswordChange) {
+          setPasswordNoticeDismissed(false);
+        }
       } catch {
-        // No temp password record or error - that's fine
+        if (!isActive) {
+          return;
+        }
+
+        // No temp password record or transient query error.
         setMustChangePassword(false);
-      } finally {
-        setCheckingPassword(false);
+        setPasswordNoticeDismissed(false);
       }
     };
 
-    if (isLoggedIn && user) {
-      checkTempPassword();
-    } else {
-      setCheckingPassword(false);
-    }
+    void checkTempPassword();
+
+    return () => {
+      isActive = false;
+    };
   }, [isLoggedIn, user]);
 
-  const handlePasswordChanged = () => {
-    setMustChangePassword(false);
-  };
-
   // Show loading while checking auth
-  if (isLoading || checkingPassword) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -97,20 +113,43 @@ export default function AppLayout() {
           <div className="flex flex-1">
             <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
             <main className="flex-1 min-w-0">
+              {mustChangePassword && !passwordNoticeDismissed && (
+                <div className="p-4 md:p-6 lg:p-8 pb-0">
+                  <Alert className="border-amber-300 bg-amber-50 text-amber-900 [&>svg]:text-amber-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Temporary password still active</AlertTitle>
+                    <AlertDescription>
+                      <p className="mb-3">
+                        Please update your password in Settings. You can continue using the app, but this should be changed as soon as possible.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => navigate('/settings')}
+                        >
+                          Go to Settings
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-amber-300 bg-transparent text-amber-900 hover:bg-amber-100"
+                          onClick={() => setPasswordNoticeDismissed(true)}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
               <Outlet />
             </main>
           </div>
           <CreateClassDialog open={createOpen} onOpenChange={setCreateOpen} />
           <JoinClassDialog open={joinOpen} onOpenChange={setJoinOpen} />
-          
-          {/* Force password change for students with temporary passwords */}
-          {user && (
-            <FirstLoginPasswordChange
-              open={mustChangePassword}
-              userId={user.id}
-              onComplete={handlePasswordChanged}
-            />
-          )}
 
           {/* Pending approval overlay for teachers */}
           <PendingApprovalOverlay />
