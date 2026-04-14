@@ -34,6 +34,14 @@ router.patch(
   userController.updateMyProfile
 );
 
+// Backward compatibility for deployments that still expect PUT /users/me.
+router.put(
+  '/me',
+  authenticate,
+  validate({ body: updateProfileSchema }),
+  userController.updateMyProfile
+);
+
 /**
  * @openapi
  * /api/users/me/avatar:
