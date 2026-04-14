@@ -13,7 +13,10 @@ import {
 import { useNotifications } from '@/hooks/useTeacherData';
 import { resolveNotificationLink } from '@/lib/notification-links';
 import { useToast } from '@/hooks/use-toast';
-import { pushNotificationsService } from '@/services/push-notifications.service';
+import {
+  getPushEnableErrorMessage,
+  pushNotificationsService,
+} from '@/services/push-notifications.service';
 
 interface NotificationsPopoverProps {
   role?: 'student' | 'teacher';
@@ -101,11 +104,7 @@ export function NotificationsPopover({ role = 'student' }: NotificationsPopoverP
     } catch (error: any) {
       toast({
         title: 'Unable to enable push notifications',
-        description:
-          error?.response?.data?.error?.message ||
-          error?.response?.data?.message ||
-          error?.message ||
-          'Push notifications could not be enabled on this device.',
+        description: getPushEnableErrorMessage(error),
         variant: 'destructive',
       });
     } finally {

@@ -8,6 +8,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { usersService } from '@/services/users.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  getPushEnableErrorMessage,
+  pushNotificationsService,
+} from '@/services/push-notifications.service';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 
@@ -38,6 +42,7 @@ export default function SettingsPage() {
   const [emailNotifications, setEmailNotifications] = useState(DEFAULT_LOCAL_SETTINGS.emailNotifications);
   const [pushNotifications, setPushNotifications] = useState(DEFAULT_LOCAL_SETTINGS.pushNotifications);
   const [dueDateReminders, setDueDateReminders] = useState(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+  const [isUpdatingPush, setIsUpdatingPush] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
 
   const settingsStorageKey = user?.id ? `mabini:settings:${user.id}` : null;
@@ -83,6 +88,21 @@ export default function SettingsPage() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode, preferencesReady]);
+
+  useEffect(() => {
+    if (!preferencesReady) {
+      return;
+    }
+
+    if (!pushNotificationsService.isSupported()) {
+      setPushNotifications(false);
+      return;
+    }
+
+    if (pushNotificationsService.getPermission() !== 'granted') {
+      setPushNotifications(false);
+    }
+  }, [preferencesReady]);
 
   useEffect(() => {
     setAvatarUrl(user?.avatarUrl || null);
@@ -216,6 +236,37 @@ export default function SettingsPage() {
     setIsSavingProfile(false);
   };
 
+  const handlePushNotificationsChange = async (enabled: boolean) => {
+    setIsUpdatingPush(true);
+
+    try {
+      if (!enabled) {
+        await pushNotificationsService.disablePushNotifications();
+        setPushNotifications(false);
+        return;
+      }
+
+      const didEnable = await pushNotificationsService.enablePushNotifications();
+      setPushNotifications(didEnable);
+
+      if (!didEnable) {
+        toast({
+          title: 'Push permission not granted',
+          description: 'Allow notifications in your browser settings to enable push notifications.',
+        });
+      }
+    } catch (error) {
+      setPushNotifications(false);
+      toast({
+        title: 'Unable to enable push notifications',
+        description: getPushEnableErrorMessage(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdatingPush(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -302,7 +353,13 @@ export default function SettingsPage() {
               <p className="font-medium text-sm">Push notifications</p>
               <p className="text-xs text-muted-foreground">Browser push notifications</p>
             </div>
-            <Switch checked={pushNotifications} onCheckedChange={setPushNotifications} />
+            <Switch
+              checked={pushNotifications}
+              onCheckedChange={(enabled) => {
+                void handlePushNotificationsChange(enabled);
+              }}
+              disabled={isUpdatingPush}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>

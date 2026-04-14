@@ -44,6 +44,43 @@ const getPlatformHint = (): string => {
   return navigator.platform || 'unknown';
 };
 
+const sanitizeVapidKey = (key: string): string => {
+  return key
+    .trim()
+    .replace(/^['\"]+|['\"]+$/g, '')
+    .replace(/\s+/g, '');
+};
+
+const toNormalizedErrorMessage = (error: unknown): string => {
+  return (error instanceof Error ? error.message : String(error || '')).toLowerCase();
+};
+
+const isPushSubscriptionRetryableError = (error: unknown): boolean => {
+  const message = toNormalizedErrorMessage(error);
+  return (
+    message.includes('push service error') ||
+    message.includes('registration failed') ||
+    message.includes('networkerror') ||
+    message.includes('aborterror') ||
+    message.includes('timeout') ||
+    message.includes('service unavailable')
+  );
+};
+
+const toApplicationServerKey = (rawKey: string): Uint8Array => {
+  const key = sanitizeVapidKey(rawKey);
+  const parsed = urlBase64ToUint8Array(key);
+
+  // VAPID public keys should decode to an uncompressed P-256 public key (65 bytes).
+  if (parsed.length !== 65) {
+    throw new Error(
+      'Web Push public key is invalid. Please contact the administrator to regenerate VAPID keys.'
+    );
+  }
+
+  return parsed;
+};
+
 type ApiErrorShape = {
   error?: {
     message?: string;
@@ -54,6 +91,36 @@ type ApiErrorShape = {
 const extractApiErrorMessage = (error: unknown): string => {
   const responseData = (error as { response?: { data?: ApiErrorShape } })?.response?.data;
   return responseData?.error?.message || (error instanceof Error ? error.message : '');
+};
+
+export const getPushEnableErrorMessage = (error: unknown): string => {
+  const apiMessage = extractApiErrorMessage(error);
+  const rawMessage = apiMessage || (error instanceof Error ? error.message : '');
+  const normalized = rawMessage.toLowerCase();
+
+  if (normalized.includes('web push is not configured')) {
+    return 'Push notifications are not configured on the server yet. Please contact your administrator.';
+  }
+
+  if (
+    normalized.includes('public key is invalid') ||
+    normalized.includes('vapid')
+  ) {
+    return 'Push key configuration is invalid. Please contact your administrator to update Web Push keys.';
+  }
+
+  if (
+    normalized.includes('push service error') ||
+    normalized.includes('registration failed')
+  ) {
+    return 'Browser push service rejected registration. If you use Brave, disable Shields for this site and allow notifications, then try again.';
+  }
+
+  if (normalized.includes('not supported')) {
+    return 'Push notifications are not supported on this browser/device.';
+  }
+
+  return rawMessage || 'Push notifications could not be enabled on this device.';
 };
 
 const fetchPublicVapidKeyFromSameOrigin = async (): Promise<string | null> => {
@@ -129,7 +196,7 @@ const getPublicVapidKey = async (): Promise<string> => {
 
     const publicKey = response?.data?.public_key;
     if (publicKey) {
-      return publicKey;
+      return sanitizeVapidKey(publicKey);
     }
   } catch (error) {
     const message = extractApiErrorMessage(error).toLowerCase();
@@ -140,7 +207,7 @@ const getPublicVapidKey = async (): Promise<string> => {
       try {
         const fallbackKey = await fetchPublicVapidKeyFromSameOrigin();
         if (fallbackKey) {
-          return fallbackKey;
+          return sanitizeVapidKey(fallbackKey);
         }
       } catch (fallbackError) {
         const fallbackMessage = extractApiErrorMessage(fallbackError);
@@ -165,6 +232,35 @@ const getPublicVapidKey = async (): Promise<string> => {
   }
 
   throw new Error('Web Push public key is not available from server');
+};
+
+const subscribeWithKey = async (
+  registration: ServiceWorkerRegistration,
+  publicKey: string
+): Promise<PushSubscription> => {
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: toApplicationServerKey(publicKey),
+  });
+};
+
+const resetPushRegistrationState = async (
+  registration: ServiceWorkerRegistration
+): Promise<void> => {
+  try {
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) {
+      await existing.unsubscribe();
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
+
+  try {
+    await registration.update();
+  } catch {
+    // Best-effort cleanup only.
+  }
 };
 
 const requestPermission = async (): Promise<NotificationPermission> => {
@@ -257,10 +353,28 @@ export const pushNotificationsService = {
 
     if (!subscription) {
       const publicKey = await getPublicVapidKey();
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
+      try {
+        subscription = await subscribeWithKey(registration, publicKey);
+      } catch (initialSubscribeError) {
+        if (!isPushSubscriptionRetryableError(initialSubscribeError)) {
+          throw initialSubscribeError;
+        }
+
+        await resetPushRegistrationState(registration);
+
+        // Retry once with same-origin key as a compatibility fallback for split API deployments.
+        let retryKey = publicKey;
+        try {
+          const sameOriginKey = await fetchPublicVapidKeyFromSameOrigin();
+          if (sameOriginKey) {
+            retryKey = sanitizeVapidKey(sameOriginKey);
+          }
+        } catch {
+          // Keep previously fetched key for retry.
+        }
+
+        subscription = await subscribeWithKey(registration, retryKey);
+      }
     }
 
     await postSubscriptionToServer(subscription);
