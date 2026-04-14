@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/services/auth.service';
+import { cacheAuthRole } from '@/lib/pwa-zoom-policy';
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
@@ -381,6 +382,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshLinkedStudentAccounts();
   }, [refreshLinkedStudentAccounts]);
+
+  useEffect(() => {
+    cacheAuthRole(user?.role || null);
+  }, [user?.role]);
 
   useEffect(() => {
     const initAuth = async () => {

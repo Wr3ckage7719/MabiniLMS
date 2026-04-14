@@ -1,4 +1,4 @@
-import { Bell, Clock, MessageSquare, Send, Heart, Loader2 } from 'lucide-react';
+import { Bell, Loader2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
   pushNotificationsService,
 } from '@/services/push-notifications.service';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface NotificationsPopoverProps {
   role?: 'student' | 'teacher';
@@ -71,6 +72,7 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
   const [pushSupported, setPushSupported] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -142,35 +144,53 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
         >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <Badge className="absolute -top-0.5 -right-0.5 h-4 w-4 p-0 flex items-center justify-center text-[10px] bg-destructive border-2 border-background">
+            <Badge className="absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[9px] leading-none bg-destructive border border-background text-destructive-foreground">
               {unreadCount > 99 ? '99+' : unreadCount}
             </Badge>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-screen max-w-md md:w-96 rounded-xl p-0 shadow-lg border overflow-hidden md:overflow-visible max-h-screen md:max-h-[500px]">
-        <ScrollArea className="h-screen md:h-[500px] w-full">
-          <div className="p-4 space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b">
-              <h2 className="font-semibold text-sm">Notifications</h2>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">
-                  {notifications.length}
-                </Badge>
-                {unreadCount > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs"
-                    onClick={() => markAllAsRead()}
-                  >
-                    Mark all read
-                  </Button>
-                )}
-              </div>
-            </div>
+      <PopoverContent
+        align="end"
+        sideOffset={isMobile ? 10 : 8}
+        collisionPadding={isMobile ? 10 : 8}
+        className={cn(
+          'rounded-xl p-0 shadow-lg border overflow-hidden',
+          isMobile ? 'w-[min(96vw,25rem)] max-h-[75vh]' : 'w-96 max-h-[500px]'
+        )}
+      >
+        <div className="flex items-center justify-between border-b px-3.5 py-2.5">
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-sm">Notifications</h2>
+            <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[10px]">
+              {notifications.length}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1">
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => markAllAsRead()}
+              >
+                Mark all read
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-full"
+              onClick={() => setOpen(false)}
+              aria-label="Close notifications"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
 
+        <ScrollArea className={cn('w-full', isMobile ? 'h-[calc(75vh-3.1rem)]' : 'h-[450px]')}>
+          <div className="p-3.5 space-y-3">
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center py-8">
@@ -244,7 +264,7 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
 
             {/* Empty State */}
             {!loading && notifications.length === 0 && (
-              <div className="py-8 text-center text-muted-foreground">
+              <div className="py-12 text-center text-muted-foreground">
                 <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No notifications</p>
               </div>

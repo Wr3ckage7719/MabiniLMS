@@ -47,7 +47,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-2 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-3 md:space-y-8 animate-fade-in">
+    <div className="p-3 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-3.5 md:space-y-8 animate-fade-in">
       <div className="hidden md:block">
         <h1 className="text-xl md:text-3xl font-bold">Welcome back, {currentUserName}</h1>
         {isArchivedView ? (
@@ -99,7 +99,7 @@ export default function Dashboard() {
         <div className="space-y-5">
           {displayedArchivedClasses.length > 0 ? (
             <>
-              <div className="md:hidden space-y-2 animate-stagger">
+              <div className="md:hidden space-y-3 animate-stagger">
                 {displayedArchivedClasses.map((cls) => (
                   <ClassCard
                     key={cls.id}
@@ -140,9 +140,9 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <div className="md:hidden space-y-2">
+          <div className="md:hidden space-y-3">
             {activeClasses.length > 0 ? (
-              <div className="space-y-2 animate-stagger">
+              <div className="space-y-3 animate-stagger">
                 {activeClasses.map((cls) => (
                   <ClassCard
                     key={cls.id}

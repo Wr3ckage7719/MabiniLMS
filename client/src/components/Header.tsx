@@ -11,6 +11,7 @@ import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from '@/hooks/use-toast';
 import { notifyError, notifySuccess } from '@/lib/feedback';
+import { useIsMobile } from '@/hooks/use-mobile';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +32,7 @@ interface HeaderProps {
 export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { currentUserAvatar, currentUserName, currentUserAvatarUrl } = useRole();
   const { user, logout, loginWithGoogle, linkedStudentAccounts, switchStudentAccount } = useAuth();
@@ -83,7 +85,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
   return (
     <>
       <header className="sticky top-0 z-50 border-b bg-background md:glass">
-        <div className="flex items-center justify-between h-12 md:h-16 px-2.5 md:px-6">
+        <div className="flex items-center justify-between h-14 md:h-16 px-3 md:px-6">
           <div className="flex items-center gap-1.5 md:gap-3">
             <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="h-8 w-8 rounded-full md:hidden">
               <Menu className="h-5 w-5" />
@@ -161,7 +163,12 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 rounded-xl">
+              <DropdownMenuContent
+                align="end"
+                sideOffset={isMobile ? 8 : 6}
+                collisionPadding={isMobile ? 12 : 8}
+                className={`${isMobile ? 'w-[min(94vw,20rem)]' : 'w-56'} rounded-xl`}
+              >
                 <div className="px-2 py-1.5">
                   <p className="text-sm font-medium">{currentUserName}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
@@ -171,12 +178,12 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                   <Settings className="h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="rounded-lg gap-2">
-                    <User className="h-4 w-4" />
-                    Switch Account
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-72 rounded-xl">
+                {isMobile ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Switch Account</p>
+                    </div>
                     {linkedStudentAccounts.length === 0 && (
                       <DropdownMenuItem className="rounded-lg text-muted-foreground" disabled>
                         No linked institutional student accounts yet.
@@ -202,7 +209,6 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                       </DropdownMenuItem>
                     ))}
 
-                    <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="rounded-lg cursor-pointer gap-2"
                       onSelect={() => {
@@ -221,8 +227,61 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                       <Settings className="h-4 w-4" />
                       Manage linked accounts
                     </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                  </>
+                ) : (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="rounded-lg gap-2">
+                      <User className="h-4 w-4" />
+                      Switch Account
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-72 rounded-xl">
+                      {linkedStudentAccounts.length === 0 && (
+                        <DropdownMenuItem className="rounded-lg text-muted-foreground" disabled>
+                          No linked institutional student accounts yet.
+                        </DropdownMenuItem>
+                      )}
+
+                      {linkedStudentAccounts.map((account) => (
+                        <DropdownMenuItem
+                          key={account.userId}
+                          className="rounded-lg cursor-pointer"
+                          disabled={isSwitchingAccount}
+                          onSelect={() => {
+                            void handleSwitchToLinkedAccount(account.userId);
+                          }}
+                        >
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{account.displayName}</p>
+                              <p className="truncate text-xs text-muted-foreground">{account.email}</p>
+                            </div>
+                            {account.userId === user?.id && <Check className="h-4 w-4 text-primary" />}
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="rounded-lg cursor-pointer gap-2"
+                        onSelect={() => {
+                          void handleAddInstitutionalAccount();
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add institutional account
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="rounded-lg cursor-pointer gap-2"
+                        onSelect={() => {
+                          navigate('/settings#linked-accounts');
+                        }}
+                      >
+                        <Settings className="h-4 w-4" />
+                        Manage linked accounts
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => {
