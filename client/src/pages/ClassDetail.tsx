@@ -9,6 +9,7 @@ import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -71,6 +72,7 @@ export default function ClassDetail() {
   const studentsQuery = useStudents(classId);
   const gradesQuery = useGrades(classId);
   const weightedGradeQuery = useWeightedCourseGrade(classId);
+  const discussionPostsQuery = useDiscussionPosts(classId);
 
   const isLoading =
     classQuery.isLoading ||
@@ -98,6 +100,7 @@ export default function ClassDetail() {
   const materials = materialsQuery.data || [];
   const classStudents = studentsQuery.data || [];
   const classGrades = gradesQuery.data || [];
+  const discussionCommentCount = (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
 
   const assignmentGrades = new Map<string, string>();
   classGrades.forEach((grade: any) => {
@@ -256,8 +259,8 @@ export default function ClassDetail() {
         <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/30" />
         <div className="absolute -right-12 -bottom-12 w-44 h-44 md:w-48 md:h-48 rounded-full bg-white/10" />
         <div className="absolute -left-8 -top-8 w-24 h-24 md:w-32 md:h-32 rounded-full bg-white/5" />
-        <div className="relative z-10 p-2.5 md:p-6 lg:p-8 pb-4 md:pb-10">
-          <div className="flex items-center justify-between mb-1.5 md:mb-4 gap-2">
+        <div className="relative z-10 p-3 md:p-6 lg:p-8 pb-4 md:pb-10">
+          <div className="flex items-center justify-between mb-2.5 md:mb-4 gap-2">
             <Button
               variant="ghost"
               size="sm"
@@ -298,11 +301,11 @@ export default function ClassDetail() {
               </DropdownMenu>
             </div>
           </div>
-          <h1 className="text-[34px] leading-none md:text-2xl lg:text-3xl font-bold text-white tracking-tight">{cls.name}</h1>
-          <p className="text-[11px] md:text-sm text-white/80 mt-0.5 md:mt-1">
+          <h1 className="text-[34px] leading-none md:text-2xl lg:text-3xl font-bold text-white tracking-tight mt-0.5">{cls.name}</h1>
+          <p className="text-[11px] md:text-sm text-white/80 mt-1 md:mt-1.5">
             {classSubtitle}
           </p>
-          <p className="text-[11px] md:text-sm text-white/70 mt-0.5 md:mt-1">{cls.room} • {cls.schedule}</p>
+          <p className="text-[11px] md:text-sm text-white/70 mt-1 md:mt-1.5">{cls.room} • {cls.schedule}</p>
           <div className="hidden md:flex flex-wrap items-center gap-2 mt-2 md:mt-3">
             <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5">
               <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {displayedStudentCount} students
@@ -349,14 +352,19 @@ export default function ClassDetail() {
                 className="rounded-xl h-8 px-3 text-[11px] md:h-9 md:px-4 md:text-sm shrink-0"
                 onClick={() => setDiscussionOpen(true)}
               >
-                View class discussion
+                View class discussion ({discussionCommentCount})
               </Button>
             </div>
 
             {announcements.length > 0 ? (
               <div className="space-y-2 md:space-y-3 lg:space-y-4">
                 {announcements.map((a) => (
-                  <AnnouncementCard key={a.id} announcement={a} />
+                  <AnnouncementCard
+                    key={a.id}
+                    announcement={a}
+                    commentsCount={discussionCommentCount}
+                    onOpenDiscussion={() => setDiscussionOpen(true)}
+                  />
                 ))}
               </div>
             ) : (
@@ -682,11 +690,11 @@ export default function ClassDetail() {
 
       {discussionOpen && (
         <div
-          className="fixed inset-0 z-[90] bg-black/70 md:bg-black/60"
+          className="fixed inset-0 z-[90] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
           onClick={() => setDiscussionOpen(false)}
         >
           <div
-            className="h-full md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-2xl md:border md:border-white/10 md:shadow-2xl"
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <StudentClassStream
