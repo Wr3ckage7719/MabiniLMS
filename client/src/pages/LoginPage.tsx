@@ -7,6 +7,7 @@ import { SignupDialog } from '@/components/SignupDialog';
 import { ForgotPasswordDialog } from '@/components/ForgotPasswordDialog';
 import { useToast } from '@/hooks/use-toast';
 import { AppLogo } from '@/components/AppLogo';
+import { Eye, EyeOff } from 'lucide-react';
 
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isTeacher, setIsTeacher] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -198,20 +200,31 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <Input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (requiresTwoFactor) {
-                      setRequiresTwoFactor(false);
-                      setTwoFactorCode('');
-                    }
-                  }}
-                  className="rounded-xl bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 h-11"
-                  disabled={isLoading}
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (requiresTwoFactor) {
+                        setRequiresTwoFactor(false);
+                        setTwoFactorCode('');
+                      }
+                    }}
+                    className="h-11 rounded-xl border-0 bg-secondary/50 pr-10 focus-visible:ring-1 focus-visible:ring-primary/30"
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                    disabled={isLoading}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               {requiresTwoFactor && (
