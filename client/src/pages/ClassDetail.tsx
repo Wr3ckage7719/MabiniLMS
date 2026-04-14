@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CLASS_COLORS, type Assignment } from '@/lib/data';
+import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClass } from '@/hooks-api/useClasses';
@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
 import { AnnouncementCard } from '@/components/AnnouncementCard';
+import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { StudentClassStream } from '@/components/StudentClassStream';
 import {
   DropdownMenu,
@@ -61,6 +62,7 @@ export default function ClassDetail() {
   const { currentUserAvatar } = useRole();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] = useState<ClassAnnouncement | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const classId = id || '';
@@ -362,8 +364,11 @@ export default function ClassDetail() {
                   <AnnouncementCard
                     key={a.id}
                     announcement={a}
-                    commentsCount={discussionCommentCount}
-                    onOpenDiscussion={() => setDiscussionOpen(true)}
+                    commentsCount={a.comments}
+                    onOpenComments={() => {
+                      setDiscussionOpen(false);
+                      setSelectedAnnouncementForComments(a);
+                    }}
                   />
                 ))}
               </div>
@@ -403,6 +408,24 @@ export default function ClassDetail() {
                       </CardContent>
                     </Card>
                   );
+
+                  {selectedAnnouncementForComments && (
+                    <div
+                      className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+                      onClick={() => setSelectedAnnouncementForComments(null)}
+                    >
+                      <div
+                        className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <AnnouncementCommentsPanel
+                          courseId={classId}
+                          announcement={selectedAnnouncementForComments}
+                          onBack={() => setSelectedAnnouncementForComments(null)}
+                        />
+                      </div>
+                    </div>
+                  )}
                 })
               ) : (
                 <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">

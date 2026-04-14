@@ -13,6 +13,7 @@ export interface Announcement {
   title: string;
   content: string;
   pinned: boolean;
+  comments_count?: number;
   created_at: string;
   updated_at: string;
   author?: {
@@ -22,6 +23,29 @@ export interface Announcement {
     last_name: string;
     avatar_url: string | null;
   };
+}
+
+export interface AnnouncementCommentAuthor {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role?: string;
+  avatar_url: string | null;
+}
+
+export interface AnnouncementComment {
+  id: string;
+  announcement_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  author: AnnouncementCommentAuthor;
+}
+
+export interface AnnouncementCommentData {
+  content: string;
 }
 
 export const announcementsService = {
@@ -41,6 +65,22 @@ export const announcementsService = {
 
   async getAnnouncement(announcementId: string) {
     return apiClient.get<Announcement>(`/announcements/${announcementId}`);
+  },
+
+  async getAnnouncementComments(announcementId: string) {
+    return apiClient.get<{ data: AnnouncementComment[] }>(
+      `/announcements/${announcementId}/comments`
+    );
+  },
+
+  async createAnnouncementComment(
+    announcementId: string,
+    data: AnnouncementCommentData
+  ) {
+    return apiClient.post<{ data: AnnouncementComment }>(
+      `/announcements/${announcementId}/comments`,
+      data
+    );
   },
 
   async updateAnnouncement(announcementId: string, data: Partial<AnnouncementData>) {
