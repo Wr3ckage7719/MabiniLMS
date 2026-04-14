@@ -10,12 +10,14 @@ import { usersService } from '@/services/users.service';
 import { passwordStatusService } from '@/services/password-status.service';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFeedbackErrorMessage, notifyError, notifySuccess, notifyWarning } from '@/lib/feedback';
 import {
   getPushEnableErrorMessage,
   pushNotificationsService,
 } from '@/services/push-notifications.service';
 import axios from 'axios';
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, Link2, Loader2, Trash2, UserPlus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface LocalSettingsPreferences {
   darkMode: boolean;
@@ -31,8 +33,64 @@ const DEFAULT_LOCAL_SETTINGS: LocalSettingsPreferences = {
   dueDateReminders: true,
 };
 
+const getInitials = (value: string): string => {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return 'U';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0] || ''}${words[words.length - 1][0] || ''}`.toUpperCase();
+};
+
+const formatLastUsedAt = (value: string): string => {
+  const parsedTime = Date.parse(value);
+  if (Number.isNaN(parsedTime)) {
+    return 'Unknown';
+  }
+
+  const diffMinutes = Math.floor((Date.now() - parsedTime) / 60000);
+
+  if (diffMinutes < 1) {
+    return 'Just now';
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) {
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsedTime);
+};
+
 export default function SettingsPage() {
-  const { user, updateAvatar } = useAuth();
+  const navigate = useNavigate();
+  const {
+    user,
+    updateAvatar,
+    linkedStudentAccounts,
+    switchStudentAccount,
+    renameLinkedStudentAccount,
+    removeLinkedStudentAccount,
+    loginWithGoogle,
+  } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -53,6 +111,11 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [accountNameDrafts, setAccountNameDrafts] = useState<Record<string, string>>({});
+  const [isAddingLinkedAccount, setIsAddingLinkedAccount] = useState(false);
+  const [isSwitchingLinkedAccount, setIsSwitchingLinkedAccount] = useState<string | null>(null);
+  const [isRenamingLinkedAccount, setIsRenamingLinkedAccount] = useState<string | null>(null);
+  const [isRemovingLinkedAccount, setIsRemovingLinkedAccount] = useState<string | null>(null);
 
   const settingsStorageKey = user?.id ? `mabini:settings:${user.id}` : null;
 
@@ -167,6 +230,18 @@ export default function SettingsPage() {
     setLastName(restTokens.join(' '));
   }, [user?.name]);
 
+  useEffect(() => {
+    setAccountNameDrafts((previousDrafts) => {
+      const nextDrafts: Record<string, string> = {};
+
+      linkedStudentAccounts.forEach((account) => {
+        nextDrafts[account.userId] = previousDrafts[account.userId] ?? account.customName ?? '';
+      });
+
+      return nextDrafts;
+    });
+  }, [linkedStudentAccounts]);
+
   const avatarFallback = useMemo(() => {
     if (!user?.name) return 'U';
     const initials = user.name
@@ -198,21 +273,13 @@ export default function SettingsPage() {
 
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
-      toast({
-        title: 'Invalid file type',
-        description: 'Please upload JPG, PNG, GIF, or WebP.',
-        variant: 'destructive',
-      });
+      notifyWarning(toast, 'Please upload JPG, PNG, GIF, or WebP.', 'Invalid file type');
       event.target.value = '';
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: 'File too large',
-        description: 'Avatar must be 5MB or less.',
-        variant: 'destructive',
-      });
+      notifyWarning(toast, 'Avatar must be 5MB or less.', 'File too large');
       event.target.value = '';
       return;
     }
@@ -225,10 +292,7 @@ export default function SettingsPage() {
         setAvatarUrl(uploadedAvatarUrl);
         updateAvatar(uploadedAvatarUrl);
       }
-      toast({
-        title: 'Avatar updated',
-        description: 'Your profile avatar has been updated.',
-      });
+      notifySuccess(toast, 'Your profile avatar has been updated.', 'Avatar updated');
     } catch (error) {
       const isNetworkError = axios.isAxiosError(error) && !error.response;
       const responseMessage = axios.isAxiosError(error)
@@ -241,11 +305,7 @@ export default function SettingsPage() {
           ? error.message
           : 'Unable to update avatar.');
 
-      toast({
-        title: 'Upload failed',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      notifyError(toast, errorMessage, 'Upload failed');
     } finally {
       setIsUploadingAvatar(false);
       event.target.value = '';
@@ -266,10 +326,7 @@ export default function SettingsPage() {
         last_name: lastName.trim() || undefined,
       });
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
-        ? error.response?.data?.error?.message || error.response?.data?.message
-        : undefined;
-      profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
+      profileSaveError = getFeedbackErrorMessage(error, 'Unable to update profile.');
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {
@@ -284,16 +341,13 @@ export default function SettingsPage() {
     }
 
     if (profileSaveError) {
-      toast({
-        title: 'Profile save failed',
-        description: `${profileSaveError} Appearance and notification settings were saved locally.`,
-        variant: 'destructive',
-      });
+      notifyError(
+        toast,
+        `${profileSaveError} Appearance and notification settings were saved locally.`,
+        'Profile save failed'
+      );
     } else {
-      toast({
-        title: 'Settings saved',
-        description: 'Your profile and preferences have been saved.',
-      });
+      notifySuccess(toast, 'Your profile and preferences have been saved.', 'Settings saved');
     }
 
     setIsSavingProfile(false);
@@ -313,18 +367,15 @@ export default function SettingsPage() {
       setPushNotifications(didEnable);
 
       if (!didEnable) {
-        toast({
-          title: 'Push permission not granted',
-          description: 'Allow notifications in your browser settings to enable push notifications.',
-        });
+        notifyWarning(
+          toast,
+          'Allow notifications in your browser settings to enable push notifications.',
+          'Push permission not granted'
+        );
       }
     } catch (error) {
       setPushNotifications(false);
-      toast({
-        title: 'Unable to enable push notifications',
-        description: getPushEnableErrorMessage(error),
-        variant: 'destructive',
-      });
+      notifyError(toast, getPushEnableErrorMessage(error), 'Unable to enable push notifications');
     } finally {
       setIsUpdatingPush(false);
     }
@@ -355,10 +406,7 @@ export default function SettingsPage() {
       setConfirmPassword('');
       setRequiresPasswordChange(false);
 
-      toast({
-        title: 'Password updated',
-        description: 'Your password has been changed successfully.',
-      });
+      notifySuccess(toast, 'Your password has been changed successfully.', 'Password updated');
     } catch (error) {
       const responseMessage = axios.isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
@@ -368,6 +416,90 @@ export default function SettingsPage() {
       );
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleAddLinkedAccount = async () => {
+    setIsAddingLinkedAccount(true);
+    try {
+      await loginWithGoogle('student');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open institutional account picker.';
+      notifyError(toast, message, 'Add account failed');
+    } finally {
+      setIsAddingLinkedAccount(false);
+    }
+  };
+
+  const handleSwitchLinkedAccount = async (targetUserId: string) => {
+    if (targetUserId === user?.id) {
+      return;
+    }
+
+    const targetAccount = linkedStudentAccounts.find((account) => account.userId === targetUserId);
+
+    setIsSwitchingLinkedAccount(targetUserId);
+    try {
+      await switchStudentAccount(targetUserId);
+      notifySuccess(
+        toast,
+        targetAccount ? `Now using ${targetAccount.email}.` : 'Student account switched.',
+        'Account switched'
+      );
+      navigate('/dashboard', { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to switch linked account.';
+      notifyError(toast, message, 'Switch failed');
+    } finally {
+      setIsSwitchingLinkedAccount(null);
+    }
+  };
+
+  const handleRenameLinkedAccount = (accountId: string) => {
+    const requestedName = (accountNameDrafts[accountId] || '').trim();
+
+    setIsRenamingLinkedAccount(accountId);
+    try {
+      renameLinkedStudentAccount(accountId, requestedName);
+      setAccountNameDrafts((previousDrafts) => ({
+        ...previousDrafts,
+        [accountId]: requestedName,
+      }));
+      notifySuccess(
+        toast,
+        requestedName ? 'Linked account label saved.' : 'Linked account label cleared.',
+        'Account name updated'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to rename linked account.';
+      notifyError(toast, message, 'Rename failed');
+    } finally {
+      setIsRenamingLinkedAccount(null);
+    }
+  };
+
+  const handleRemoveLinkedAccount = (accountId: string, accountEmail: string) => {
+    if (accountId === user?.id) {
+      notifyWarning(toast, 'Switch to another linked account first before removing this one.', 'Cannot remove active account');
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      const shouldRemove = window.confirm(`Remove linked account ${accountEmail}?`);
+      if (!shouldRemove) {
+        return;
+      }
+    }
+
+    setIsRemovingLinkedAccount(accountId);
+    try {
+      removeLinkedStudentAccount(accountId);
+      notifySuccess(toast, `${accountEmail} was removed from this device.`, 'Linked account removed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove linked account.';
+      notifyError(toast, message, 'Remove failed');
+    } finally {
+      setIsRemovingLinkedAccount(null);
     }
   };
 
@@ -428,6 +560,126 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <div id="linked-accounts">
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="space-y-4 sm:space-y-3">
+            <div>
+              <CardTitle className="text-base">Linked Accounts</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Manage institutional student accounts on this device: add, switch, rename, or remove.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-xl sm:w-auto"
+              onClick={() => {
+                void handleAddLinkedAccount();
+              }}
+              disabled={isAddingLinkedAccount}
+            >
+              {isAddingLinkedAccount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+              Add institutional account
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {linkedStudentAccounts.length === 0 ? (
+              <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                No linked institutional accounts yet. Add one to enable instant switching.
+              </div>
+            ) : (
+              linkedStudentAccounts.map((account) => (
+                <div key={account.userId} className="space-y-3 rounded-xl border border-border/70 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar className="h-10 w-10">
+                        {account.avatarUrl ? <AvatarImage src={account.avatarUrl} alt={`${account.displayName} avatar`} /> : null}
+                        <AvatarFallback>{getInitials(account.displayName || account.email)}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{account.displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{account.email}</p>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock3 className="h-3 w-3" />
+                          <span>Last used {formatLastUsedAt(account.lastUsedAt)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {account.userId === user?.id ? (
+                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          Active
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="rounded-lg"
+                          onClick={() => {
+                            void handleSwitchLinkedAccount(account.userId);
+                          }}
+                          disabled={isSwitchingLinkedAccount !== null}
+                        >
+                          {isSwitchingLinkedAccount === account.userId ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Link2 className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          Switch
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                    <Input
+                      value={accountNameDrafts[account.userId] ?? account.customName ?? ''}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setAccountNameDrafts((previousDrafts) => ({
+                          ...previousDrafts,
+                          [account.userId]: value,
+                        }));
+                      }}
+                      placeholder="Custom name (optional)"
+                      className="rounded-xl"
+                    />
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => {
+                        handleRenameLinkedAccount(account.userId);
+                      }}
+                      disabled={isRenamingLinkedAccount === account.userId}
+                    >
+                      {isRenamingLinkedAccount === account.userId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Save name
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="rounded-xl text-destructive hover:text-destructive"
+                      onClick={() => {
+                        handleRemoveLinkedAccount(account.userId, account.email);
+                      }}
+                      disabled={isRemovingLinkedAccount === account.userId || account.userId === user?.id}
+                    >
+                      {isRemovingLinkedAccount === account.userId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card className="border-0 shadow-sm">
         <CardHeader><CardTitle className="text-base">Appearance</CardTitle></CardHeader>
