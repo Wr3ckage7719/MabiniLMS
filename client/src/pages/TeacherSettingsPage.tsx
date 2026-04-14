@@ -8,6 +8,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { usersService } from '@/services/users.service';
 import { useToast } from '@/hooks/use-toast';
+import {
+  getRoleBasedDefaultZoomLock,
+  readPwaMobileZoomPolicyPreference,
+  writePwaMobileZoomPolicyPreference,
+} from '@/lib/pwa-zoom-policy';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 
@@ -38,9 +43,27 @@ export default function TeacherSettingsPage() {
   const [emailNotifications, setEmailNotifications] = useState(DEFAULT_LOCAL_SETTINGS.emailNotifications);
   const [pushNotifications, setPushNotifications] = useState(DEFAULT_LOCAL_SETTINGS.pushNotifications);
   const [dueDateReminders, setDueDateReminders] = useState(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
+  const [lockPwaMobileZoom, setLockPwaMobileZoom] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
 
   const settingsStorageKey = user?.id ? `mabini:settings:${user.id}` : null;
+  const roleBasedDefaultZoomLock = useMemo(() => getRoleBasedDefaultZoomLock(user?.role || null), [user?.role]);
+
+  useEffect(() => {
+    const preference = readPwaMobileZoomPolicyPreference();
+
+    if (preference === 'enabled') {
+      setLockPwaMobileZoom(true);
+      return;
+    }
+
+    if (preference === 'disabled') {
+      setLockPwaMobileZoom(false);
+      return;
+    }
+
+    setLockPwaMobileZoom(roleBasedDefaultZoomLock);
+  }, [roleBasedDefaultZoomLock]);
 
   useEffect(() => {
     if (!settingsStorageKey || typeof window === 'undefined') {
@@ -201,6 +224,14 @@ export default function TeacherSettingsPage() {
       localStorage.setItem('theme', darkMode ? 'dark' : 'light');
     }
 
+    writePwaMobileZoomPolicyPreference(
+      lockPwaMobileZoom === roleBasedDefaultZoomLock
+        ? 'auto'
+        : lockPwaMobileZoom
+          ? 'enabled'
+          : 'disabled'
+    );
+
     if (profileSaveError) {
       toast({
         title: 'Profile save failed',
@@ -284,6 +315,15 @@ export default function TeacherSettingsPage() {
               <p className="text-xs text-muted-foreground">Enable dark theme for the application</p>
             </div>
             <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-sm">Lock zoom in installed mobile app</p>
+              <p className="text-xs text-muted-foreground">
+                Applies only in PWA mode. Role default is {roleBasedDefaultZoomLock ? 'On' : 'Off'}.
+              </p>
+            </div>
+            <Switch checked={lockPwaMobileZoom} onCheckedChange={setLockPwaMobileZoom} />
           </div>
         </CardContent>
       </Card>

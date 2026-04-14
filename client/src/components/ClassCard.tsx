@@ -48,7 +48,7 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
         onClick={() => !isArchived && navigate(`/class/${classItem.id}`)}
       >
         <div
-          className={`md:hidden min-h-[106px] px-3.5 py-3.5 relative overflow-hidden rounded-2xl ${isArchived ? 'opacity-70' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
+          className={`md:hidden min-h-[146px] px-4 py-4 relative overflow-hidden rounded-[24px] ${isArchived ? 'opacity-70' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
           style={
             classItem.coverImage
               ? {
@@ -61,18 +61,18 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
         >
           {classItem.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
           <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
-          <div className="absolute -right-4 -bottom-5 w-28 h-28 rounded-full bg-white/12" />
-          <div className="absolute -right-6 -top-7 w-20 h-20 rounded-full bg-white/10" />
+          <div className="absolute -right-5 -bottom-7 w-32 h-32 rounded-full bg-white/12" />
+          <div className="absolute -right-2 -top-4 w-16 h-16 rounded-full bg-white/10" />
 
-          <div className="relative z-10 flex h-full flex-col justify-between">
-            <div>
-              <h3 className="text-[29px] leading-none font-bold text-white tracking-tight truncate">{classItem.name}</h3>
-              <p className="text-sm text-white/85 mt-1 truncate">{classItem.section || 'Section'}</p>
+          <div className="relative z-10 flex h-full flex-col justify-between gap-5">
+            <div className="pr-8">
+              <h3 className="text-[18px] leading-tight font-bold text-white tracking-tight truncate">{classItem.name}</h3>
+              <p className="text-[14px] text-white/90 mt-0.5 truncate">{classItem.section || 'Section'}</p>
             </div>
 
             <div>
-              <p className="text-sm font-medium text-white/95 truncate">{classItem.teacher}</p>
-              <p className="text-[11px] text-white/75 truncate">{classItem.room} • {classItem.schedule}</p>
+              <p className="text-[14px] font-semibold text-white/95 truncate">{classItem.teacher}</p>
+              <p className="text-[13px] text-white/80 truncate">{classItem.room} • {classItem.schedule}</p>
               {isArchived && (
                 <div className="mt-1 inline-block">
                   <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-md">Archived</span>
