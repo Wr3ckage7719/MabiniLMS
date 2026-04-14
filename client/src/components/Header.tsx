@@ -30,9 +30,14 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
   const { user, logout } = useAuth();
   const { isInstallable, install } = usePWAInstall();
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
+  const handleSwitchAccount = async () => {
+    await logout();
+    navigate('/login?switch_account=1', { replace: true });
   };
 
   const handleHomeClick = () => {
@@ -121,13 +126,20 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                   <Settings className="h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem className="rounded-lg cursor-pointer gap-2">
+                <DropdownMenuItem
+                  className="rounded-lg cursor-pointer gap-2"
+                  onSelect={() => {
+                    void handleSwitchAccount();
+                  }}
+                >
                   <User className="h-4 w-4" />
                   Switch Account
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={handleLogout}
+                  onSelect={() => {
+                    void handleLogout();
+                  }}
                   className="rounded-lg cursor-pointer gap-2 text-destructive focus:text-destructive"
                 >
                   <LogOut className="h-4 w-4" />
