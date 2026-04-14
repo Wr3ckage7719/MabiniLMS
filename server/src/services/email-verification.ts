@@ -381,6 +381,22 @@ export const resetPasswordWithToken = async (token: string, newPassword: string)
     )
   }
 
+  const { error: temporaryPasswordUpdateError } = await supabaseAdmin
+    .from('temporary_passwords')
+    .update({
+      used_at: new Date().toISOString(),
+      must_change_password: false,
+    })
+    .eq('user_id', tokenData.user_id)
+    .is('used_at', null)
+
+  if (temporaryPasswordUpdateError) {
+    logger.warn('Failed to clear temporary password requirement after reset', {
+      userId: tokenData.user_id,
+      error: temporaryPasswordUpdateError.message,
+    })
+  }
+
   // Get user email
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')

@@ -33,9 +33,13 @@ export default function AppLayout() {
       try {
         const { data } = await supabase
           .from('temporary_passwords')
-          .select('must_change_password')
+          .select('must_change_password, expires_at')
           .eq('user_id', user.id)
+          .eq('must_change_password', true)
           .is('used_at', null)
+          .gt('expires_at', new Date().toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
         
         setMustChangePassword(data?.must_change_password || false);

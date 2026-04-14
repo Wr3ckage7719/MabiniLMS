@@ -124,6 +124,24 @@ const issueTemporaryPassword = async (userId: string, temporaryPassword: string)
   }
 };
 
+const clearTemporaryPasswordRequirement = async (userId: string): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('temporary_passwords')
+    .update({
+      used_at: new Date().toISOString(),
+      must_change_password: false,
+    })
+    .eq('user_id', userId)
+    .is('used_at', null);
+
+  if (error) {
+    logger.warn('Failed to clear temporary password requirement', {
+      userId,
+      error: error.message,
+    });
+  }
+};
+
 const getStudentSignupEmailErrorMessage = (error: unknown): string => {
   const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
   const message = rawMessage.toLowerCase();
@@ -171,7 +189,7 @@ const STUDENT_SIGNUP_CREDENTIALS_MESSAGE =
   'Temporary login credentials have been sent to your institutional inbox.';
 
 const STUDENT_SIGNUP_RESET_LINK_MESSAGE =
-  'Credentials email could not be delivered, so we sent a secure password setup link instead.';
+  'Account setup link sent. Set your password there, then sign in with your email and password.';
 
 const shouldUseStudentSignupResetLinkFallback = (error: unknown): boolean => {
   const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
@@ -570,6 +588,7 @@ export const requestStudentCredentialSignup = async (
     }
 
     delivery = 'password_reset_link';
+    await clearTemporaryPasswordRequirement(userId);
   }
 
   await auditService.logAuthEvent(
@@ -931,6 +950,7 @@ export const resetPassword = async (
 
   // Update password_changed_at to invalidate existing sessions
   await updatePasswordChangedAt(user.id);
+  await clearTemporaryPasswordRequirement(user.id);
 };
 
 /**
@@ -988,6 +1008,7 @@ export const changePassword = async (
 
   // Update password_changed_at to invalidate other sessions
   await updatePasswordChangedAt(userId);
+  await clearTemporaryPasswordRequirement(userId);
   
   // Log password change event
   await auditService.logPasswordEvent(

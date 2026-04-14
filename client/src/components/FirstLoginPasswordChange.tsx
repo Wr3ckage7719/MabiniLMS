@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import {
   Dialog,
@@ -59,11 +58,20 @@ export default function FirstLoginPasswordChange({
       if (updateError) throw updateError;
 
       // Mark temporary password as used
-      await supabase
+      const { error: temporaryPasswordError } = await supabase
         .from('temporary_passwords')
-        .update({ used_at: new Date().toISOString() })
+        .update({
+          used_at: new Date().toISOString(),
+          must_change_password: false,
+        })
         .eq('user_id', userId)
         .is('used_at', null);
+
+      if (temporaryPasswordError) {
+        throw new Error(
+          'Password was updated, but your first-login status could not be saved. Please try again.'
+        );
+      }
 
       onComplete();
     } catch (err: any) {

@@ -134,7 +134,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
           <DialogDescription>
             {isTeacher
               ? 'Register your teacher account. Admin approval may be required before access.'
-              : `Enter your institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}). We will send temporary credentials to your inbox.`}
+              : `Enter your institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}). We will send an account setup email so you can sign in with your password.`}
           </DialogDescription>
           <div className="pt-2">
             <span className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -163,7 +163,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
               className="w-full h-11 rounded-xl font-medium bg-foreground text-background hover:bg-foreground/90"
               disabled={isLoading}
             >
-              {isLoading ? 'Requesting...' : 'Send My Credentials'}
+              {isLoading ? 'Requesting...' : 'Send Account Setup Email'}
             </Button>
           </form>
         ) : (
