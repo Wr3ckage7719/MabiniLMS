@@ -27,11 +27,24 @@ export const usersService = {
       last_name = restTokens.join(' ');
     }
 
-    return apiClient.patch('/users/me', {
+    const payload = {
       first_name,
       last_name,
       avatar_url: data.avatar_url,
-    });
+    };
+
+    try {
+      return await apiClient.patch('/users/me', payload);
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+
+      // Support older backends that only expose PUT /users/me.
+      if (status === 404 || status === 405 || status === 501) {
+        return apiClient.put('/users/me', payload);
+      }
+
+      throw error;
+    }
   },
 
   async changePassword(data: ChangePasswordData) {
