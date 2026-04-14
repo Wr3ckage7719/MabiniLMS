@@ -4,6 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usersService } from '@/services/users.service';
@@ -84,6 +85,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const {
     user,
+    isLoading: isAuthLoading,
     updateAvatar,
     linkedStudentAccounts,
     switchStudentAccount,
@@ -577,16 +579,55 @@ export default function SettingsPage() {
               onClick={() => {
                 void handleAddLinkedAccount();
               }}
-              disabled={isAddingLinkedAccount}
+              disabled={isAddingLinkedAccount || isAuthLoading}
             >
               {isAddingLinkedAccount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
               Add institutional account
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">
-            {linkedStudentAccounts.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-                No linked institutional accounts yet. Add one to enable instant switching.
+            {isAuthLoading ? (
+              <div className="space-y-3">
+                {[0, 1].map((index) => (
+                  <div key={`linked-account-skeleton-${index}`} className="space-y-3 rounded-xl border border-border/70 p-3">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-10 w-10 rounded-full" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-36" />
+                        <Skeleton className="h-3 w-48" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                      <Skeleton className="h-8 w-16 rounded-lg" />
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-24 rounded-xl" />
+                      <Skeleton className="h-10 w-24 rounded-xl" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : linkedStudentAccounts.length === 0 ? (
+              <div className="rounded-xl border border-dashed px-4 py-6 text-center">
+                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Link2 className="h-4 w-4" />
+                </div>
+                <p className="text-sm font-medium">No linked institutional accounts yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Add your other student accounts to switch instantly without signing out.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 rounded-xl"
+                  onClick={() => {
+                    void handleAddLinkedAccount();
+                  }}
+                  disabled={isAddingLinkedAccount}
+                >
+                  {isAddingLinkedAccount ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+                  Add first account
+                </Button>
               </div>
             ) : (
               linkedStudentAccounts.map((account) => (
