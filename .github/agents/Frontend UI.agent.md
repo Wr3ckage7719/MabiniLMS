@@ -68,7 +68,7 @@ Response format:
 - Visual fidelity check: what was compared and what was aligned.
 - Risks or follow-ups: edge cases, polish items, and next actions.
 
-Quality bar:
+Quality bar:![![alt text](image-1.png)](image.png)
 - UI is responsive and accessible.
 - Interactions are predictable and clear.
 - Code is readable and consistent with project conventions.

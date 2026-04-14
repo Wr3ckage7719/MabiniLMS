@@ -106,15 +106,15 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 md:gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
+          <div className="flex items-center gap-2 md:gap-2">
+            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
               <Search className="h-5 w-5" />
             </Button>
 
             <Button
               variant="default"
               size="icon"
-              className="h-8 w-8 rounded-full md:hidden"
+              className="h-9 w-9 rounded-full md:hidden"
               onClick={onJoinClass}
               aria-label="Join class"
             >
@@ -131,7 +131,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
               <span className="hidden sm:inline">Join Class</span>
             </Button>
 
-            <NotificationsPopover role="student" buttonClassName="h-8 w-8 rounded-full md:h-10 md:w-10 md:rounded-xl" />
+            <NotificationsPopover role="student" buttonClassName="h-9 w-9 rounded-full md:h-10 md:w-10 md:rounded-xl" />
 
             {/* Install App Button - only shown when installable */}
             {isInstallable && (

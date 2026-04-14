@@ -9,6 +9,7 @@ import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useMaterials } from '@/hooks-api/useMaterials';
 import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -55,10 +56,12 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
 export default function ClassDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { currentUserAvatar } = useRole();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
+  const [discussionOpen, setDiscussionOpen] = useState(false);
   const classId = id || '';
 
   const classQuery = useClass(classId);
@@ -318,19 +321,19 @@ export default function ClassDetail() {
           </div>
         )}
 
-        <Tabs defaultValue="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
-          <TabsList className="bg-secondary/50 p-1 rounded-xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
-            <TabsTrigger value="stream" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+        <Tabs defaultValue={isMobile ? 'classwork' : 'stream'} className="space-y-3 md:space-y-4 lg:space-y-6">
+          <TabsList className="bg-secondary/60 border border-border/70 p-1 rounded-2xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
+            <TabsTrigger value="stream" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <Monitor className="h-3.5 w-3.5 md:hidden" />
               Stream
             </TabsTrigger>
-            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-lg data-[state=active]:shadow-sm text-[11px] px-2 py-1.5 gap-1">
+            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] px-2 py-1.5 gap-1">
               <ClipboardList className="h-3.5 w-3.5" />
               Classwork
             </TabsTrigger>
             <TabsTrigger value="materials" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Materials</TabsTrigger>
             <TabsTrigger value="assignments" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Assignments</TabsTrigger>
-            <TabsTrigger value="people" className="flex-col md:flex-row rounded-lg data-[state=active]:shadow-sm text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+            <TabsTrigger value="people" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <UserRound className="h-3.5 w-3.5 md:hidden" />
               People
             </TabsTrigger>
@@ -339,21 +342,28 @@ export default function ClassDetail() {
 
           {/* Stream */}
           <TabsContent value="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
-            {/* Announcements Section */}
-            {announcements.length > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-[13px] md:text-base">Announcements</h3>
+              <Button
+                type="button"
+                className="rounded-xl h-8 px-3 text-[11px] md:h-9 md:px-4 md:text-sm shrink-0"
+                onClick={() => setDiscussionOpen(true)}
+              >
+                View class discussion
+              </Button>
+            </div>
+
+            {announcements.length > 0 ? (
               <div className="space-y-2 md:space-y-3 lg:space-y-4">
-                <h3 className="font-semibold text-[13px] md:text-base">Announcements</h3>
                 {announcements.map((a) => (
                   <AnnouncementCard key={a.id} announcement={a} />
                 ))}
               </div>
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-card px-3 py-5 text-center">
+                <p className="text-xs md:text-sm text-muted-foreground">No teacher announcements yet.</p>
+              </div>
             )}
-
-            {/* Student Discussion Section */}
-            <div>
-              <h3 className="font-semibold text-[13px] md:text-base mb-2 md:mb-4">Class Discussion</h3>
-              <StudentClassStream classId={classId} />
-            </div>
           </TabsContent>
 
           {/* Mobile Classwork */}
@@ -366,7 +376,7 @@ export default function ClassDetail() {
                   return (
                     <Card
                       key={`mobile-assignment-${a.id}`}
-                      className="rounded-xl border border-border/70 shadow-none"
+                      className="rounded-[14px] border border-border/70 shadow-none"
                       onClick={() => setSelectedAssignment(a)}
                     >
                       <CardContent className="p-3">
@@ -387,7 +397,7 @@ export default function ClassDetail() {
                   );
                 })
               ) : (
-                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
                   No assignments yet
                 </div>
               )}
@@ -399,7 +409,7 @@ export default function ClassDetail() {
                 materials.map((material) => {
                   const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
                   return (
-                    <Card key={`mobile-material-${material.id}`} className="rounded-xl border border-border/70 shadow-none">
+                    <Card key={`mobile-material-${material.id}`} className="rounded-[14px] border border-border/70 shadow-none">
                       <CardContent className="p-3">
                         <div className="flex items-start gap-2.5">
                           <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
@@ -415,7 +425,7 @@ export default function ClassDetail() {
                   );
                 })
               ) : (
-                <div className="rounded-xl border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
+                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
                   No materials uploaded yet
                 </div>
               )}
@@ -669,6 +679,24 @@ export default function ClassDetail() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {discussionOpen && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/70 md:bg-black/60"
+          onClick={() => setDiscussionOpen(false)}
+        >
+          <div
+            className="h-full md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-2xl md:border md:border-white/10 md:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <StudentClassStream
+              classId={classId}
+              variant="class-comments"
+              onBack={() => setDiscussionOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       <AssignmentDetailDialog
         assignment={selectedAssignment}

@@ -110,6 +110,27 @@
   }
 }
 
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    overscroll-behavior-y: none;
+    touch-action: manipulation;
+  }
+
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+    background: transparent;
+  }
+}
+
 @layer utilities {
   .glass {
     @apply bg-card/80 backdrop-blur-xl border border-border/50;
