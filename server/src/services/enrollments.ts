@@ -14,6 +14,181 @@ import logger from '../utils/logger.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHORT_CLASS_CODE_REGEX = /^[0-9a-f]{8}$/i;
+const LEGACY_ACTIVE_ENROLLMENT_STATUS = 'enrolled';
+const ACTIVE_ENROLLMENT_STATUSES = [
+  EnrollmentStatus.ACTIVE,
+  LEGACY_ACTIVE_ENROLLMENT_STATUS,
+];
+
+const normalizeDbErrorText = (error: { message?: string; details?: string; hint?: string } | null): string => {
+  if (!error) {
+    return '';
+  }
+
+  return [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const isMissingColumnError = (
+  error: { code?: string; message?: string; details?: string; hint?: string } | null,
+  column: string
+): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  return error.code === '42703' && normalizeDbErrorText(error).includes(column.toLowerCase());
+};
+
+const isStatusCompatibilityError = (
+  error: { code?: string; message?: string; details?: string; hint?: string } | null
+): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const text = normalizeDbErrorText(error);
+
+  return (
+    ((error.code === '23514' || error.code === '22P02') && text.includes('status')) ||
+    (text.includes('invalid input value for enum') && text.includes('status')) ||
+    (text.includes('status') && text.includes('check constraint'))
+  );
+};
+
+const isActiveEnrollmentStatus = (status: unknown): boolean => {
+  const normalizedStatus = String(status || '').toLowerCase();
+  return ACTIVE_ENROLLMENT_STATUSES.includes(normalizedStatus as EnrollmentStatus | string);
+};
+
+const buildEnrollmentMutationPayload = (
+  status: string,
+  includeEnrolledAt: boolean
+): { status: string; enrolled_at?: string } => {
+  return includeEnrolledAt
+    ? {
+        status,
+        enrolled_at: new Date().toISOString(),
+      }
+    : {
+        status,
+      };
+};
+
+const insertEnrollmentWithCompatibility = async (
+  courseId: string,
+  studentId: string
+): Promise<{ data: Enrollment | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
+  const primaryInsertPayload = {
+    course_id: courseId,
+    student_id: studentId,
+    ...buildEnrollmentMutationPayload(EnrollmentStatus.ACTIVE, true),
+  };
+
+  const { data: primaryData, error: primaryError } = await supabaseAdmin
+    .from('enrollments')
+    .insert(primaryInsertPayload)
+    .select()
+    .single();
+
+  if (!primaryError) {
+    return { data: primaryData as Enrollment, error: null };
+  }
+
+  const fallbackStatus = isStatusCompatibilityError(primaryError)
+    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
+    : EnrollmentStatus.ACTIVE;
+  const includeEnrolledAt = !isMissingColumnError(primaryError, 'enrolled_at');
+
+  if (fallbackStatus === EnrollmentStatus.ACTIVE && includeEnrolledAt) {
+    return { data: null, error: primaryError };
+  }
+
+  logger.warn('Retrying enrollment insert with compatibility fallback', {
+    courseId,
+    studentId,
+    fallbackStatus,
+    includeEnrolledAt,
+    initialErrorCode: primaryError.code,
+    initialErrorMessage: primaryError.message,
+  });
+
+  const retryPayload = {
+    course_id: courseId,
+    student_id: studentId,
+    ...buildEnrollmentMutationPayload(fallbackStatus, includeEnrolledAt),
+  };
+
+  const { data: retryData, error: retryError } = await supabaseAdmin
+    .from('enrollments')
+    .insert(retryPayload)
+    .select()
+    .single();
+
+  if (!retryError) {
+    return { data: retryData as Enrollment, error: null };
+  }
+
+  return { data: null, error: retryError };
+};
+
+const reactivateEnrollmentWithCompatibility = async (
+  courseId: string,
+  studentId: string,
+  preferLegacyStatus: boolean
+): Promise<{ data: Enrollment[] | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
+  const primaryStatus = preferLegacyStatus
+    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
+    : EnrollmentStatus.ACTIVE;
+
+  const primaryUpdatePayload = buildEnrollmentMutationPayload(primaryStatus, true);
+
+  const { data: primaryData, error: primaryError } = await supabaseAdmin
+    .from('enrollments')
+    .update(primaryUpdatePayload)
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .select();
+
+  if (!primaryError) {
+    return { data: (primaryData || []) as Enrollment[], error: null };
+  }
+
+  const fallbackStatus = isStatusCompatibilityError(primaryError)
+    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
+    : primaryStatus;
+  const includeEnrolledAt = !isMissingColumnError(primaryError, 'enrolled_at');
+
+  if (fallbackStatus === primaryStatus && includeEnrolledAt) {
+    return { data: null, error: primaryError };
+  }
+
+  logger.warn('Retrying enrollment reactivation with compatibility fallback', {
+    courseId,
+    studentId,
+    fallbackStatus,
+    includeEnrolledAt,
+    initialErrorCode: primaryError.code,
+    initialErrorMessage: primaryError.message,
+  });
+
+  const retryUpdatePayload = buildEnrollmentMutationPayload(fallbackStatus, includeEnrolledAt);
+
+  const { data: retryData, error: retryError } = await supabaseAdmin
+    .from('enrollments')
+    .update(retryUpdatePayload)
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .select();
+
+  if (!retryError) {
+    return { data: (retryData || []) as Enrollment[], error: null };
+  }
+
+  return { data: null, error: retryError };
+};
 
 const resolveCourseIdFromReference = async (courseReference: string): Promise<string> => {
   const normalizedReference = courseReference.trim().toLowerCase();
@@ -190,10 +365,9 @@ export const enrollStudent = async (
   // Check for existing enrollment records (including inactive duplicates)
   const { data: existingEnrollments, error: existingEnrollmentError } = await supabaseAdmin
     .from('enrollments')
-    .select('id, status, enrolled_at')
+    .select('id, status')
     .eq('course_id', courseId)
-    .eq('student_id', studentId)
-    .order('enrolled_at', { ascending: false });
+    .eq('student_id', studentId);
 
   if (existingEnrollmentError) {
     logger.error('Failed to check existing enrollment records', {
@@ -215,7 +389,7 @@ export const enrollStudent = async (
 
   const enrollmentRows = existingEnrollments || [];
   const activeEnrollment = enrollmentRows.find(
-    (enrollment) => enrollment.status === EnrollmentStatus.ACTIVE
+    (enrollment) => isActiveEnrollmentStatus(enrollment.status)
   );
 
   if (activeEnrollment) {
@@ -232,15 +406,14 @@ export const enrollStudent = async (
 
   if (enrollmentRows.length > 0) {
     // Re-activate any existing enrollment rows for this student in this course.
-    const { data: reactivatedRows, error: reactivationError } = await supabaseAdmin
-      .from('enrollments')
-      .update({
-        status: EnrollmentStatus.ACTIVE,
-        enrolled_at: new Date().toISOString(),
-      })
-      .eq('course_id', courseId)
-      .eq('student_id', studentId)
-      .select();
+    const preferLegacyStatus = enrollmentRows.some(
+      (enrollment) => String(enrollment.status || '').toLowerCase() === LEGACY_ACTIVE_ENROLLMENT_STATUS
+    );
+
+    const {
+      data: reactivatedRows,
+      error: reactivationError,
+    } = await reactivateEnrollmentWithCompatibility(courseId, studentId, preferLegacyStatus);
 
     if (reactivationError) {
       logger.error('Failed to reactivate enrollment', {
@@ -274,16 +447,7 @@ export const enrollStudent = async (
   }
 
   // Create new enrollment
-  const { data, error } = await supabaseAdmin
-    .from('enrollments')
-    .insert({
-      course_id: courseId,
-      student_id: studentId,
-      status: EnrollmentStatus.ACTIVE,
-      enrolled_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
+  const { data, error } = await insertEnrollmentWithCompatibility(courseId, studentId);
 
   if (error) {
     logger.error('Failed to enroll student', { courseId, studentId, error: error.message });
@@ -338,7 +502,10 @@ export const getStudentEnrollments = async (
     .eq('student_id', studentId);
 
   if (query.status) {
-    queryBuilder = queryBuilder.eq('status', query.status);
+    queryBuilder =
+      query.status === EnrollmentStatus.ACTIVE
+        ? queryBuilder.in('status', ACTIVE_ENROLLMENT_STATUSES)
+        : queryBuilder.eq('status', query.status);
   }
 
   const { data, error, count } = await queryBuilder
@@ -394,7 +561,10 @@ export const getCourseRoster = async (
     .eq('course_id', courseId);
 
   if (query.status) {
-    queryBuilder = queryBuilder.eq('status', query.status);
+    queryBuilder =
+      query.status === EnrollmentStatus.ACTIVE
+        ? queryBuilder.in('status', ACTIVE_ENROLLMENT_STATUSES)
+        : queryBuilder.eq('status', query.status);
   }
 
   const { data, error, count } = await queryBuilder
@@ -478,10 +648,14 @@ export const updateEnrollmentStatus = async (
   };
 
   const currentStatus = enrollment.status as EnrollmentStatus;
-  if (!validTransitions[currentStatus].includes(input.status)) {
+  const normalizedCurrentStatus = isActiveEnrollmentStatus(currentStatus)
+    ? EnrollmentStatus.ACTIVE
+    : currentStatus;
+
+  if (!validTransitions[normalizedCurrentStatus]?.includes(input.status)) {
     throw new ApiError(
       ErrorCode.VALIDATION_ERROR,
-      `Cannot change status from ${currentStatus} to ${input.status}`,
+      `Cannot change status from ${normalizedCurrentStatus} to ${input.status}`,
       400
     );
   }
@@ -543,7 +717,7 @@ export const isStudentEnrolled = async (
     .select('id')
     .eq('course_id', courseId)
     .eq('student_id', studentId)
-    .eq('status', EnrollmentStatus.ACTIVE)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
     .limit(1);
 
   if (error) {
@@ -582,7 +756,7 @@ export const getEnrollmentStatusForUser = async (
   }
 
   return {
-    enrolled: data.status === EnrollmentStatus.ACTIVE,
+    enrolled: isActiveEnrollmentStatus(data.status),
     status: data.status,
     enrollment_id: data.id,
   };
