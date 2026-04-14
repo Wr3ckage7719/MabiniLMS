@@ -7,7 +7,9 @@
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
+  AnnouncementCommentWithAuthor,
   AnnouncementWithAuthor,
+  CreateAnnouncementCommentInput,
   CreateAnnouncementInput,
   UpdateAnnouncementInput,
   ListAnnouncementsQuery,
@@ -18,6 +20,11 @@ import logger from '../utils/logger.js';
 
 const ANNOUNCEMENT_SELECT_BASE =
   'id, course_id, author_id, title, content, pinned, created_at, updated_at';
+
+const ANNOUNCEMENT_COMMENT_SELECT_BASE = `
+  id, announcement_id, author_id, content, created_at, updated_at,
+  author:profiles!announcement_comments_author_id_fkey(id, email, first_name, last_name, role, avatar_url)
+`;
 
 type AnnouncementRow = {
   id: string;
@@ -36,6 +43,29 @@ type AuthorRow = {
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
+};
+
+type AnnouncementCommentCountRow = {
+  announcement_id: string;
+};
+
+type AnnouncementCommentAuthorRow = {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  role: string | null;
+  avatar_url: string | null;
+};
+
+type AnnouncementCommentJoinedRow = {
+  id: string;
+  announcement_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  author: AnnouncementCommentAuthorRow | AnnouncementCommentAuthorRow[] | null;
 };
 
 const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
@@ -58,8 +88,93 @@ const toAnnouncementAuthor = (
   avatar_url: authorData?.avatar_url || null,
 });
 
+const normalizeAnnouncementCommentAuthor = (
+  author: AnnouncementCommentAuthorRow | AnnouncementCommentAuthorRow[] | null
+): AnnouncementCommentAuthorRow | null => {
+  if (Array.isArray(author)) {
+    return author[0] || null;
+  }
+
+  return author;
+};
+
+const toAnnouncementCommentWithAuthor = (
+  row: AnnouncementCommentJoinedRow
+): AnnouncementCommentWithAuthor => {
+  const author = normalizeAnnouncementCommentAuthor(row.author);
+
+  return {
+    id: row.id,
+    announcement_id: row.announcement_id,
+    author_id: row.author_id,
+    content: row.content,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    author: {
+      id: author?.id || row.author_id,
+      email: author?.email || '',
+      first_name: author?.first_name || '',
+      last_name: author?.last_name || '',
+      role: author?.role || undefined,
+      avatar_url: author?.avatar_url || null,
+    },
+  };
+};
+
+const loadAnnouncementCommentCounts = async (
+  announcementIds: string[],
+  options: { throwOnMissingRelation?: boolean } = {}
+): Promise<Map<string, number>> => {
+  if (announcementIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('announcement_comments')
+    .select('announcement_id')
+    .in('announcement_id', announcementIds);
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      if (options.throwOnMissingRelation) {
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Announcement comments are not available yet. Please run the latest database migrations.',
+          503
+        );
+      }
+
+      logger.warn('Announcement comments table missing. Falling back to zero comment counts.', {
+        announcementIds,
+        error: error.message,
+      });
+
+      return new Map<string, number>();
+    }
+
+    logger.error('Failed to load announcement comment counts', {
+      announcementIds,
+      error: error.message,
+    });
+
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load announcement comments', 500);
+  }
+
+  const countsByAnnouncementId = new Map<string, number>();
+
+  ((data || []) as AnnouncementCommentCountRow[]).forEach((row) => {
+    countsByAnnouncementId.set(
+      row.announcement_id,
+      (countsByAnnouncementId.get(row.announcement_id) || 0) + 1
+    );
+  });
+
+  return countsByAnnouncementId;
+};
+
 const enrichAnnouncementsWithAuthors = async (
-  rows: AnnouncementRow[]
+  rows: AnnouncementRow[],
+  commentsCountByAnnouncementId: Map<string, number> = new Map<string, number>()
 ): Promise<AnnouncementWithAuthor[]> => {
   if (rows.length === 0) {
     return [];
@@ -83,6 +198,7 @@ const enrichAnnouncementsWithAuthors = async (
 
   return rows.map((row) => ({
     ...row,
+    comments_count: commentsCountByAnnouncementId.get(row.id) || 0,
     author: toAnnouncementAuthor(row.author_id, authorMap.get(row.author_id)),
   }));
 };
@@ -268,7 +384,14 @@ export const listAnnouncements = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list announcements', 500);
   }
 
-  const announcements = await enrichAnnouncementsWithAuthors((data || []) as AnnouncementRow[]);
+  const announcementRows = (data || []) as AnnouncementRow[];
+  const commentsCountByAnnouncementId = await loadAnnouncementCommentCounts(
+    announcementRows.map((row) => row.id)
+  );
+  const announcements = await enrichAnnouncementsWithAuthors(
+    announcementRows,
+    commentsCountByAnnouncementId
+  );
 
   return {
     announcements,
@@ -296,8 +419,149 @@ export const getAnnouncementById = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get announcement', 500);
   }
 
-  const [announcement] = await enrichAnnouncementsWithAuthors([data as AnnouncementRow]);
+  const commentsCountByAnnouncementId = await loadAnnouncementCommentCounts([announcementId]);
+  const [announcement] = await enrichAnnouncementsWithAuthors(
+    [data as AnnouncementRow],
+    commentsCountByAnnouncementId
+  );
   return announcement;
+};
+
+const ensureAnnouncementCommentAccess = async (
+  announcementId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<AnnouncementWithAuthor> => {
+  const announcement = await getAnnouncementById(announcementId);
+
+  const { data: course, error: courseError } = await supabaseAdmin
+    .from('courses')
+    .select('id, teacher_id')
+    .eq('id', announcement.course_id)
+    .maybeSingle();
+
+  if (courseError) {
+    logger.error('Failed to verify course for announcement comments access', {
+      announcementId,
+      userId,
+      error: courseError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate announcement access', 500);
+  }
+
+  if (!course) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404);
+  }
+
+  if (
+    userRole === UserRole.ADMIN ||
+    course.teacher_id === userId ||
+    announcement.author_id === userId
+  ) {
+    return announcement;
+  }
+
+  if (userRole === UserRole.STUDENT) {
+    const { data: enrollment, error: enrollmentError } = await supabaseAdmin
+      .from('enrollments')
+      .select('id')
+      .eq('course_id', announcement.course_id)
+      .eq('student_id', userId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (enrollmentError) {
+      logger.error('Failed to verify enrollment for announcement comments', {
+        announcementId,
+        userId,
+        error: enrollmentError.message,
+      });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate announcement access', 500);
+    }
+
+    if (enrollment) {
+      return announcement;
+    }
+  }
+
+  throw new ApiError(
+    ErrorCode.FORBIDDEN,
+    'You do not have access to comments for this announcement',
+    403
+  );
+};
+
+export const listAnnouncementComments = async (
+  announcementId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<AnnouncementCommentWithAuthor[]> => {
+  await ensureAnnouncementCommentAccess(announcementId, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('announcement_comments')
+    .select(ANNOUNCEMENT_COMMENT_SELECT_BASE)
+    .eq('announcement_id', announcementId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Announcement comments are not available yet. Please run the latest database migrations.',
+        503
+      );
+    }
+
+    logger.error('Failed to list announcement comments', {
+      announcementId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load announcement comments', 500);
+  }
+
+  return ((data || []) as AnnouncementCommentJoinedRow[]).map(toAnnouncementCommentWithAuthor);
+};
+
+export const createAnnouncementComment = async (
+  announcementId: string,
+  input: CreateAnnouncementCommentInput,
+  userId: string,
+  userRole: UserRole
+): Promise<AnnouncementCommentWithAuthor> => {
+  await ensureAnnouncementCommentAccess(announcementId, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('announcement_comments')
+    .insert({
+      announcement_id: announcementId,
+      author_id: userId,
+      content: input.content,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select(ANNOUNCEMENT_COMMENT_SELECT_BASE)
+    .single();
+
+  if (error || !data) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Announcement comments are not available yet. Please run the latest database migrations.',
+        503
+      );
+    }
+
+    logger.error('Failed to create announcement comment', {
+      announcementId,
+      userId,
+      error: error?.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create announcement comment', 500);
+  }
+
+  return toAnnouncementCommentWithAuthor(data as AnnouncementCommentJoinedRow);
 };
 
 /**

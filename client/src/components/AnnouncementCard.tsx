@@ -7,10 +7,10 @@ import { MessageSquare } from 'lucide-react';
 interface AnnouncementCardProps {
   announcement: Announcement;
   commentsCount?: number;
-  onOpenDiscussion?: () => void;
+  onOpenComments?: () => void;
 }
 
-export function AnnouncementCard({ announcement, commentsCount, onOpenDiscussion }: AnnouncementCardProps) {
+export function AnnouncementCard({ announcement, commentsCount, onOpenComments }: AnnouncementCardProps) {
   const totalComments = typeof commentsCount === 'number' ? commentsCount : announcement.comments;
 
   return (
@@ -33,10 +33,11 @@ export function AnnouncementCard({ announcement, commentsCount, onOpenDiscussion
               variant="ghost"
               size="sm"
               className="mt-2 h-8 rounded-full bg-accent text-accent-foreground hover:bg-accent/90 px-3 text-xs"
-              onClick={onOpenDiscussion}
-              disabled={!onOpenDiscussion}
+              onClick={onOpenComments}
+              disabled={!onOpenComments}
             >
-              <MessageSquare className="h-4 w-4 mr-1" /> {totalComments} comments
+              <MessageSquare className="h-4 w-4 mr-1" /> {totalComments}{' '}
+              {totalComments === 1 ? 'comment' : 'comments'}
             </Button>
           </div>
         </div>

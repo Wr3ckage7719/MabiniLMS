@@ -10,8 +10,10 @@ import { validate } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
 import {
   createAnnouncementSchema,
+  createAnnouncementCommentSchema,
   updateAnnouncementSchema,
   announcementIdParamSchema,
+  announcementCommentsParamSchema,
   courseAnnouncementsParamSchema,
   listAnnouncementsQuerySchema,
 } from '../types/announcements.js';
@@ -57,6 +59,20 @@ router.get(
   '/announcements/:id',
   validate({ params: announcementIdParamSchema }),
   announcementController.getAnnouncement
+);
+
+// GET /api/announcements/:id/comments - List announcement comments
+router.get(
+  '/announcements/:id/comments',
+  validate({ params: announcementCommentsParamSchema }),
+  announcementController.listAnnouncementComments
+);
+
+// POST /api/announcements/:id/comments - Add announcement comment
+router.post(
+  '/announcements/:id/comments',
+  validate({ params: announcementCommentsParamSchema, body: createAnnouncementCommentSchema }),
+  announcementController.createAnnouncementComment
 );
 
 // PATCH /api/announcements/:id - Update announcement

@@ -7,7 +7,9 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest, ApiResponse, UserRole } from '../types/index.js';
 import {
+  AnnouncementCommentWithAuthor,
   AnnouncementWithAuthor,
+  CreateAnnouncementCommentInput,
   CreateAnnouncementInput,
   UpdateAnnouncementInput,
   ListAnnouncementsQuery,
@@ -169,6 +171,108 @@ export const getAnnouncement = async (
       data: announcement,
     };
     res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @swagger
+ * /api/announcements/{id}/comments:
+ *   get:
+ *     summary: List comments for an announcement
+ *     tags: [Announcements]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: List of announcement comments
+ *       404:
+ *         description: Announcement not found
+ */
+export const listAnnouncementComments = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const comments = await announcementService.listAnnouncementComments(
+      req.params.id,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    const response: ApiResponse<AnnouncementCommentWithAuthor[]> = {
+      success: true,
+      data: comments,
+    };
+
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @swagger
+ * /api/announcements/{id}/comments:
+ *   post:
+ *     summary: Add a comment to an announcement
+ *     tags: [Announcements]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               content:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Comment created
+ *       404:
+ *         description: Announcement not found
+ */
+export const createAnnouncementComment = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const input: CreateAnnouncementCommentInput = req.body;
+
+    const comment = await announcementService.createAnnouncementComment(
+      req.params.id,
+      input,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    const response: ApiResponse<AnnouncementCommentWithAuthor> = {
+      success: true,
+      data: comment,
+    };
+
+    res.status(201).json(response);
   } catch (error) {
     next(error);
   }
