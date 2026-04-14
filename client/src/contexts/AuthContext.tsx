@@ -17,6 +17,7 @@ interface StoredStudentAccountSession {
   userId: string;
   email: string;
   name: string;
+  customName?: string;
   avatarUrl: string | null;
   accessToken: string;
   refreshToken: string;
@@ -27,6 +28,8 @@ export interface LinkedStudentAccount {
   userId: string;
   email: string;
   name: string;
+  displayName: string;
+  customName: string | null;
   avatarUrl: string | null;
   lastUsedAt: string;
 }
@@ -62,6 +65,7 @@ const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
           typeof candidate.userId === 'string' &&
           typeof candidate.email === 'string' &&
           typeof candidate.name === 'string' &&
+          (typeof candidate.customName === 'string' || candidate.customName === undefined) &&
           (typeof candidate.avatarUrl === 'string' || candidate.avatarUrl === null || candidate.avatarUrl === undefined) &&
           typeof candidate.accessToken === 'string' &&
           typeof candidate.refreshToken === 'string' &&
@@ -70,6 +74,7 @@ const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
       })
       .map((item) => ({
         ...item,
+        customName: typeof item.customName === 'string' ? item.customName.trim() : undefined,
         avatarUrl: item.avatarUrl || null,
       }))
       .sort((a, b) => {
@@ -89,7 +94,14 @@ const writeStoredStudentAccountSessions = (sessions: StoredStudentAccountSession
 };
 
 const toLinkedStudentAccounts = (sessions: StoredStudentAccountSession[]): LinkedStudentAccount[] => {
-  return sessions.map(({ accessToken: _accessToken, refreshToken: _refreshToken, ...rest }) => rest);
+  return sessions.map(({ accessToken: _accessToken, refreshToken: _refreshToken, customName, ...rest }) => {
+    const normalizedCustomName = (customName || '').trim();
+    return {
+      ...rest,
+      customName: normalizedCustomName || null,
+      displayName: normalizedCustomName || rest.name || rest.email,
+    };
+  });
 };
 
 const getApiErrorMessage = (error: unknown, fallback: string): string => {
@@ -148,6 +160,8 @@ interface AuthContextType {
   loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
   logout: () => void;
   switchStudentAccount: (userId: string) => Promise<void>;
+  renameLinkedStudentAccount: (userId: string, customName: string) => void;
+  removeLinkedStudentAccount: (userId: string) => void;
   updateAvatar: (avatarUrl: string) => void;
 }
 
@@ -168,8 +182,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persistStudentAccountSession = useCallback((nextSession: StoredStudentAccountSession) => {
-    const existing = readStoredStudentAccountSessions().filter((sessionRecord) => sessionRecord.userId !== nextSession.userId);
-    const updatedSessions = [nextSession, ...existing]
+    const currentSessions = readStoredStudentAccountSessions();
+    const existingSession = currentSessions.find((sessionRecord) => sessionRecord.userId === nextSession.userId);
+    const preservedCustomName = (existingSession?.customName || '').trim();
+
+    const existing = currentSessions.filter((sessionRecord) => sessionRecord.userId !== nextSession.userId);
+    const updatedSessions = [{
+      ...nextSession,
+      customName: preservedCustomName || undefined,
+    }, ...existing]
       .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())
       .slice(0, MAX_STUDENT_ACCOUNT_SESSIONS);
 
@@ -611,6 +632,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const renameLinkedStudentAccount = useCallback((userId: string, customName: string) => {
+    const normalizedCustomName = customName.trim();
+
+    if (normalizedCustomName.length > 40) {
+      throw new Error('Account name must be 40 characters or less.');
+    }
+
+    const currentSessions = readStoredStudentAccountSessions();
+    let targetFound = false;
+
+    const updatedSessions = currentSessions.map((sessionRecord) => {
+      if (sessionRecord.userId !== userId) {
+        return sessionRecord;
+      }
+
+      targetFound = true;
+      return {
+        ...sessionRecord,
+        customName: normalizedCustomName || undefined,
+      };
+    });
+
+    if (!targetFound) {
+      throw new Error('Linked account not found.');
+    }
+
+    writeStoredStudentAccountSessions(updatedSessions);
+    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
+  }, []);
+
+  const removeLinkedStudentAccount = useCallback((userId: string) => {
+    const currentSessions = readStoredStudentAccountSessions();
+    const updatedSessions = currentSessions.filter((sessionRecord) => sessionRecord.userId !== userId);
+
+    if (updatedSessions.length === currentSessions.length) {
+      throw new Error('Linked account not found.');
+    }
+
+    writeStoredStudentAccountSessions(updatedSessions);
+    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
+  }, []);
+
   const switchStudentAccount = async (userId: string) => {
     const storedSession = readStoredStudentAccountSessions().find((sessionRecord) => sessionRecord.userId === userId);
 
@@ -671,6 +734,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginWithGoogle,
         logout,
         switchStudentAccount,
+        renameLinkedStudentAccount,
+        removeLinkedStudentAccount,
         updateAvatar,
       }}
     >

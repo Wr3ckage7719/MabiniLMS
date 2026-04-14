@@ -190,7 +190,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                       >
                         <div className="flex w-full items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{account.name || account.email}</p>
+                            <p className="truncate text-sm font-medium">{account.displayName}</p>
                             <p className="truncate text-xs text-muted-foreground">{account.email}</p>
                           </div>
                           {account.userId === user?.id && <Check className="h-4 w-4 text-primary" />}
@@ -207,6 +207,15 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                     >
                       <Plus className="h-4 w-4" />
                       Add institutional account
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="rounded-lg cursor-pointer gap-2"
+                      onSelect={() => {
+                        navigate('/settings#linked-accounts');
+                      }}
+                    >
+                      <Settings className="h-4 w-4" />
+                      Manage linked accounts
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
