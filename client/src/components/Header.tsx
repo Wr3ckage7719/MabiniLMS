@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Search, Settings, Plus, LogOut, User, Download } from 'lucide-react';
+import { Check, Menu, Search, Settings, Plus, LogOut, User, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -9,10 +9,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { NotificationsPopover } from '@/components/NotificationsPopover';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { AppLogo } from '@/components/AppLogo';
+import { useToast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
@@ -25,9 +29,11 @@ interface HeaderProps {
 
 export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const navigate = useNavigate();
   const { currentUserAvatar, currentUserName, currentUserAvatarUrl } = useRole();
-  const { user, logout } = useAuth();
+  const { user, logout, loginWithGoogle, linkedStudentAccounts, switchStudentAccount } = useAuth();
+  const { toast } = useToast();
   const { isInstallable, install } = usePWAInstall();
 
   const handleLogout = async () => {
@@ -35,9 +41,44 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
     navigate('/login', { replace: true });
   };
 
-  const handleSwitchAccount = async () => {
-    await logout();
-    navigate('/login?switch_account=1', { replace: true });
+  const handleSwitchToLinkedAccount = async (targetUserId: string) => {
+    if (targetUserId === user?.id) {
+      return;
+    }
+
+    const targetAccount = linkedStudentAccounts.find((account) => account.userId === targetUserId);
+
+    setIsSwitchingAccount(true);
+    try {
+      await switchStudentAccount(targetUserId);
+      toast({
+        title: 'Account switched',
+        description: targetAccount ? `Now using ${targetAccount.email}.` : 'Student account session updated.',
+      });
+      navigate('/dashboard', { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to switch account. Please try again.';
+      toast({
+        title: 'Switch account failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSwitchingAccount(false);
+    }
+  };
+
+  const handleAddInstitutionalAccount = async () => {
+    try {
+      await loginWithGoogle('student');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open account chooser.';
+      toast({
+        title: 'Add account failed',
+        description: message,
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleHomeClick = () => {
@@ -126,15 +167,49 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                   <Settings className="h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="rounded-lg cursor-pointer gap-2"
-                  onSelect={() => {
-                    void handleSwitchAccount();
-                  }}
-                >
-                  <User className="h-4 w-4" />
-                  Switch Account
-                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="rounded-lg gap-2">
+                    <User className="h-4 w-4" />
+                    Switch Account
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-72 rounded-xl">
+                    {linkedStudentAccounts.length === 0 && (
+                      <DropdownMenuItem className="rounded-lg text-muted-foreground" disabled>
+                        No linked institutional student accounts yet.
+                      </DropdownMenuItem>
+                    )}
+
+                    {linkedStudentAccounts.map((account) => (
+                      <DropdownMenuItem
+                        key={account.userId}
+                        className="rounded-lg cursor-pointer"
+                        disabled={isSwitchingAccount}
+                        onSelect={() => {
+                          void handleSwitchToLinkedAccount(account.userId);
+                        }}
+                      >
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{account.name || account.email}</p>
+                            <p className="truncate text-xs text-muted-foreground">{account.email}</p>
+                          </div>
+                          {account.userId === user?.id && <Check className="h-4 w-4 text-primary" />}
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="rounded-lg cursor-pointer gap-2"
+                      onSelect={() => {
+                        void handleAddInstitutionalAccount();
+                      }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add institutional account
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => {

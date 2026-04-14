@@ -1,15 +1,96 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/services/auth.service';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 const AUTH_ROLE_INTENT_STORAGE_KEY = 'auth_role_intent';
 const AUTH_OPERATION_TIMEOUT_MS = 15000;
+const STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY = 'mabini:student-account-sessions';
+const MAX_STUDENT_ACCOUNT_SESSIONS = 5;
 const TEACHER_PENDING_APPROVAL_MESSAGE = 'Your teacher account is pending admin approval. Please wait for approval from the admin.';
 const TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE = 'No approved teacher account was found for this Google login. Please request a teacher account and wait for admin approval.';
+
+interface StoredStudentAccountSession {
+  userId: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  accessToken: string;
+  refreshToken: string;
+  lastUsedAt: string;
+}
+
+export interface LinkedStudentAccount {
+  userId: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  lastUsedAt: string;
+}
+
+const isInstitutionalStudentEmail = (email: string): boolean => {
+  return email.trim().toLowerCase().endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`);
+};
+
+const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const rawValue = localStorage.getItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item): item is StoredStudentAccountSession => {
+        if (!item || typeof item !== 'object') {
+          return false;
+        }
+
+        const candidate = item as Partial<StoredStudentAccountSession>;
+        return (
+          typeof candidate.userId === 'string' &&
+          typeof candidate.email === 'string' &&
+          typeof candidate.name === 'string' &&
+          (typeof candidate.avatarUrl === 'string' || candidate.avatarUrl === null || candidate.avatarUrl === undefined) &&
+          typeof candidate.accessToken === 'string' &&
+          typeof candidate.refreshToken === 'string' &&
+          typeof candidate.lastUsedAt === 'string'
+        );
+      })
+      .map((item) => ({
+        ...item,
+        avatarUrl: item.avatarUrl || null,
+      }))
+      .sort((a, b) => {
+        return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
+      });
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredStudentAccountSessions = (sessions: StoredStudentAccountSession[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  localStorage.setItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+};
+
+const toLinkedStudentAccounts = (sessions: StoredStudentAccountSession[]): LinkedStudentAccount[] => {
+  return sessions.map(({ accessToken: _accessToken, refreshToken: _refreshToken, ...rest }) => rest);
+};
 
 const getApiErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'object' && error !== null) {
@@ -53,6 +134,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   session: { access_token?: string } | null;
+  linkedStudentAccounts: LinkedStudentAccount[];
   isLoggedIn: boolean;
   isLoading: boolean;
   login: (
@@ -65,6 +147,7 @@ interface AuthContextType {
   requestStudentSignup: (email: string) => Promise<string>;
   loginWithGoogle: (roleIntent?: 'student' | 'teacher') => Promise<void>;
   logout: () => void;
+  switchStudentAccount: (userId: string) => Promise<void>;
   updateAvatar: (avatarUrl: string) => void;
 }
 
@@ -77,7 +160,48 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<{ access_token?: string } | null>(null);
+  const [linkedStudentAccounts, setLinkedStudentAccounts] = useState<LinkedStudentAccount[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const refreshLinkedStudentAccounts = useCallback(() => {
+    setLinkedStudentAccounts(toLinkedStudentAccounts(readStoredStudentAccountSessions()));
+  }, []);
+
+  const persistStudentAccountSession = useCallback((nextSession: StoredStudentAccountSession) => {
+    const existing = readStoredStudentAccountSessions().filter((sessionRecord) => sessionRecord.userId !== nextSession.userId);
+    const updatedSessions = [nextSession, ...existing]
+      .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())
+      .slice(0, MAX_STUDENT_ACCOUNT_SESSIONS);
+
+    writeStoredStudentAccountSessions(updatedSessions);
+    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
+  }, []);
+
+  const rememberStudentAccountSession = useCallback((authSession: SupabaseSession | null, currentUser: User | null) => {
+    if (!authSession?.user || !authSession.access_token || !authSession.refresh_token || !currentUser) {
+      return;
+    }
+
+    const normalizedEmail = (currentUser.email || authSession.user.email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      return;
+    }
+
+    const resolvedRole = (currentUser.role || 'student').toLowerCase();
+    if (resolvedRole !== 'student' || !isInstitutionalStudentEmail(normalizedEmail)) {
+      return;
+    }
+
+    persistStudentAccountSession({
+      userId: currentUser.id,
+      email: normalizedEmail,
+      name: currentUser.name,
+      avatarUrl: currentUser.avatarUrl || null,
+      accessToken: authSession.access_token,
+      refreshToken: authSession.refresh_token,
+      lastUsedAt: new Date().toISOString(),
+    });
+  }, [persistStudentAccountSession]);
 
   const setStoredAuthError = useCallback((message: string) => {
     if (typeof window !== 'undefined') {
@@ -234,6 +358,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    refreshLinkedStudentAccounts();
+  }, [refreshLinkedStudentAccounts]);
+
+  useEffect(() => {
     const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -246,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
           await enforceTeacherApprovalPolicy(userData, roleIntent);
           setUser(userData);
+          rememberStudentAccountSession(session, userData);
         }
       } catch (error) {
         console.error('Failed to initialize auth:', error);
@@ -273,6 +402,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
               await enforceTeacherApprovalPolicy(userData, roleIntent);
               setUser(userData);
+              rememberStudentAccountSession(session, userData);
             } catch (error) {
               console.error('Sign-in blocked by policy:', error);
             } finally {
@@ -294,7 +424,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
     };
-  }, [clearRoleIntent, enforceInstitutionalStudentPolicy, enforceTeacherApprovalPolicy, getRoleIntent, loadUserData]);
+  }, [
+    clearRoleIntent,
+    enforceInstitutionalStudentPolicy,
+    enforceTeacherApprovalPolicy,
+    getRoleIntent,
+    loadUserData,
+    rememberStudentAccountSession,
+  ]);
 
   const register = async (
     email: string,
@@ -425,6 +562,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(userData);
       setSession({ access_token: authSession.access_token });
+      rememberStudentAccountSession(setSessionData.session || null, userData);
 
       return { requiresTwoFactor: false };
     } catch (err) {
@@ -473,6 +611,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const switchStudentAccount = async (userId: string) => {
+    const storedSession = readStoredStudentAccountSessions().find((sessionRecord) => sessionRecord.userId === userId);
+
+    if (!storedSession) {
+      throw new Error('This linked account is no longer available. Please add it again.');
+    }
+
+    const { data: setSessionData, error: setSessionError } = await withTimeout(
+      supabase.auth.setSession({
+        access_token: storedSession.accessToken,
+        refresh_token: storedSession.refreshToken,
+      }),
+      AUTH_OPERATION_TIMEOUT_MS,
+      'Switch account timed out. Please try again.'
+    );
+
+    if (setSessionError) {
+      throw new Error(getApiErrorMessage(setSessionError, 'Unable to switch account. Please sign in again.'));
+    }
+
+    const activeSession = setSessionData.session;
+    if (!activeSession?.user) {
+      throw new Error('Unable to start the selected account session.');
+    }
+
+    const normalizedEmail = (activeSession.user.email || storedSession.email).trim().toLowerCase();
+    const userData = await loadUserData(activeSession.user.id, normalizedEmail, activeSession.user);
+
+    await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+    await enforceTeacherApprovalPolicy(userData, null);
+
+    setUser(userData);
+    setSession({ access_token: activeSession.access_token });
+    rememberStudentAccountSession(activeSession, userData);
+  };
+
   const updateAvatar = (avatarUrl: string) => {
     setUser((prev) => {
       if (!prev) return prev;
@@ -488,6 +662,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         session,
+        linkedStudentAccounts,
         isLoggedIn: user !== null,
         isLoading: loading,
         login,
@@ -495,6 +670,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         requestStudentSignup,
         loginWithGoogle,
         logout,
+        switchStudentAccount,
         updateAvatar,
       }}
     >
