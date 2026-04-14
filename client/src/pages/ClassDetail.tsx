@@ -61,6 +61,7 @@ export default function ClassDetail() {
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
+  const [discussionOpen, setDiscussionOpen] = useState(false);
   const classId = id || '';
 
   const classQuery = useClass(classId);
@@ -341,21 +342,28 @@ export default function ClassDetail() {
 
           {/* Stream */}
           <TabsContent value="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
-            {/* Announcements Section */}
-            {announcements.length > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-[13px] md:text-base">Announcements</h3>
+              <Button
+                type="button"
+                className="rounded-xl h-8 px-3 text-[11px] md:h-9 md:px-4 md:text-sm shrink-0"
+                onClick={() => setDiscussionOpen(true)}
+              >
+                View class discussion
+              </Button>
+            </div>
+
+            {announcements.length > 0 ? (
               <div className="space-y-2 md:space-y-3 lg:space-y-4">
-                <h3 className="font-semibold text-[13px] md:text-base">Announcements</h3>
                 {announcements.map((a) => (
                   <AnnouncementCard key={a.id} announcement={a} />
                 ))}
               </div>
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-card px-3 py-5 text-center">
+                <p className="text-xs md:text-sm text-muted-foreground">No teacher announcements yet.</p>
+              </div>
             )}
-
-            {/* Student Discussion Section */}
-            <div>
-              <h3 className="font-semibold text-[13px] md:text-base mb-2 md:mb-4">Class Discussion</h3>
-              <StudentClassStream classId={classId} />
-            </div>
           </TabsContent>
 
           {/* Mobile Classwork */}
@@ -671,6 +679,24 @@ export default function ClassDetail() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {discussionOpen && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/70 md:bg-black/60"
+          onClick={() => setDiscussionOpen(false)}
+        >
+          <div
+            className="h-full md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-2xl md:border md:border-white/10 md:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <StudentClassStream
+              classId={classId}
+              variant="class-comments"
+              onBack={() => setDiscussionOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       <AssignmentDetailDialog
         assignment={selectedAssignment}

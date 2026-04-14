@@ -28,7 +28,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
       )}
       <aside
         className={cn(
-          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-[62vw] max-w-[240px] bg-[#f8fafc] md:bg-card border-r flex flex-col transition-transform duration-300',
+          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-[62vw] max-w-[240px] bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-transform duration-300',
           open ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
           'md:w-60'
         )}

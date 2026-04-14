@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Heart, Loader2, Paperclip, Send } from 'lucide-react';
+import { ArrowLeft, Heart, Loader2, Paperclip, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,6 +26,8 @@ interface StudentPost {
 
 interface StudentClassStreamProps {
   classId: string;
+  variant?: 'embedded' | 'class-comments';
+  onBack?: () => void;
 }
 
 const toDisplayPost = (post: DiscussionPost): StudentPost => {
@@ -50,7 +52,7 @@ const toDisplayPost = (post: DiscussionPost): StudentPost => {
   };
 };
 
-export function StudentClassStream({ classId }: StudentClassStreamProps) {
+export function StudentClassStream({ classId, variant = 'embedded', onBack }: StudentClassStreamProps) {
   const { currentUserAvatar, currentUserAvatarUrl, currentUserName } = useRole();
   const { toast } = useToast();
   const { data: apiPosts = [], isLoading: postsLoading } = useDiscussionPosts(classId);
@@ -119,6 +121,83 @@ export function StudentClassStream({ classId }: StudentClassStreamProps) {
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handlePost();
+    }
+  };
+
+  if (variant === 'class-comments') {
+    const activePosts = posts.filter((post) => !post.isHidden);
+
+    return (
+      <div className="h-full flex flex-col bg-[#0b0d12] text-white">
+        <header className="h-16 flex items-center gap-3 border-b border-white/10 bg-[#1b2028] px-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 rounded-full text-white hover:bg-white/10 hover:text-white"
+            onClick={onBack}
+            aria-label="Back to stream"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h2 className="text-[22px] font-medium tracking-tight">Class comments</h2>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-4 py-5">
+          {postsLoading ? (
+            <div className="h-full flex flex-col items-center justify-center text-white/70">
+              <Loader2 className="h-6 w-6 mb-2 animate-spin" />
+              <p className="text-sm">Loading comments...</p>
+            </div>
+          ) : activePosts.length === 0 ? (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-4xl font-medium text-white/90">No comments</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activePosts.map((post) => (
+                <article key={post.id} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">{post.studentName}</p>
+                    <p className="text-xs text-white/60">{formatTime(new Date(post.timestamp))}</p>
+                  </div>
+                  <p className="mt-1.5 text-sm leading-relaxed text-white/90 break-words">{post.content}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/10 bg-[#0f141b] px-4 py-3">
+          <div className="flex items-center gap-2 rounded-full border border-white/35 px-3 py-1.5">
+            <input
+              value={postContent}
+              onChange={(event) => setPostContent(event.target.value)}
+              onKeyDown={handleComposerKeyDown}
+              placeholder="Add class comment"
+              className="h-9 w-full bg-transparent text-[18px] text-white placeholder:text-white/55 focus:outline-none"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                void handlePost();
+              }}
+              disabled={!postContent.trim() || createPostMutation.isPending}
+              className="h-8 w-8 rounded-full text-white hover:bg-white/10 hover:text-white disabled:opacity-40"
+              aria-label="Send class comment"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full space-y-2 md:space-y-6">
