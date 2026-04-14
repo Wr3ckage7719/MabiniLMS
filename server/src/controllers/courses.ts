@@ -180,8 +180,10 @@ export const getCourse = async (
   try {
     const { id } = req.params;
     const includeStats = req.query.include_stats === 'true';
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
 
-    const course = await courseService.getCourseById(id, includeStats);
+    const course = await courseService.getCourseById(id, includeStats, userId, userRole);
 
     const response: ApiResponse<CourseWithStats> = {
       success: true,
@@ -407,7 +409,9 @@ export const listMaterials = async (
 ) => {
   try {
     const { courseId } = req.params;
-    const materials = await courseService.listMaterials(courseId);
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+    const materials = await courseService.listMaterials(courseId, userId, userRole);
 
     const response: ApiResponse<CourseMaterial[]> = {
       success: true,
@@ -791,7 +795,9 @@ export const getCourseStudents = async (
 ) => {
   try {
     const { courseId } = req.params;
-    const students = await courseService.getCourseStudents(courseId);
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+    const students = await courseService.getCourseStudents(courseId, userId, userRole);
 
     const response: ApiResponse = {
       success: true,
@@ -835,7 +841,9 @@ export const getCourseTeachers = async (
 ) => {
   try {
     const { courseId } = req.params;
-    const teachers = await courseService.getCourseTeachers(courseId);
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+    const teachers = await courseService.getCourseTeachers(courseId, userId, userRole);
 
     const response: ApiResponse = {
       success: true,

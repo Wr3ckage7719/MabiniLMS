@@ -23,6 +23,12 @@ import logger from '../utils/logger.js';
 const COURSE_BASE_SELECT =
   'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
 
+const LEGACY_ACTIVE_ENROLLMENT_STATUS = 'enrolled';
+const ACTIVE_ENROLLMENT_STATUSES = [
+  'active',
+  LEGACY_ACTIVE_ENROLLMENT_STATUS,
+];
+
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
   if (!courses.length) {
     return courses;
@@ -69,6 +75,79 @@ const attachTeacherToCourse = async (course: Course): Promise<Course> => {
   return result;
 };
 
+const hasActiveEnrollment = async (courseId: string, studentId: string): Promise<boolean> => {
+  const { data, error } = await supabaseAdmin
+    .from('enrollments')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
+    .limit(1);
+
+  if (error) {
+    logger.error('Failed to verify course enrollment access', {
+      courseId,
+      studentId,
+      error: error.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to validate class access',
+      500
+    );
+  }
+
+  return Array.isArray(data) && data.length > 0;
+};
+
+const assertCourseReadAccess = async (
+  courseId: string,
+  courseTeacherId: string | null,
+  userId?: string,
+  userRole?: UserRole
+): Promise<void> => {
+  // Internal service calls without requester context intentionally skip read-guard checks.
+  if (!userId || !userRole) {
+    return;
+  }
+
+  if (userRole === UserRole.ADMIN) {
+    return;
+  }
+
+  if (userRole === UserRole.TEACHER) {
+    if (courseTeacherId === userId) {
+      return;
+    }
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Teachers can only access classes they teach',
+      403
+    );
+  }
+
+  if (userRole === UserRole.STUDENT) {
+    const enrolled = await hasActiveEnrollment(courseId, userId);
+
+    if (enrolled) {
+      return;
+    }
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Students can only access classes they are enrolled in',
+      403
+    );
+  }
+
+  throw new ApiError(
+    ErrorCode.FORBIDDEN,
+    'You do not have permission to access this class',
+    403
+  );
+};
+
 // ============================================
 // Course CRUD Operations
 // ============================================
@@ -111,7 +190,9 @@ export const createCourse = async (
  */
 export const getCourseById = async (
   courseId: string,
-  includeStats: boolean = false
+  includeStats: boolean = false,
+  requesterId?: string,
+  requesterRole?: UserRole
 ): Promise<CourseWithStats> => {
   const query = supabaseAdmin
     .from('courses')
@@ -136,6 +217,13 @@ export const getCourseById = async (
       500
     );
   }
+
+  await assertCourseReadAccess(
+    courseId,
+    (data as Course).teacher_id,
+    requesterId,
+    requesterRole
+  );
 
   const course = (await attachTeacherToCourse(data as Course)) as CourseWithStats;
 
@@ -177,8 +265,51 @@ export const listCourses = async (
 
   // Role-based filtering
   if (userRole === UserRole.STUDENT) {
-    // Students only see published courses
-    queryBuilder = queryBuilder.eq('status', CourseStatus.PUBLISHED);
+    if (!userId) {
+      throw new ApiError(
+        ErrorCode.UNAUTHORIZED,
+        'Missing authenticated student context',
+        401
+      );
+    }
+
+    const { data: enrollmentRows, error: enrollmentError } = await supabaseAdmin
+      .from('enrollments')
+      .select('course_id')
+      .eq('student_id', userId)
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
+
+    if (enrollmentError) {
+      logger.error('Failed to resolve student course access scope', {
+        userId,
+        error: enrollmentError.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to fetch enrolled courses',
+        500
+      );
+    }
+
+    const enrolledCourseIds = Array.from(
+      new Set(
+        (enrollmentRows || [])
+          .map((row) => row.course_id)
+          .filter((courseId): courseId is string => Boolean(courseId))
+      )
+    );
+
+    if (enrolledCourseIds.length === 0) {
+      return {
+        courses: [],
+        total: 0,
+        page,
+        limit,
+        totalPages: 0,
+      };
+    }
+
+    queryBuilder = queryBuilder.in('id', enrolledCourseIds);
   } else if (userRole === UserRole.TEACHER && userId) {
     // Teachers can only access courses they own.
     queryBuilder = queryBuilder.eq('teacher_id', userId);
@@ -425,9 +556,13 @@ export const createMaterial = async (
 /**
  * List course materials
  */
-export const listMaterials = async (courseId: string): Promise<CourseMaterial[]> => {
-  // Verify course exists
-  await getCourseById(courseId);
+export const listMaterials = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<CourseMaterial[]> => {
+  // Verify course exists and requester is allowed to view it.
+  await getCourseById(courseId, false, userId, userRole);
 
   const { data, error } = await supabaseAdmin
     .from('course_materials')
@@ -658,9 +793,13 @@ export const unarchiveCourse = async (
 /**
  * Get enrolled students in a course
  */
-export const getCourseStudents = async (courseId: string): Promise<any[]> => {
-  // Verify course exists
-  await getCourseById(courseId);
+export const getCourseStudents = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<any[]> => {
+  // Verify course exists and requester is allowed to view it.
+  await getCourseById(courseId, false, userId, userRole);
 
   const { data, error } = await supabaseAdmin
     .from('enrollments')
@@ -701,8 +840,12 @@ export const getCourseStudents = async (courseId: string): Promise<any[]> => {
 /**
  * Get teacher(s) for a course
  */
-export const getCourseTeachers = async (courseId: string): Promise<any[]> => {
-  const course = await getCourseById(courseId);
+export const getCourseTeachers = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<any[]> => {
+  const course = await getCourseById(courseId, false, userId, userRole);
 
   // Currently courses have a single teacher, but return as array for future extensibility
   const { data, error } = await supabaseAdmin
