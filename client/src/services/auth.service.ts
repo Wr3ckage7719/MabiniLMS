@@ -16,6 +16,7 @@ export interface LoginData {
   password: string;
   twoFactorCode?: string;
   portal?: 'app' | 'admin';
+  rememberMe?: boolean;
 }
 
 export interface AuthSessionPayload {
@@ -73,7 +74,13 @@ export const authService = {
   },
 
   async login(data: LoginData): Promise<AuthResponse> {
-    return apiClient.post('/auth/login', data);
+    return apiClient.post('/auth/login', {
+      email: data.email,
+      password: data.password,
+      twoFactorCode: data.twoFactorCode,
+      portal: data.portal,
+      remember_me: data.rememberMe ?? true,
+    });
   },
 
   async getCurrentUser() {
