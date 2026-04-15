@@ -648,7 +648,13 @@ export const login = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<AuthResponse> => {
-  const { email, password, twoFactorCode, portal = 'app' } = input;
+  const {
+    email,
+    password,
+    twoFactorCode,
+    portal = 'app',
+    remember_me = true,
+  } = input;
   const normalizedEmail = normalizeEmail(email);
 
   const { data, error } = await supabaseAdmin.auth.signInWithPassword({
@@ -824,7 +830,11 @@ export const login = async (
     'login',
     ipAddress,
     userAgent,
-    createSessionProofDeviceInfo(data.session.access_token)
+    {
+      ...createSessionProofDeviceInfo(data.session.access_token),
+      remember_me,
+      portal,
+    }
   );
 
   if (profile.role === UserRole.STUDENT) {
