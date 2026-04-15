@@ -345,13 +345,24 @@ export default function SettingsPage() {
     setIsSavingProfile(true);
     let profileSaveError: string | null = null;
 
-    try {
-      await usersService.updateProfile({
-        first_name: firstName.trim() || undefined,
-        last_name: lastName.trim() || undefined,
-      });
-    } catch (error) {
-      profileSaveError = getFeedbackErrorMessage(error, 'Unable to update profile.');
+    const [initialFirstToken = '', ...initialRestTokens] = (user.name || '').trim().split(/\s+/).filter(Boolean);
+    const initialFirstName = initialFirstToken.trim();
+    const initialLastName = initialRestTokens.join(' ').trim();
+    const nextFirstName = firstName.trim();
+    const nextLastName = lastName.trim();
+
+    const hasProfileNameChanges =
+      nextFirstName !== initialFirstName || nextLastName !== initialLastName;
+
+    if (hasProfileNameChanges) {
+      try {
+        await usersService.updateProfile({
+          first_name: nextFirstName || undefined,
+          last_name: nextLastName || undefined,
+        });
+      } catch (error) {
+        profileSaveError = getFeedbackErrorMessage(error, 'Unable to update profile.');
+      }
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {
