@@ -21,6 +21,7 @@ import {
   readPwaMobileZoomPolicyPreference,
   writePwaMobileZoomPolicyPreference,
 } from '@/lib/pwa-zoom-policy';
+import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
 import axios from 'axios';
 import { AlertCircle, CheckCircle2, Clock3, Link2, Loader2, Trash2, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -105,7 +106,7 @@ export default function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(user?.avatarUrl || null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => isDarkModeEnabled());
   const [emailNotifications, setEmailNotifications] = useState(DEFAULT_LOCAL_SETTINGS.emailNotifications);
   const [pushNotifications, setPushNotifications] = useState(DEFAULT_LOCAL_SETTINGS.pushNotifications);
   const [dueDateReminders, setDueDateReminders] = useState(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
@@ -145,6 +146,8 @@ export default function SettingsPage() {
   }, [roleBasedDefaultZoomLock]);
 
   useEffect(() => {
+    setDarkMode(isDarkModeEnabled());
+
     if (!settingsStorageKey || typeof window === 'undefined') {
       setPreferencesReady(true);
       return;
@@ -153,19 +156,16 @@ export default function SettingsPage() {
     try {
       const rawValue = localStorage.getItem(settingsStorageKey);
       if (!rawValue) {
-        setDarkMode(DEFAULT_LOCAL_SETTINGS.darkMode);
         setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
         setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
         setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
       } else {
         const parsed = JSON.parse(rawValue) as Partial<LocalSettingsPreferences>;
-        setDarkMode(Boolean(parsed.darkMode));
         setEmailNotifications(parsed.emailNotifications ?? DEFAULT_LOCAL_SETTINGS.emailNotifications);
         setPushNotifications(parsed.pushNotifications ?? DEFAULT_LOCAL_SETTINGS.pushNotifications);
         setDueDateReminders(parsed.dueDateReminders ?? DEFAULT_LOCAL_SETTINGS.dueDateReminders);
       }
     } catch {
-      setDarkMode(DEFAULT_LOCAL_SETTINGS.darkMode);
       setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
       setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
       setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
@@ -173,18 +173,6 @@ export default function SettingsPage() {
       setPreferencesReady(true);
     }
   }, [settingsStorageKey]);
-
-  useEffect(() => {
-    if (!preferencesReady) {
-      return;
-    }
-
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [darkMode, preferencesReady]);
 
   useEffect(() => {
     if (!preferencesReady) {
@@ -292,6 +280,11 @@ export default function SettingsPage() {
     fileInputRef.current?.click();
   };
 
+  const handleDarkModeChange = (enabled: boolean) => {
+    setDarkMode(enabled);
+    applyThemePreference(enabled ? 'dark' : 'light');
+  };
+
   const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -373,7 +366,7 @@ export default function SettingsPage() {
         dueDateReminders,
       };
       localStorage.setItem(settingsStorageKey, JSON.stringify(preferences));
-      localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+      applyThemePreference(darkMode ? 'dark' : 'light');
     }
 
     writePwaMobileZoomPolicyPreference(
@@ -772,7 +765,7 @@ export default function SettingsPage() {
               <p className="font-medium text-sm">Dark Mode</p>
               <p className="text-xs text-muted-foreground">Enable dark theme for the application</p>
             </div>
-            <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+            <Switch checked={darkMode} onCheckedChange={handleDarkModeChange} />
           </div>
           <div className="flex items-center justify-between gap-4">
             <div>
