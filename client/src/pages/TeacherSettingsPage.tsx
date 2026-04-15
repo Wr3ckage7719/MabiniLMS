@@ -201,27 +201,16 @@ export default function TeacherSettingsPage() {
     setIsSavingProfile(true);
     let profileSaveError: string | null = null;
 
-    const [initialFirstToken = '', ...initialRestTokens] = (user.name || '').trim().split(/\s+/).filter(Boolean);
-    const initialFirstName = initialFirstToken.trim();
-    const initialLastName = initialRestTokens.join(' ').trim();
-    const nextFirstName = firstName.trim();
-    const nextLastName = lastName.trim();
-
-    const hasProfileNameChanges =
-      nextFirstName !== initialFirstName || nextLastName !== initialLastName;
-
-    if (hasProfileNameChanges) {
-      try {
-        await usersService.updateProfile({
-          first_name: nextFirstName || undefined,
-          last_name: nextLastName || undefined,
-        });
-      } catch (error) {
-        const responseMessage = axios.isAxiosError(error)
-          ? error.response?.data?.error?.message || error.response?.data?.message
-          : undefined;
-        profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
-      }
+    try {
+      await usersService.updateProfile({
+        first_name: firstName.trim() || undefined,
+        last_name: lastName.trim() || undefined,
+      });
+    } catch (error) {
+      const responseMessage = axios.isAxiosError(error)
+        ? error.response?.data?.error?.message || error.response?.data?.message
+        : undefined;
+      profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {

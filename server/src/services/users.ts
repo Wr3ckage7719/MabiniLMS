@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../lib/supabase.js';
-import { ApiError, ErrorCode, UserRole } from '../types/index.js';
+import { ApiError, ErrorCode } from '../types/index.js';
 import {
   UpdateProfileInput,
   UpdateUserRoleInput,
@@ -16,188 +16,6 @@ const AVATAR_ALLOWED_MIME_TYPES = [
   'image/gif',
   'image/webp',
 ];
-const PROFILE_SELECT_FIELDS = 'id, email, first_name, last_name, role, avatar_url, created_at, updated_at';
-const PROFILE_SELECT_FIELDS_LEGACY = 'id, email, first_name, last_name, role, avatar_url, created_at';
-
-type ProfileMutationError = {
-  code?: string;
-  message?: string;
-  details?: string;
-} | null;
-
-type ProfileUpdateContext = {
-  email?: string;
-  role?: UserRole;
-};
-
-const normalizeUserRole = (value: unknown): UserRole => {
-  if (value === UserRole.ADMIN || value === UserRole.TEACHER || value === UserRole.STUDENT) {
-    return value;
-  }
-
-  return UserRole.STUDENT;
-};
-
-const isMissingColumnError = (error: ProfileMutationError, columnName: string): boolean => {
-  const normalizedMessage = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
-  return normalizedMessage.includes('column') && normalizedMessage.includes(columnName.toLowerCase());
-};
-
-const isNoRowsResultError = (error: ProfileMutationError): boolean => {
-  if (!error) {
-    return false;
-  }
-
-  const normalizedMessage = `${error.message || ''} ${error.details || ''}`.toLowerCase();
-  return error.code === 'PGRST116' || normalizedMessage.includes('multiple (or no) rows returned');
-};
-
-const mapProfileRecord = (
-  row: Record<string, unknown>,
-  includeUpdatedAtField: boolean
-): UserProfile => {
-  const createdAt = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
-  const updatedAt = includeUpdatedAtField && typeof row.updated_at === 'string'
-    ? row.updated_at
-    : createdAt;
-
-  return {
-    ...(row as Omit<UserProfile, 'updated_at'>),
-    updated_at: updatedAt,
-  };
-};
-
-const fetchProfileForResponse = async (
-  userId: string,
-  includeUpdatedAtField: boolean
-): Promise<{ profile: UserProfile | null; error: ProfileMutationError }> => {
-  const selectFields = includeUpdatedAtField ? PROFILE_SELECT_FIELDS : PROFILE_SELECT_FIELDS_LEGACY;
-
-  const { data, error } = await supabaseAdmin
-    .from('profiles')
-    .select(selectFields)
-    .eq('id', userId)
-    .maybeSingle();
-
-  return {
-    profile: data ? mapProfileRecord(data as Record<string, unknown>, includeUpdatedAtField) : null,
-    error,
-  };
-};
-
-const getProfileBootstrapSeed = async (
-  userId: string,
-  input: UpdateProfileInput,
-  context?: ProfileUpdateContext
-): Promise<{ email: string; role: UserRole; firstName: string; lastName: string }> => {
-  let email = context?.email?.trim().toLowerCase();
-  let role = context?.role;
-  let firstName = input.first_name?.trim();
-  let lastName = input.last_name?.trim();
-
-  if (!email || !role || !firstName || !lastName) {
-    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
-
-    if (!error && data.user) {
-      const authUser = data.user;
-      const metadata = authUser.user_metadata || {};
-      const fullName = String(metadata.full_name || metadata.name || '').trim();
-      const [firstToken = '', ...restTokens] = fullName.split(/\s+/).filter(Boolean);
-
-      email = email || authUser.email?.trim().toLowerCase() || '';
-      role = role || normalizeUserRole(metadata.role || authUser.app_metadata?.role);
-      firstName = firstName || String(metadata.first_name || firstToken || '').trim();
-      lastName = lastName || String(metadata.last_name || restTokens.join(' ') || '').trim();
-    }
-  }
-
-  if (!email) {
-    throw new ApiError(
-      ErrorCode.NOT_FOUND,
-      'User not found',
-      404
-    );
-  }
-
-  return {
-    email,
-    role: normalizeUserRole(role),
-    firstName: firstName || 'User',
-    lastName: lastName || 'Name',
-  };
-};
-
-const bootstrapMissingProfile = async (
-  userId: string,
-  input: UpdateProfileInput,
-  context?: ProfileUpdateContext
-): Promise<void> => {
-  const seed = await getProfileBootstrapSeed(userId, input, context);
-
-  const { error } = await supabaseAdmin
-    .from('profiles')
-    .upsert(
-      {
-        id: userId,
-        email: seed.email,
-        role: seed.role,
-        first_name: seed.firstName,
-        last_name: seed.lastName,
-        avatar_url: input.avatar_url ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' }
-    );
-
-  if (error) {
-    logger.error('Failed to bootstrap missing profile during update', {
-      userId,
-      error: error.message,
-    });
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'Failed to update profile',
-      500
-    );
-  }
-};
-
-const updateProfileRow = async (
-  userId: string,
-  input: UpdateProfileInput,
-  includeUpdatedAtField: boolean
-): Promise<{ profile: UserProfile | null; error: ProfileMutationError }> => {
-  const updateData: Record<string, unknown> = {
-    ...input,
-  };
-
-  if (includeUpdatedAtField) {
-    updateData.updated_at = new Date().toISOString();
-  }
-
-  Object.keys(updateData).forEach((key) => {
-    if (updateData[key] === undefined) {
-      delete updateData[key];
-    }
-  });
-
-  if (Object.keys(updateData).length === 0) {
-    return fetchProfileForResponse(userId, includeUpdatedAtField);
-  }
-
-  const selectFields = includeUpdatedAtField ? PROFILE_SELECT_FIELDS : PROFILE_SELECT_FIELDS_LEGACY;
-  const { data, error } = await supabaseAdmin
-    .from('profiles')
-    .update(updateData)
-    .eq('id', userId)
-    .select(selectFields)
-    .maybeSingle();
-
-  return {
-    profile: data ? mapProfileRecord(data as Record<string, unknown>, includeUpdatedAtField) : null,
-    error,
-  };
-};
 
 const isMissingBucketError = (message?: string): boolean => {
   const normalized = (message || '').toLowerCase();
@@ -265,41 +83,29 @@ export const getUserById = async (userId: string): Promise<UserProfile> => {
  */
 export const updateProfile = async (
   userId: string,
-  input: UpdateProfileInput,
-  context?: ProfileUpdateContext
+  input: UpdateProfileInput
 ): Promise<UserProfile> => {
-  let includeUpdatedAtField = true;
-  let updateResult = await updateProfileRow(userId, input, includeUpdatedAtField);
+  const updateData: Record<string, any> = {
+    ...input,
+    updated_at: new Date().toISOString(),
+  };
 
-  if (updateResult.error && isMissingColumnError(updateResult.error, 'updated_at')) {
-    includeUpdatedAtField = false;
-    logger.warn('profiles.updated_at column missing, falling back to legacy profile update', {
-      userId,
-      error: updateResult.error.message,
-    });
-    updateResult = await updateProfileRow(userId, input, includeUpdatedAtField);
-  }
-
-  if (!updateResult.error && !updateResult.profile) {
-    updateResult.error = {
-      code: 'PGRST116',
-      message: 'No profile row returned from update operation',
-    };
-  }
-
-  if (updateResult.error && isNoRowsResultError(updateResult.error)) {
-    await bootstrapMissingProfile(userId, input, context);
-    includeUpdatedAtField = true;
-    updateResult = await updateProfileRow(userId, input, includeUpdatedAtField);
-
-    if (updateResult.error && isMissingColumnError(updateResult.error, 'updated_at')) {
-      includeUpdatedAtField = false;
-      updateResult = await updateProfileRow(userId, input, includeUpdatedAtField);
+  // Remove undefined values
+  Object.keys(updateData).forEach(key => {
+    if (updateData[key] === undefined) {
+      delete updateData[key];
     }
-  }
+  });
 
-  if (updateResult.error) {
-    logger.error('Failed to update profile', { userId, error: updateResult.error.message });
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update(updateData)
+    .eq('id', userId)
+    .select('id, email, first_name, last_name, role, avatar_url, created_at, updated_at')
+    .single();
+
+  if (error) {
+    logger.error('Failed to update profile', { userId, error: error.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to update profile',
@@ -307,7 +113,7 @@ export const updateProfile = async (
     );
   }
 
-  if (!updateResult.profile) {
+  if (!data) {
     throw new ApiError(
       ErrorCode.NOT_FOUND,
       'User not found',
@@ -315,7 +121,7 @@ export const updateProfile = async (
     );
   }
 
-  return updateResult.profile;
+  return data as UserProfile;
 };
 
 /**
