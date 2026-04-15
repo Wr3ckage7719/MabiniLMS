@@ -716,7 +716,7 @@ export default function ClassDetail() {
           onClick={() => setDiscussionOpen(false)}
         >
           <div
-            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-2xl lg:max-w-3xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <StudentClassStream
@@ -734,7 +734,7 @@ export default function ClassDetail() {
           onClick={() => setSelectedAnnouncementForComments(null)}
         >
           <div
-            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-2xl lg:max-w-3xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <AnnouncementCommentsPanel

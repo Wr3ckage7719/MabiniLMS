@@ -133,8 +133,8 @@ export function StudentClassStream({ classId, variant = 'embedded', onBack }: St
     const activePosts = posts.filter((post) => !post.isHidden);
 
     return (
-      <div className="h-full flex flex-col bg-background text-foreground">
-        <header className="h-16 flex items-center gap-3 border-b border-border bg-card/95 px-4 shadow-sm">
+      <div className="h-full flex flex-col bg-background text-foreground md:bg-card">
+        <header className="h-16 flex items-center gap-3 border-b border-border bg-card/95 px-4 shadow-sm md:h-[68px] md:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -144,10 +144,10 @@ export function StudentClassStream({ classId, variant = 'embedded', onBack }: St
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h2 className="text-[22px] font-semibold tracking-tight">Class comments</h2>
+          <h2 className="text-[22px] font-semibold tracking-tight md:text-[30px]">Class comments</h2>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-5">
+        <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-4">
           {postsLoading ? (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
               <Loader2 className="h-6 w-6 mb-2 animate-spin" />
@@ -155,14 +155,14 @@ export function StudentClassStream({ classId, variant = 'embedded', onBack }: St
             </div>
           ) : activePosts.length === 0 ? (
             <div className="h-full flex items-center justify-center">
-              <p className="text-3xl md:text-4xl font-medium text-muted-foreground">No comments</p>
+              <p className="text-3xl md:text-2xl font-medium text-muted-foreground">No comments</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 md:space-y-2.5">
               {activePosts.map((post) => (
                 <article
                   key={post.id}
-                  className="rounded-2xl border border-border bg-card px-4 py-3 shadow-sm hover:shadow-md transition-all duration-200"
+                  className="rounded-2xl border border-border bg-card px-4 py-3 shadow-sm hover:shadow-md transition-all duration-200 md:rounded-xl md:px-3.5"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-foreground">{post.studentName}</p>
@@ -175,14 +175,14 @@ export function StudentClassStream({ classId, variant = 'embedded', onBack }: St
           )}
         </div>
 
-        <div className="border-t border-border bg-card/95 px-4 py-3">
+        <div className="border-t border-border bg-card/95 px-4 py-3 md:px-6 md:py-4">
           <div className="flex items-center gap-2 rounded-full border border-input bg-background px-3 py-1.5 shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary/30">
             <input
               value={postContent}
               onChange={(event) => setPostContent(event.target.value)}
               onKeyDown={handleComposerKeyDown}
               placeholder="Add class comment"
-              className="h-9 w-full bg-transparent text-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+              className="h-9 w-full bg-transparent text-[18px] md:text-base text-foreground placeholder:text-muted-foreground focus:outline-none"
             />
             <Button
               variant="default"

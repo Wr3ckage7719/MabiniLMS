@@ -105,8 +105,8 @@ export function AnnouncementCommentsPanel({
   };
 
   return (
-    <div className="h-full flex flex-col bg-background text-foreground">
-      <header className="h-16 flex items-center gap-3 border-b border-border bg-card/95 px-4 shadow-sm">
+    <div className="h-full flex flex-col bg-background text-foreground md:bg-card">
+      <header className="h-16 flex items-center gap-3 border-b border-border bg-card/95 px-4 shadow-sm md:h-[68px] md:px-6">
         <Button
           variant="ghost"
           size="icon"
@@ -116,10 +116,10 @@ export function AnnouncementCommentsPanel({
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h2 className="text-[22px] font-semibold tracking-tight">Announcement comments</h2>
+        <h2 className="text-[22px] font-semibold tracking-tight md:text-[30px]">Announcement comments</h2>
       </header>
 
-      <div className="border-b border-border bg-card px-4 py-3">
+      <div className="border-b border-border bg-card px-4 py-3 md:px-6 md:py-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Announcement</p>
         {announcement.title ? (
           <p className="mt-1 text-sm font-semibold text-foreground line-clamp-1">{announcement.title}</p>
@@ -127,7 +127,7 @@ export function AnnouncementCommentsPanel({
         <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{announcement.content}</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5">
+      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-4">
         {isLoading ? (
           <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
             <Loader2 className="h-6 w-6 mb-2 animate-spin" />
@@ -135,14 +135,14 @@ export function AnnouncementCommentsPanel({
           </div>
         ) : comments.length === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <p className="text-3xl md:text-4xl font-medium text-muted-foreground">No comments</p>
+            <p className="text-3xl md:text-2xl font-medium text-muted-foreground">No comments</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 md:space-y-2.5">
             {comments.map((comment) => (
               <article
                 key={comment.id}
-                className="rounded-2xl border border-border bg-card px-4 py-3 shadow-sm"
+                className="rounded-2xl border border-border bg-card px-4 py-3 shadow-sm md:rounded-xl md:px-3.5"
               >
                 <div className="flex gap-2.5">
                   <Avatar className="h-8 w-8 shrink-0">
@@ -171,14 +171,14 @@ export function AnnouncementCommentsPanel({
         )}
       </div>
 
-      <div className="border-t border-border bg-card/95 px-4 py-3">
+      <div className="border-t border-border bg-card/95 px-4 py-3 md:px-6 md:py-4">
         <div className="flex items-center gap-2 rounded-full border border-input bg-background px-3 py-1.5 shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary/30">
           <input
             value={newComment}
             onChange={(event) => setNewComment(event.target.value)}
             onKeyDown={handleComposerKeyDown}
             placeholder="Add announcement comment"
-            className="h-9 w-full bg-transparent text-[18px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="h-9 w-full bg-transparent text-[18px] md:text-base text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           <Button
             variant="default"
