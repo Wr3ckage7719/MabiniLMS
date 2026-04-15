@@ -90,7 +90,10 @@ export const updateMyProfile = async (
   try {
     const userId = req.user!.id;
     const input: UpdateProfileInput = req.body;
-    const profile = await userService.updateProfile(userId, input);
+    const profile = await userService.updateProfile(userId, input, {
+      email: req.user?.email,
+      role: req.user?.role,
+    });
 
     const response: ApiResponse<UserProfile> = {
       success: true,
