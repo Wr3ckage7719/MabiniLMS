@@ -1,10 +1,35 @@
 import { BookOpen, FileText, CheckCircle2, Clock } from 'lucide-react';
-import { useClasses } from '@/hooks-api/useClasses';
-import { useAssignments } from '@/hooks-api/useAssignments';
+import { ClassItem, Assignment } from '@/lib/data';
+import { Skeleton } from '@/components/ui/skeleton';
 
-export function StatsBar() {
-  const { data: classes = [] } = useClasses();
-  const { data: assignments = [] } = useAssignments();
+interface StatsBarProps {
+  classes?: ClassItem[];
+  assignments?: Assignment[];
+  isLoading?: boolean;
+}
+
+function StatsBarSkeleton() {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="rounded-2xl bg-card shadow-sm border-0 p-4 min-h-[88px]">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-10" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function StatsBar({ classes = [], assignments = [], isLoading = false }: StatsBarProps) {
+  if (isLoading) {
+    return <StatsBarSkeleton />;
+  }
 
   const totalClasses = classes.length;
   const pending = assignments.filter(a => a.status === 'assigned').length;
@@ -21,7 +46,7 @@ export function StatsBar() {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {stats.map((s) => (
-        <div key={s.label} className="flex items-center gap-3 p-4 rounded-2xl bg-card shadow-sm border-0">
+        <div key={s.label} className="flex items-center gap-3 p-4 rounded-2xl bg-card shadow-sm border-0 min-h-[88px]">
           <div className={`p-2.5 rounded-xl ${s.color}`}>
             <s.icon className="h-5 w-5" />
           </div>

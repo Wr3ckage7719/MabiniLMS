@@ -1,13 +1,126 @@
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Archive, Loader2, RefreshCw } from 'lucide-react';
+import { Archive, RefreshCw } from 'lucide-react';
 import { ClassCard } from '@/components/ClassCard';
 import { StudentInvitations } from '@/components/StudentInvitations';
-import { UpcomingWidget } from '@/components/UpcomingWidget';
-import { StatsBar } from '@/components/StatsBar';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClasses as useApiClasses } from '@/hooks-api/useClasses';
+import { useAssignments } from '@/hooks-api/useAssignments';
+
+const StatsBar = lazy(() => import('@/components/StatsBar').then((module) => ({ default: module.StatsBar })));
+const UpcomingWidget = lazy(() => import('@/components/UpcomingWidget').then((module) => ({ default: module.UpcomingWidget })));
+
+const HEAVY_WIDGETS_MOUNT_DELAY_MS = 140;
+
+function StatsBarFallback() {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="rounded-2xl bg-card shadow-sm border-0 p-4 min-h-[88px]">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-10" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UpcomingWidgetFallback() {
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm p-6 min-h-[360px] space-y-4">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-4 w-4" />
+        <Skeleton className="h-5 w-40" />
+      </div>
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div key={index} className="rounded-xl border border-border/50 p-3 space-y-2">
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MobileClassesLoadingSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div key={index} className="rounded-2xl border bg-card p-4 space-y-3 min-h-[168px]">
+          <Skeleton className="h-5 w-3/5" />
+          <Skeleton className="h-4 w-2/5" />
+          <Skeleton className="h-4 w-4/5" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-8 flex-1" />
+            <Skeleton className="h-8 flex-1" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DesktopActiveClassesLoadingSkeleton() {
+  return (
+    <div className="space-y-4 md:space-y-5">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-6 w-36" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-2xl border bg-card p-4 space-y-3 min-h-[168px]">
+            <Skeleton className="h-5 w-3/5" />
+            <Skeleton className="h-4 w-2/5" />
+            <Skeleton className="h-4 w-4/5" />
+            <div className="flex gap-2 pt-1">
+              <Skeleton className="h-8 flex-1" />
+              <Skeleton className="h-8 flex-1" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArchivedClassesLoadingSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="md:hidden space-y-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="rounded-2xl border bg-card p-4 space-y-3 min-h-[168px]">
+            <Skeleton className="h-5 w-3/5" />
+            <Skeleton className="h-4 w-2/5" />
+            <Skeleton className="h-4 w-4/5" />
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden md:block space-y-5">
+        <Skeleton className="h-6 w-56" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="rounded-2xl border bg-card p-4 space-y-3 min-h-[168px]">
+              <Skeleton className="h-5 w-3/5" />
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="h-4 w-4/5" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { currentUserName } = useRole();
@@ -20,15 +133,40 @@ export default function Dashboard() {
   } = useApiClasses();
   const location = useLocation();
   const navigate = useNavigate();
+  const [mountHeavyWidgets, setMountHeavyWidgets] = useState(false);
 
   const isArchivedView = location.pathname === '/archived';
 
-  const activeClasses = classes.filter(
-    (cls) => !cls.archived && !archivedClasses.includes(cls.id) && !unenrolledClasses.includes(cls.id)
+  useEffect(() => {
+    if (isArchivedView) {
+      setMountHeavyWidgets(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setMountHeavyWidgets(true);
+    }, HEAVY_WIDGETS_MOUNT_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isArchivedView]);
+
+  const {
+    data: assignments = [],
+    isLoading: isAssignmentsLoading,
+  } = useAssignments(undefined, {
+    enabled: mountHeavyWidgets && !isArchivedView,
+  });
+
+  const activeClasses = useMemo(
+    () => classes.filter((cls) => !cls.archived && !archivedClasses.includes(cls.id) && !unenrolledClasses.includes(cls.id)),
+    [classes, archivedClasses, unenrolledClasses]
   );
 
-  const displayedArchivedClasses = classes.filter(
-    (cls) => cls.archived || archivedClasses.includes(cls.id)
+  const displayedArchivedClasses = useMemo(
+    () => classes.filter((cls) => cls.archived || archivedClasses.includes(cls.id)),
+    [classes, archivedClasses]
   );
 
   const handleArchiveClass = async (classId: string) => {
@@ -59,7 +197,13 @@ export default function Dashboard() {
 
       {!isArchivedView && (
         <div className="hidden md:block">
-          <StatsBar />
+          <Suspense fallback={<StatsBarFallback />}>
+            {mountHeavyWidgets ? (
+              <StatsBar classes={classes} assignments={assignments} isLoading={isAssignmentsLoading} />
+            ) : (
+              <StatsBarFallback />
+            )}
+          </Suspense>
         </div>
       )}
 
@@ -70,9 +214,24 @@ export default function Dashboard() {
       )}
 
       {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        isArchivedView ? (
+          <ArchivedClassesLoadingSkeleton />
+        ) : (
+          <>
+            <div className="md:hidden">
+              <MobileClassesLoadingSkeleton />
+            </div>
+
+            <div className="hidden md:grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+              <div className="lg:col-span-2">
+                <DesktopActiveClassesLoadingSkeleton />
+              </div>
+              <div>
+                <UpcomingWidgetFallback />
+              </div>
+            </div>
+          </>
+        )
       )}
 
       {!isLoading && error && (
@@ -204,7 +363,13 @@ export default function Dashboard() {
               )}
             </div>
             <div>
-              <UpcomingWidget />
+              <Suspense fallback={<UpcomingWidgetFallback />}>
+                {mountHeavyWidgets ? (
+                  <UpcomingWidget classes={classes} assignments={assignments} isLoading={isAssignmentsLoading} />
+                ) : (
+                  <UpcomingWidgetFallback />
+                )}
+              </Suspense>
             </div>
           </div>
         </>

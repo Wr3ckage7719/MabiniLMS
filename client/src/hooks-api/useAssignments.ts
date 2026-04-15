@@ -5,8 +5,16 @@ import { transformAssignments } from '@/services/data-transformer';
 import { Assignment } from '@/lib/data';
 import { useAuth } from '@/contexts/AuthContext';
 
-export function useAssignments(courseId?: string): UseQueryResult<Assignment[], Error> {
+interface UseAssignmentsOptions {
+  enabled?: boolean;
+}
+
+export function useAssignments(
+  courseId?: string,
+  options: UseAssignmentsOptions = {}
+): UseQueryResult<Assignment[], Error> {
   const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const { enabled = true } = options;
 
   return useQuery({
     queryKey: ['assignments', courseId],
@@ -29,7 +37,7 @@ export function useAssignments(courseId?: string): UseQueryResult<Assignment[], 
       const response = await assignmentsService.getAssignments(courseId);
       return transformAssignments(response.data?.assignments || []);
     },
-    enabled: !authLoading && isLoggedIn,
+    enabled: !authLoading && isLoggedIn && enabled,
     retry: (failureCount, error) => {
       const status = (error as { response?: { status?: number } })?.response?.status;
       if (status === 401) {

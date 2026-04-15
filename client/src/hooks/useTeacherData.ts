@@ -399,39 +399,43 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
       // Calculate total students
       const totalStudents = courses.reduce((sum, c) => sum + (c.enrollment_count || 0), 0);
 
-      // Fetch assignments and submissions for each course
-      const allAssignments: TeacherAssignment[] = [];
-      const allSubmissions: Submission[] = [];
+      // Fetch assignments and submissions in parallel to avoid request waterfalls.
+      const limitedCourses = courses.slice(0, 5);
 
-      for (const course of courses.slice(0, 5)) { // Limit to prevent too many requests
-        try {
+      const assignmentResults = await Promise.allSettled(
+        limitedCourses.map(async (course) => {
           const assignmentsRes = await teacherService.getCourseAssignments(course.id);
-          const assignments = assignmentsRes.data || [];
-          allAssignments.push(...assignments);
+          return assignmentsRes.data || [];
+        })
+      );
 
-          // Fetch submissions for recent assignments
-          for (const assignment of assignments.slice(0, 3)) {
-            try {
-              const subRes = await teacherService.getAssignmentSubmissions(assignment.id);
-              const subs = (subRes.data || []).map(s => ({
-                ...s,
-                assignment: {
-                  id: assignment.id,
-                  title: assignment.title,
-                  due_date: assignment.due_date,
-                  max_points: assignment.max_points,
-                  course_id: assignment.course_id,
-                },
-              }));
-              allSubmissions.push(...subs);
-            } catch (e) {
-              // Continue on error
-            }
-          }
-        } catch (e) {
-          // Continue on error
-        }
-      }
+      const assignmentsByCourse = assignmentResults.map((result) => (
+        result.status === 'fulfilled' ? result.value : []
+      ));
+
+      const allAssignments: TeacherAssignment[] = assignmentsByCourse.flat();
+
+      const submissionTargets = assignmentsByCourse.flatMap((courseAssignments) => courseAssignments.slice(0, 3));
+
+      const submissionResults = await Promise.allSettled(
+        submissionTargets.map(async (assignment) => {
+          const subRes = await teacherService.getAssignmentSubmissions(assignment.id);
+          return (subRes.data || []).map((submission) => ({
+            ...submission,
+            assignment: {
+              id: assignment.id,
+              title: assignment.title,
+              due_date: assignment.due_date,
+              max_points: assignment.max_points,
+              course_id: assignment.course_id,
+            },
+          }));
+        })
+      );
+
+      const allSubmissions: Submission[] = submissionResults.flatMap((result) => (
+        result.status === 'fulfilled' ? result.value : []
+      ));
 
       // Filter upcoming deadlines (next 7 days)
       const now = new Date();

@@ -1,11 +1,10 @@
-import { useMemo } from 'react';
+import { lazy, Suspense } from 'react';
 import {
   BookOpen,
   Users,
   Clock,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   RefreshCw,
 } from 'lucide-react';
 import { ClassItem } from '@/lib/data';
@@ -13,10 +12,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { TeacherClassesView } from './TeacherClassesView';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useTeacherDashboard } from '@/hooks/useTeacherData';
-import InteractiveCalendar from './InteractiveCalendar';
-import TeacherSettingsPage from '@/pages/TeacherSettingsPage';
+
+const TeacherClassesView = lazy(() => import('./TeacherClassesView').then((module) => ({ default: module.TeacherClassesView })));
+const InteractiveCalendar = lazy(() => import('./InteractiveCalendar'));
+const TeacherSettingsPage = lazy(() => import('@/pages/TeacherSettingsPage'));
 
 interface TeacherDashboardProps {
   currentView: 'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings';
@@ -35,16 +36,70 @@ const formatDate = (value: string | null | undefined) => {
   });
 };
 
+function TeacherSectionFallback() {
+  return (
+    <div className="w-full h-full overflow-auto animate-fade-in">
+      <div className="p-4 md:p-6 lg:p-8 max-w-6xl mx-auto space-y-4">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-[420px] w-full rounded-2xl" />
+      </div>
+    </div>
+  );
+}
+
+function TeacherDashboardLoadingSkeleton() {
+  return (
+    <div className="w-full h-full overflow-auto animate-fade-in">
+      <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <Card key={index} className="border-0 shadow-sm min-h-[116px]">
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-14" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <Card key={index} className="border-0 shadow-sm min-h-[330px]">
+              <CardHeader>
+                <Skeleton className="h-5 w-40" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {Array.from({ length: 5 }).map((__, rowIndex) => (
+                  <div key={rowIndex} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-3 w-2/3" />
+                    </div>
+                    <Skeleton className="h-5 w-16" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TeacherDashboard({ currentView, classes, onClassesChange }: TeacherDashboardProps) {
   const { data, loading, error, refetch } = useTeacherDashboard();
 
   const renderDashboard = () => {
     if (loading) {
-      return (
-        <div className="p-8 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      );
+      return <TeacherDashboardLoadingSkeleton />;
     }
 
     if (error) {
@@ -171,7 +226,9 @@ export function TeacherDashboard({ currentView, classes, onClassesChange }: Teac
     return (
       <div className="w-full h-full overflow-auto animate-fade-in">
         <div className="p-4 md:p-6 lg:p-8 max-w-6xl mx-auto">
-          <InteractiveCalendar />
+          <Suspense fallback={<TeacherSectionFallback />}>
+            <InteractiveCalendar />
+          </Suspense>
         </div>
       </div>
     );
@@ -214,7 +271,11 @@ export function TeacherDashboard({ currentView, classes, onClassesChange }: Teac
   };
 
   if (currentView === 'classes') {
-    return <TeacherClassesView classes={classes} onClassesChange={onClassesChange} />;
+    return (
+      <Suspense fallback={<TeacherSectionFallback />}>
+        <TeacherClassesView classes={classes} onClassesChange={onClassesChange} />
+      </Suspense>
+    );
   }
 
   if (currentView === 'calendar') {
@@ -226,7 +287,11 @@ export function TeacherDashboard({ currentView, classes, onClassesChange }: Teac
   }
 
   if (currentView === 'settings') {
-    return <TeacherSettingsPage />;
+    return (
+      <Suspense fallback={<TeacherSectionFallback />}>
+        <TeacherSettingsPage />
+      </Suspense>
+    );
   }
 
   return renderDashboard();
