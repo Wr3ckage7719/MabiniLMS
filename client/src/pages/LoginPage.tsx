@@ -7,9 +7,11 @@ import { SignupDialog } from '@/components/SignupDialog';
 import { ForgotPasswordDialog } from '@/components/ForgotPasswordDialog';
 import { useToast } from '@/hooks/use-toast';
 import { AppLogo } from '@/components/AppLogo';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Eye, EyeOff } from 'lucide-react';
 
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
+const REMEMBER_ME_STORAGE_KEY = 'mabini:remember-me';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -23,12 +25,27 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isTeacher, setIsTeacher] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [signupOpen, setSignupOpen] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [showAnimation, setShowAnimation] = useState(false);
 
   useEffect(() => {
     setShowAnimation(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const storedPreference = localStorage.getItem(REMEMBER_ME_STORAGE_KEY);
+    if (storedPreference === 'false') {
+      setRememberMe(false);
+      return;
+    }
+
+    setRememberMe(true);
   }, []);
 
   useEffect(() => {
@@ -78,7 +95,8 @@ export default function LoginPage() {
         email,
         password,
         requiresTwoFactor ? twoFactorCode.trim() : undefined,
-        'app'
+        'app',
+        rememberMe,
       );
 
       if (loginResult.requiresTwoFactor) {
@@ -109,6 +127,14 @@ export default function LoginPage() {
 
   const toggleRole = () => {
     setIsTeacher(!isTeacher);
+  };
+
+  const handleRememberMeChange = (checked: boolean) => {
+    setRememberMe(checked);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(REMEMBER_ME_STORAGE_KEY, checked ? 'true' : 'false');
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -242,13 +268,25 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => setForgotPasswordOpen(true)}
-                className="ml-auto block text-xs font-medium text-primary transition-colors hover:text-primary/80 hover:underline underline-offset-4"
-              >
-                Forgot password?
-              </button>
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground select-none cursor-pointer">
+                  <Checkbox
+                    checked={rememberMe}
+                    onCheckedChange={(checkedState) => handleRememberMeChange(checkedState === true)}
+                    disabled={isLoading}
+                    aria-label="Remember me"
+                  />
+                  <span>Remember me</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setForgotPasswordOpen(true)}
+                  className="text-xs font-medium text-primary transition-colors hover:text-primary/80 hover:underline underline-offset-4"
+                >
+                  Forgot password?
+                </button>
+              </div>
 
               {error && <div className="text-sm text-destructive text-center bg-destructive/10 p-3 rounded-lg">{error}</div>}
 
