@@ -1,5 +1,5 @@
 // Service Worker for Mabini Classroom PWA
-const CACHE_NAME = 'mabini-classroom-v2';
+const CACHE_NAME = 'mabini-classroom-v3';
 const OFFLINE_URL = '/offline.html';
 
 // Assets to cache on install
@@ -105,8 +105,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: payload.icon || '/icons/icon-192x192.svg',
-      badge: payload.badge || '/icons/icon-192x192.svg',
+      icon: payload.icon || '/icons/icon-192x192.png',
+      badge: payload.badge || '/icons/icon-72x72.png',
       tag: payload.tag || 'mabini-notification',
       data: {
         url,
