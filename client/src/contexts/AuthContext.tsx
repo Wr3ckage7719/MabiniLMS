@@ -1,5 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import {
+  supabase,
+  setRememberSessionPersistence,
+  isRememberSessionEnabled,
+} from '@/lib/supabase';
 import { authService } from '@/services/auth.service';
 import { cacheAuthRole } from '@/lib/pwa-zoom-policy';
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
@@ -154,7 +158,8 @@ interface AuthContextType {
     email: string,
     password: string,
     twoFactorCode?: string,
-    portal?: 'app' | 'admin'
+    portal?: 'app' | 'admin',
+    rememberMe?: boolean,
   ) => Promise<LoginResult>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
   requestStudentSignup: (email: string) => Promise<string>;
@@ -182,6 +187,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLinkedStudentAccounts(toLinkedStudentAccounts(readStoredStudentAccountSessions()));
   }, []);
 
+  const clearStoredStudentAccountSessions = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY);
+    }
+
+    setLinkedStudentAccounts([]);
+  }, []);
+
   const persistStudentAccountSession = useCallback((nextSession: StoredStudentAccountSession) => {
     const currentSessions = readStoredStudentAccountSessions();
     const existingSession = currentSessions.find((sessionRecord) => sessionRecord.userId === nextSession.userId);
@@ -201,6 +214,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const rememberStudentAccountSession = useCallback((authSession: SupabaseSession | null, currentUser: User | null) => {
     if (!authSession?.user || !authSession.access_token || !authSession.refresh_token || !currentUser) {
+      return;
+    }
+
+    if (!isRememberSessionEnabled()) {
       return;
     }
 
@@ -380,8 +397,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!isRememberSessionEnabled()) {
+      clearStoredStudentAccountSessions();
+      return;
+    }
+
     refreshLinkedStudentAccounts();
-  }, [refreshLinkedStudentAccounts]);
+  }, [clearStoredStudentAccountSessions, refreshLinkedStudentAccounts]);
 
   useEffect(() => {
     cacheAuthRole(user?.role || null);
@@ -528,7 +550,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string,
     twoFactorCode?: string,
-    portal: 'app' | 'admin' = 'app'
+    portal: 'app' | 'admin' = 'app',
+    rememberMe: boolean = true,
   ): Promise<LoginResult> => {
     if (!email || !password) {
       throw new Error('Email and password are required');
@@ -537,6 +560,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       clearRoleIntent();
+      setRememberSessionPersistence(rememberMe);
+      if (!rememberMe) {
+        clearStoredStudentAccountSessions();
+      }
 
       const response = await withTimeout(
         authService.login({
@@ -544,6 +571,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           password,
           twoFactorCode,
           portal,
+          rememberMe,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
         'Login timed out. Please try again.'
@@ -601,6 +629,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(AUTH_ROLE_INTENT_STORAGE_KEY, roleIntent);
       }
+      setRememberSessionPersistence(true);
 
       const queryParams: Record<string, string> = {
         prompt: 'select_account',
