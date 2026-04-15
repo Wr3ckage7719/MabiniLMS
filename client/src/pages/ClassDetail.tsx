@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
@@ -58,6 +58,7 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
 export default function ClassDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const { currentUserAvatar } = useRole();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
@@ -97,12 +98,28 @@ export default function ClassDetail() {
     Boolean(weightedGradeQuery.error);
 
   const cls = classQuery.data;
-  const assignments = assignmentsQuery.data || [];
+  const assignments = useMemo(() => assignmentsQuery.data || [], [assignmentsQuery.data]);
   const announcements = announcementsQuery.data || [];
   const materials = materialsQuery.data || [];
   const classStudents = studentsQuery.data || [];
   const classGrades = gradesQuery.data || [];
   const discussionCommentCount = (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
+
+  useEffect(() => {
+    const assignmentId = searchParams.get('assignmentId');
+    if (!assignmentId || assignments.length === 0) {
+      return;
+    }
+
+    if (selectedAssignment?.id === assignmentId) {
+      return;
+    }
+
+    const assignmentFromQuery = assignments.find((assignment) => assignment.id === assignmentId);
+    if (assignmentFromQuery) {
+      setSelectedAssignment(assignmentFromQuery);
+    }
+  }, [assignments, searchParams, selectedAssignment]);
 
   const assignmentGrades = new Map<string, string>();
   classGrades.forEach((grade: any) => {
@@ -408,24 +425,6 @@ export default function ClassDetail() {
                       </CardContent>
                     </Card>
                   );
-
-                  {selectedAnnouncementForComments && (
-                    <div
-                      className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
-                      onClick={() => setSelectedAnnouncementForComments(null)}
-                    >
-                      <div
-                        className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <AnnouncementCommentsPanel
-                          courseId={classId}
-                          announcement={selectedAnnouncementForComments}
-                          onBack={() => setSelectedAnnouncementForComments(null)}
-                        />
-                      </div>
-                    </div>
-                  )}
                 })
               ) : (
                 <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
@@ -729,10 +728,40 @@ export default function ClassDetail() {
         </div>
       )}
 
+      {selectedAnnouncementForComments && (
+        <div
+          className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          onClick={() => setSelectedAnnouncementForComments(null)}
+        >
+          <div
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <AnnouncementCommentsPanel
+              courseId={classId}
+              announcement={selectedAnnouncementForComments}
+              onBack={() => setSelectedAnnouncementForComments(null)}
+            />
+          </div>
+        </div>
+      )}
+
       <AssignmentDetailDialog
         assignment={selectedAssignment}
         open={!!selectedAssignment}
-        onOpenChange={(open) => !open && setSelectedAssignment(null)}
+        onOpenChange={(open) => {
+          if (open) {
+            return;
+          }
+
+          setSelectedAssignment(null);
+
+          if (searchParams.has('assignmentId')) {
+            const nextParams = new URLSearchParams(searchParams);
+            nextParams.delete('assignmentId');
+            setSearchParams(nextParams, { replace: true });
+          }
+        }}
         teacherName={cls.teacher}
         classId={cls.id}
       />
