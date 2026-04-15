@@ -1,4 +1,5 @@
 import { AlertCircle, BookOpen, CalendarClock, CheckCircle2, Clock3, FileText, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAssignments } from '@/hooks-api/useAssignments';
@@ -12,6 +13,7 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
 };
 
 export default function UpcomingPage() {
+  const navigate = useNavigate();
   const classesQuery = useClasses();
   const assignmentsQuery = useAssignments();
 
@@ -60,6 +62,10 @@ export default function UpcomingPage() {
 
   const isLoading = classesQuery.isLoading || assignmentsQuery.isLoading;
   const hasError = classesQuery.error || assignmentsQuery.error;
+
+  const openAssignment = (classId: string, assignmentId: string) => {
+    navigate(`/class/${classId}?assignmentId=${assignmentId}`);
+  };
 
   if (isLoading) {
     return (
@@ -164,9 +170,11 @@ export default function UpcomingPage() {
               const isLate = assignment.status === 'late';
 
               return (
-                <div
+                <button
                   key={assignment.id}
-                  className="flex items-start gap-3 rounded-[12px] border border-border/70 px-3 py-2.5"
+                  type="button"
+                  className="w-full text-left flex items-start gap-3 rounded-[12px] border border-border/70 px-3 py-2.5 hover:bg-secondary/40 transition-colors"
+                  onClick={() => openAssignment(assignment.classId, assignment.id)}
                 >
                   <span
                     className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full ${
@@ -199,7 +207,7 @@ export default function UpcomingPage() {
                       </span>
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

@@ -47,7 +47,7 @@ const getPlatformHint = (): string => {
 const sanitizeVapidKey = (key: string): string => {
   return key
     .trim()
-    .replace(/^['\"]+|['\"]+$/g, '')
+    .replace(/^['"]+|['"]+$/g, '')
     .replace(/\s+/g, '');
 };
 
@@ -102,6 +102,10 @@ export const getPushEnableErrorMessage = (error: unknown): string => {
     return 'Push notifications are not configured on the server yet. Please contact your administrator.';
   }
 
+  if (normalized.includes('push subscription storage is unavailable')) {
+    return 'Push notification storage is not ready on the server. Ask your administrator to run migration 015_web_push_subscriptions.';
+  }
+
   if (
     normalized.includes('public key is invalid') ||
     normalized.includes('vapid')
@@ -114,6 +118,10 @@ export const getPushEnableErrorMessage = (error: unknown): string => {
     normalized.includes('registration failed')
   ) {
     return 'Browser push service rejected registration. If you use Brave, disable Shields for this site and allow notifications, then try again.';
+  }
+
+  if (normalized.includes('failed to register push subscription')) {
+    return 'Could not save this device for push notifications. Please try again, and contact your administrator if it keeps failing.';
   }
 
   if (normalized.includes('not supported')) {
