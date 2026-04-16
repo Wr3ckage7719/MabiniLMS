@@ -126,6 +126,8 @@ const isTwoFactorEnabledForUser = async (
 
 // Connected users map: userId -> Set of socket IDs
 const connectedUsers = new Map<string, Set<string>>();
+const LEGACY_ACTIVE_ENROLLMENT_STATUS = 'enrolled';
+const ACTIVE_ENROLLMENT_STATUSES = ['active', LEGACY_ACTIVE_ENROLLMENT_STATUS];
 
 // Event types for real-time notifications
 export enum SocketEvent {
@@ -367,7 +369,7 @@ export const sendToCourse = async (courseId: string, event: SocketEvent, payload
       .from('enrollments')
       .select('student_id')
       .eq('course_id', courseId)
-      .eq('status', 'active');
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
     const { data: course } = await supabaseAdmin
       .from('courses')

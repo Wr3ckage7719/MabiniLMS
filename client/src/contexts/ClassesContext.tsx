@@ -7,6 +7,7 @@ import {
   ClassInvitation,
 } from '@/services/invitations.service';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
 
 export interface StudentInvitation {
   id: string;
@@ -40,6 +41,7 @@ const ClassesContext = createContext<ClassesContextType | undefined>(undefined);
 
 export function ClassesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [archivedClasses, setArchivedClasses] = useState<string[]>([]);
   const [unenrolledClasses, setUnenrolledClasses] = useState<string[]>([]);
   const [invitations, setInvitations] = useState<StudentInvitation[]>([]);
@@ -184,9 +186,23 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   );
 
   const acceptInvitation = useCallback(async (invitationId: string) => {
-    await invitationsService.acceptInvitation(invitationId);
+    const response = await invitationsService.acceptInvitation(invitationId) as {
+      data?: {
+        invitation?: {
+          course_id?: string;
+        };
+      };
+    };
+
+    const courseId = response?.data?.invitation?.course_id;
+
     await loadMyInvitations();
-  }, [loadMyInvitations]);
+
+    await queryClient.invalidateQueries({ queryKey: ['classes'] });
+    if (courseId) {
+      await queryClient.invalidateQueries({ queryKey: ['class', courseId] });
+    }
+  }, [loadMyInvitations, queryClient]);
 
   const declineInvitation = useCallback(async (invitationId: string) => {
     await invitationsService.declineInvitation(invitationId);

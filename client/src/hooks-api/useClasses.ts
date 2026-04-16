@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export function useClasses(params?: { archived?: boolean; role?: 'student' | 'teacher' }): UseQueryResult<ClassItem[], Error> {
   const { user, isLoggedIn, isLoading: authLoading } = useAuth();
+  const isStudent = (user?.role || '').toLowerCase() === 'student';
 
   return useQuery({
     queryKey: ['classes', user?.id || null, params],
@@ -21,8 +22,9 @@ export function useClasses(params?: { archived?: boolean; role?: 'student' | 'te
       }
       return failureCount < 1;
     },
-    refetchOnReconnect: false,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnReconnect: true,
+    staleTime: isStudent ? 30 * 1000 : 5 * 60 * 1000,
+    refetchInterval: isStudent ? 30 * 1000 : false,
   });
 }
 
