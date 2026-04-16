@@ -83,7 +83,7 @@ const attachEnrollmentCountsToCourses = async (
 
   const { data: enrollmentRows, error } = await supabaseAdmin
     .from('enrollments')
-    .select('course_id')
+    .select('course_id, student_id')
     .in('course_id', courseIds)
     .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
@@ -99,22 +99,25 @@ const attachEnrollmentCountsToCourses = async (
     }));
   }
 
-  const enrollmentCountByCourseId = new Map<string, number>();
+  const enrollmentStudentIdsByCourseId = new Map<string, Set<string>>();
 
-  for (const row of (enrollmentRows || []) as Array<{ course_id: string | null }>) {
-    if (!row.course_id) {
+  for (const row of (enrollmentRows || []) as Array<{ course_id: string | null; student_id: string | null }>) {
+    if (!row.course_id || !row.student_id) {
       continue;
     }
 
-    enrollmentCountByCourseId.set(
-      row.course_id,
-      (enrollmentCountByCourseId.get(row.course_id) || 0) + 1
-    );
+    let studentIds = enrollmentStudentIdsByCourseId.get(row.course_id);
+    if (!studentIds) {
+      studentIds = new Set<string>();
+      enrollmentStudentIdsByCourseId.set(row.course_id, studentIds);
+    }
+
+    studentIds.add(row.student_id);
   }
 
   return courses.map((course) => ({
     ...course,
-    enrollment_count: enrollmentCountByCourseId.get(course.id) || 0,
+    enrollment_count: enrollmentStudentIdsByCourseId.get(course.id)?.size || 0,
   }));
 };
 
@@ -275,7 +278,7 @@ export const getCourseById = async (
     const [enrollmentResult, assignmentResult] = await Promise.all([
       supabaseAdmin
         .from('enrollments')
-        .select('*', { count: 'exact', head: true })
+        .select('student_id')
         .eq('course_id', courseId)
         .in('status', ACTIVE_ENROLLMENT_STATUSES),
       supabaseAdmin
@@ -284,7 +287,27 @@ export const getCourseById = async (
         .eq('course_id', courseId),
     ]);
 
-    course.enrollment_count = enrollmentResult.count || 0;
+    if (enrollmentResult.error) {
+      logger.warn('Failed to fetch enrollment stats for course', {
+        courseId,
+        error: enrollmentResult.error.message,
+      });
+      course.enrollment_count = 0;
+    } else {
+      course.enrollment_count = new Set(
+        (enrollmentResult.data || [])
+          .map((row) => row.student_id)
+          .filter((studentId): studentId is string => Boolean(studentId))
+      ).size;
+    }
+
+    if (assignmentResult.error) {
+      logger.warn('Failed to fetch assignment stats for course', {
+        courseId,
+        error: assignmentResult.error.message,
+      });
+    }
+
     course.assignment_count = assignmentResult.count || 0;
   }
 
@@ -869,19 +892,26 @@ export const getCourseStudents = async (
     `)
     .eq('course_id', courseId)
     .in('status', ACTIVE_ENROLLMENT_STATUSES)
-    .order('enrolled_at', { ascending: true });
+    .order('enrolled_at', { ascending: false });
 
   if (error) {
     logger.error('Failed to get course students', { courseId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get course students', 500);
   }
 
-  // Transform to flatten student data
-  return (data || []).map((enrollment: any) => {
+  const uniqueStudents = new Map<string, any>();
+
+  // Keep the most recent enrollment row for each student and ignore duplicate rows.
+  for (const enrollment of data || []) {
     const student = Array.isArray(enrollment.student) 
       ? enrollment.student[0] 
       : enrollment.student;
-    return {
+
+    if (!student?.id || uniqueStudents.has(student.id)) {
+      continue;
+    }
+
+    uniqueStudents.set(student.id, {
       id: student?.id,
       email: student?.email,
       first_name: student?.first_name,
@@ -889,7 +919,13 @@ export const getCourseStudents = async (
       avatar_url: student?.avatar_url,
       enrolled_at: enrollment.enrolled_at,
       enrollment_status: enrollment.status,
-    };
+    });
+  }
+
+  return Array.from(uniqueStudents.values()).sort((a, b) => {
+    const left = new Date(a.enrolled_at || 0).getTime();
+    const right = new Date(b.enrolled_at || 0).getTime();
+    return left - right;
   });
 };
 

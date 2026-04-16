@@ -8,6 +8,7 @@ import { supabaseAdmin } from '../lib/supabase.js'
 import { ApiError, ErrorCode, UserRole } from '../types/index.js'
 import { calculatePercentage, calculateLetterGrade } from '../types/grades.js'
 import { sendEnrollmentNotification } from './notifications.js'
+import { isActiveEnrollmentStatus } from '../utils/enrollmentStatus.js'
 import logger from '../utils/logger.js'
 
 // ============================================
@@ -154,28 +155,58 @@ export const bulkEnroll = async (
         continue
       }
 
-      // Check if already enrolled
-      const { data: existing } = await supabaseAdmin
+      const { data: existingEnrollments, error: existingEnrollmentError } = await supabaseAdmin
         .from('enrollments')
-        .select('id')
+        .select('id, status')
         .eq('course_id', input.course_id)
         .eq('student_id', studentId)
-        .single()
+        .order('enrolled_at', { ascending: false })
 
-      if (existing) {
+      if (existingEnrollmentError) {
+        result.failed++
+        result.errors.push({
+          student_id: studentId,
+          error: `Failed to verify enrollment state: ${existingEnrollmentError.message}`,
+        })
+        continue
+      }
+
+      const enrollmentRows = existingEnrollments || []
+      const alreadyEnrolled = enrollmentRows.some((enrollment) =>
+        isActiveEnrollmentStatus(enrollment.status)
+      )
+
+      if (alreadyEnrolled) {
         result.failed++
         result.errors.push({ student_id: studentId, error: 'Already enrolled' })
         continue
       }
 
-      // Create enrollment
-      const { error: enrollError } = await supabaseAdmin
-        .from('enrollments')
-        .insert({
-          course_id: input.course_id,
-          student_id: studentId,
-          status: 'active',
-        })
+      let enrollError: { message: string } | null = null
+
+      if (enrollmentRows.length > 0) {
+        // Reactivate existing historical enrollment rows instead of inserting a new row.
+        const { error: reactivateError } = await supabaseAdmin
+          .from('enrollments')
+          .update({
+            status: 'active',
+            enrolled_at: new Date().toISOString(),
+          })
+          .eq('course_id', input.course_id)
+          .eq('student_id', studentId)
+
+        enrollError = reactivateError
+      } else {
+        const { error: insertError } = await supabaseAdmin
+          .from('enrollments')
+          .insert({
+            course_id: input.course_id,
+            student_id: studentId,
+            status: 'active',
+          })
+
+        enrollError = insertError
+      }
 
       if (enrollError) {
         result.failed++

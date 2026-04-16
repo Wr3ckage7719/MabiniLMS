@@ -463,13 +463,13 @@ const ensureAnnouncementCommentAccess = async (
   }
 
   if (userRole === UserRole.STUDENT) {
-    const { data: enrollment, error: enrollmentError } = await supabaseAdmin
+    const { data: enrollmentRows, error: enrollmentError } = await supabaseAdmin
       .from('enrollments')
       .select('id')
       .eq('course_id', announcement.course_id)
       .eq('student_id', userId)
       .in('status', ACTIVE_ENROLLMENT_STATUSES)
-      .maybeSingle();
+      .limit(1);
 
     if (enrollmentError) {
       logger.error('Failed to verify enrollment for announcement comments', {
@@ -480,7 +480,7 @@ const ensureAnnouncementCommentAccess = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate announcement access', 500);
     }
 
-    if (enrollment) {
+    if (Array.isArray(enrollmentRows) && enrollmentRows.length > 0) {
       return announcement;
     }
   }
