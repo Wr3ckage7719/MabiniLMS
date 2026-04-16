@@ -106,7 +106,7 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(title, {
       body,
       icon: payload.icon || '/icons/icon-192x192.png',
-      badge: payload.badge || '/icons/icon-72x72.png',
+      badge: payload.badge || '/icons/notification-badge-96x96.png',
       tag: payload.tag || 'mabini-notification',
       data: {
         url,

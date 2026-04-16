@@ -434,8 +434,8 @@ export const pushNotificationsService = {
     if (registration && typeof registration.showNotification === 'function') {
       await registration.showNotification(title, {
         body,
-        icon: '/icons/icon-192x192.svg',
-        badge: '/icons/icon-192x192.svg',
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/notification-badge-96x96.png',
         tag: options?.tag || 'mabini-notification',
         data: notificationData,
       });
@@ -444,8 +444,8 @@ export const pushNotificationsService = {
 
     const notification = new Notification(title, {
       body,
-      icon: '/icons/icon-192x192.svg',
-      badge: '/icons/icon-192x192.svg',
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/notification-badge-96x96.png',
       tag: options?.tag || 'mabini-notification',
       data: notificationData,
     });
