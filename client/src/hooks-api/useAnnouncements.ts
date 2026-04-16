@@ -35,7 +35,7 @@ const toDisplayAnnouncement = (announcement: ApiAnnouncement): Announcement => {
     title: announcement.title,
     content: announcement.content,
     timestamp: toRelativeTime(announcement.created_at),
-    comments: 0,
+    comments: announcement.comments_count || 0,
     pinned: announcement.pinned,
   };
 };

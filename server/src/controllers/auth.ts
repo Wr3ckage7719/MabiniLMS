@@ -149,6 +149,10 @@ export const studentSignup = async (
  *                 format: email
  *               password:
  *                 type: string
+ *               remember_me:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Persist session across browser/device restarts when true
  *     responses:
  *       200:
  *         description: Login successful

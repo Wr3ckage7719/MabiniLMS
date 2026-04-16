@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { pushNotificationsService } from "@/services/push-notifications.service";
+import { initializeThemePreference } from "@/lib/theme";
 import {
 	AUTH_ROLE_CACHE_STORAGE_KEY,
 	PWA_MOBILE_ZOOM_POLICY_CHANGED_EVENT,
@@ -47,6 +48,8 @@ function applyPwaMobileViewportZoomPolicy() {
 		shouldLockZoom ? PWA_MOBILE_LOCKED_VIEWPORT_CONTENT : DEFAULT_VIEWPORT_CONTENT,
 	);
 }
+
+initializeThemePreference();
 
 if (typeof window !== 'undefined') {
 	const standaloneQuery = window.matchMedia('(display-mode: standalone)');

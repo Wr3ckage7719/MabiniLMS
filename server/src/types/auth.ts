@@ -23,6 +23,7 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
   twoFactorCode: z.string().optional(), // Optional 2FA code
   portal: z.enum(['app', 'admin']).optional().default('app'),
+  remember_me: z.boolean().optional().default(true),
 });
 
 export const forgotPasswordSchema = z.object({

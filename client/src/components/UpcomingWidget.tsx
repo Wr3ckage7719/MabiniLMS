@@ -1,4 +1,5 @@
 import { Calendar, Clock, FileText, Zap, CalendarOff } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAssignments } from '@/hooks-api/useAssignments';
@@ -19,8 +20,13 @@ const TYPE_BADGE_STYLES: Record<string, string> = {
 };
 
 export function UpcomingWidget() {
+  const navigate = useNavigate();
   const { data: classes = [] } = useClasses();
   const { data: assignments = [] } = useAssignments();
+
+  const openAssignment = (classId: string, assignmentId: string) => {
+    navigate(`/class/${classId}?assignmentId=${assignmentId}`);
+  };
 
   // Filter for upcoming and late assignments
   const upcoming = assignments
@@ -60,9 +66,11 @@ export function UpcomingWidget() {
             const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
             return (
-              <div
+              <button
                 key={item.id}
-                className="flex items-start gap-3 p-3 rounded-xl hover:bg-secondary/50 transition-colors cursor-pointer group"
+                type="button"
+                className="w-full text-left flex items-start gap-3 p-3 rounded-xl hover:bg-secondary/50 transition-colors cursor-pointer group"
+                onClick={() => openAssignment(item.classId, item.id)}
               >
                 <div className={`mt-0.5 p-2 rounded-lg ${isLate ? 'bg-destructive/10' : 'bg-primary/10'}`}>
                   <Icon className={`h-4 w-4 ${isLate ? 'text-destructive' : 'text-primary'}`} />
@@ -80,7 +88,7 @@ export function UpcomingWidget() {
                   </div>
                 </div>
                 <span className="text-xs text-muted-foreground whitespace-nowrap">{item.points} pts</span>
-              </div>
+              </button>
             );
           })
         )}

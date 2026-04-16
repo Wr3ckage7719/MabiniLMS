@@ -47,6 +47,13 @@ type PushPayload = {
   }
 }
 
+type DatabaseErrorShape = {
+  code?: string | null
+  message?: string | null
+  details?: string | null
+  hint?: string | null
+}
+
 const WEB_PUSH_VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim()
 const WEB_PUSH_VAPID_PRIVATE_KEY = (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '').trim()
 const WEB_PUSH_SUBJECT = (process.env.WEB_PUSH_SUBJECT || '').trim() || 'mailto:support@mabinilms.local'
@@ -149,6 +156,135 @@ const toPushPayload = (notification: Notification): PushPayload => {
       url,
     },
   }
+}
+
+const toNormalizedDbErrorMessage = (error: DatabaseErrorShape | null | undefined): string => {
+  const parts = [error?.message, error?.details, error?.hint]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+
+  return parts.toLowerCase()
+}
+
+const isMissingRelationError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  const normalized = toNormalizedDbErrorMessage(error)
+
+  return (
+    error?.code === '42P01' ||
+    normalized.includes('relation') && normalized.includes('does not exist')
+  )
+}
+
+const isMissingColumnError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  const normalized = toNormalizedDbErrorMessage(error)
+
+  return (
+    error?.code === '42703' ||
+    (normalized.includes('column') && normalized.includes('does not exist'))
+  )
+}
+
+const isMissingOnConflictConstraintError = (
+  error: DatabaseErrorShape | null | undefined
+): boolean => {
+  const normalized = toNormalizedDbErrorMessage(error)
+
+  return (
+    error?.code === '42P10' ||
+    normalized.includes('no unique or exclusion constraint matching the on conflict specification')
+  )
+}
+
+const isDuplicateKeyError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  if (!error) {
+    return false
+  }
+
+  return error.code === '23505'
+}
+
+const extractMissingColumnName = (error: DatabaseErrorShape | null | undefined): string | null => {
+  const normalized = toNormalizedDbErrorMessage(error)
+  if (!normalized) {
+    return null
+  }
+
+  const match = normalized.match(/column\s+"?([a-z0-9_]+)"?\s+does not exist/i)
+  return match?.[1] || null
+}
+
+const omitEndpointFromPayload = (payload: Record<string, any>): Record<string, any> =>
+  Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'endpoint'))
+
+const writePushSubscriptionWithColumnFallback = async (
+  writeOperation: (
+    payload: Record<string, any>
+  ) => PromiseLike<{ error: DatabaseErrorShape | null }>,
+  initialPayload: Record<string, any>
+): Promise<DatabaseErrorShape | null> => {
+  const payload = { ...initialPayload }
+  let lastError: DatabaseErrorShape | null = null
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { error } = await writeOperation(payload)
+
+    if (!error) {
+      return null
+    }
+
+    lastError = error
+
+    if (!isMissingColumnError(error)) {
+      return error
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (!missingColumn || !(missingColumn in payload)) {
+      return error
+    }
+
+    delete payload[missingColumn]
+  }
+
+  return lastError
+}
+
+const throwPushSubscriptionStorageUnavailable = (error?: DatabaseErrorShape | null): never => {
+  logger.error('Push subscription storage is unavailable', {
+    code: error?.code,
+    error: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+  })
+
+  throw new ApiError(
+    ErrorCode.INTERNAL_ERROR,
+    'Push subscription storage is unavailable. Run migration 015_web_push_subscriptions and retry.',
+    503
+  )
+}
+
+const throwPushRegistrationFailure = (
+  userId: string,
+  endpoint: string,
+  phase: string,
+  error?: DatabaseErrorShape | null
+): never => {
+  logger.error('Failed to register web push subscription', {
+    userId,
+    endpoint,
+    phase,
+    code: error?.code,
+    error: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+  })
+
+  throw new ApiError(
+    ErrorCode.INTERNAL_ERROR,
+    'Failed to register push subscription',
+    500
+  )
 }
 
 const deactivateStalePushSubscriptions = async (
@@ -294,38 +430,121 @@ export const registerWebPushSubscription = async (
       ? new Date(input.subscription.expirationTime).toISOString()
       : null
 
-  const { error } = await supabaseAdmin
+  const nowIso = new Date().toISOString()
+  const endpoint = input.subscription.endpoint
+  const registrationPayload = {
+    user_id: userId,
+    endpoint,
+    p256dh: input.subscription.keys.p256dh,
+    auth: input.subscription.keys.auth,
+    expiration_time: expirationTime,
+    user_agent: input.user_agent || null,
+    platform: input.platform || null,
+    is_active: true,
+    last_used_at: nowIso,
+    updated_at: nowIso,
+  }
+
+  const upsertError = await writePushSubscriptionWithColumnFallback(
+    (payload) =>
+      supabaseAdmin
+        .from('push_subscriptions')
+        .upsert(payload, {
+          onConflict: 'endpoint',
+        }),
+    registrationPayload
+  )
+
+  if (!upsertError) {
+    return
+  }
+
+  if (isMissingRelationError(upsertError)) {
+    throwPushSubscriptionStorageUnavailable(upsertError)
+  }
+
+  if (!isMissingOnConflictConstraintError(upsertError)) {
+    throwPushRegistrationFailure(userId, endpoint, 'upsert', upsertError)
+  }
+
+  // Compatibility fallback for deployments where push_subscriptions.endpoint is not unique.
+  const { data: existingRows, error: existingLookupError } = await supabaseAdmin
     .from('push_subscriptions')
-    .upsert(
-      {
-        user_id: userId,
-        endpoint: input.subscription.endpoint,
-        p256dh: input.subscription.keys.p256dh,
-        auth: input.subscription.keys.auth,
-        expiration_time: expirationTime,
-        user_agent: input.user_agent || null,
-        platform: input.platform || null,
-        is_active: true,
-        last_used_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: 'endpoint',
-      }
+    .select('id')
+    .eq('endpoint', endpoint)
+    .limit(1)
+
+  if (existingLookupError) {
+    if (isMissingRelationError(existingLookupError)) {
+      throwPushSubscriptionStorageUnavailable(existingLookupError)
+    }
+
+    throwPushRegistrationFailure(userId, endpoint, 'lookup-existing', existingLookupError)
+  }
+
+  const existingId = (existingRows as Array<{ id: string }> | null)?.[0]?.id
+
+  if (existingId) {
+    const updatePayload = omitEndpointFromPayload(registrationPayload)
+
+    const updateError = await writePushSubscriptionWithColumnFallback(
+      (payload) =>
+        supabaseAdmin
+          .from('push_subscriptions')
+          .update(payload)
+          .eq('id', existingId),
+      updatePayload
     )
 
-  if (error) {
-    logger.error('Failed to register web push subscription', {
-      userId,
-      endpoint: input.subscription.endpoint,
-      error: error.message,
-    })
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'Failed to register push subscription',
-      500
-    )
+    if (!updateError) {
+      return
+    }
+
+    if (isMissingRelationError(updateError)) {
+      throwPushSubscriptionStorageUnavailable(updateError)
+    }
+
+    throwPushRegistrationFailure(userId, endpoint, 'legacy-update', updateError)
   }
+
+  const insertError = await writePushSubscriptionWithColumnFallback(
+    (payload) => supabaseAdmin.from('push_subscriptions').insert(payload),
+    registrationPayload
+  )
+
+  if (!insertError) {
+    return
+  }
+
+  if (isMissingRelationError(insertError)) {
+    throwPushSubscriptionStorageUnavailable(insertError)
+  }
+
+  // A concurrent request may insert the endpoint between lookup and insert.
+  if (isDuplicateKeyError(insertError)) {
+    const updatePayload = omitEndpointFromPayload(registrationPayload)
+
+    const retryUpdateError = await writePushSubscriptionWithColumnFallback(
+      (payload) =>
+        supabaseAdmin
+          .from('push_subscriptions')
+          .update(payload)
+          .eq('endpoint', endpoint),
+      updatePayload
+    )
+
+    if (!retryUpdateError) {
+      return
+    }
+
+    if (isMissingRelationError(retryUpdateError)) {
+      throwPushSubscriptionStorageUnavailable(retryUpdateError)
+    }
+
+    throwPushRegistrationFailure(userId, endpoint, 'retry-update-after-duplicate', retryUpdateError)
+  }
+
+  throwPushRegistrationFailure(userId, endpoint, 'legacy-insert', insertError)
 }
 
 export const unregisterWebPushSubscription = async (

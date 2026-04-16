@@ -18,6 +18,120 @@ const API_URL = resolveApiUrl();
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const AUTH_LOOKUP_TIMEOUT_MS = 4000;
 
+const toErrorMessage = (error: unknown): string => {
+  if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data as
+      | { error?: { message?: string }; message?: string }
+      | undefined;
+    return String(
+      responseData?.error?.message || responseData?.message || error.message || ''
+    ).toLowerCase();
+  }
+
+  if (error instanceof Error) {
+    return error.message.toLowerCase();
+  }
+
+  return String(error || '').toLowerCase();
+};
+
+const isRefreshRejectedByAuth = (error: unknown): boolean => {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (status === 400 || status === 401 || status === 403) {
+      return true;
+    }
+  }
+
+  const message = toErrorMessage(error);
+  return (
+    message.includes('invalid refresh token') ||
+    message.includes('refresh token has expired') ||
+    message.includes('refresh token revoked') ||
+    message.includes('jwt expired')
+  );
+};
+
+const shouldForceSignOutAfterRefreshFailure = (error: unknown): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  if (isRefreshRejectedByAuth(error)) {
+    return true;
+  }
+
+  const message = toErrorMessage(error);
+  return message.includes('missing refresh token');
+};
+
+const readSupabaseAccessTokenFromStorage = (storageRef: Storage | null): string | null => {
+  if (!storageRef) {
+    return null;
+  }
+
+  const authStorageKeys = Object.keys(storageRef).filter(
+    (key) => key.startsWith('sb-') && key.endsWith('-auth-token')
+  );
+
+  for (const key of authStorageKeys) {
+    const rawValue = storageRef.getItem(key);
+    if (!rawValue) {
+      continue;
+    }
+
+    const parsedValue = JSON.parse(rawValue) as
+      | { access_token?: string; currentSession?: { access_token?: string } }
+      | Array<{ access_token?: string }>;
+
+    if (
+      typeof (parsedValue as { access_token?: string }).access_token === 'string' &&
+      (parsedValue as { access_token?: string }).access_token
+    ) {
+      return (parsedValue as { access_token?: string }).access_token || null;
+    }
+
+    const currentSessionToken =
+      (parsedValue as { currentSession?: { access_token?: string } }).currentSession
+        ?.access_token;
+    if (typeof currentSessionToken === 'string' && currentSessionToken) {
+      return currentSessionToken;
+    }
+
+    if (Array.isArray(parsedValue)) {
+      const arrayToken = parsedValue.find((item) => typeof item?.access_token === 'string')
+        ?.access_token;
+      if (arrayToken) {
+        return arrayToken;
+      }
+    }
+  }
+
+  return null;
+};
+
+const readPersistedAccessToken = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const localToken = readSupabaseAccessTokenFromStorage(window.localStorage);
+    if (localToken) {
+      return localToken;
+    }
+
+    const sessionToken = readSupabaseAccessTokenFromStorage(window.sessionStorage);
+    if (sessionToken) {
+      return sessionToken;
+    }
+  } catch {
+    // Fallback token lookup is best effort only.
+  }
+
+  return null;
+};
+
 const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   return Promise.race([
     promise,
@@ -60,8 +174,13 @@ class ApiClient {
             config.headers.Authorization = `Bearer ${session.access_token}`;
           }
         } catch (sessionError) {
-          // Avoid hanging all API requests when auth state lookup gets stuck.
-          console.warn('Proceeding without auth header due to session lookup failure', sessionError);
+          // On mobile resume, getSession can briefly timeout while storage wakes up.
+          const fallbackAccessToken = readPersistedAccessToken();
+          if (fallbackAccessToken) {
+            config.headers.Authorization = `Bearer ${fallbackAccessToken}`;
+          } else {
+            console.warn('Proceeding without auth header due to session lookup failure', sessionError);
+          }
         }
 
         return config;
@@ -78,13 +197,15 @@ class ApiClient {
         if (error.response?.status === 401) {
           const originalRequest = error.config as RetryableRequestConfig | undefined;
           const hasRetried = Boolean(originalRequest?._retry);
+          let refreshError: unknown = null;
+          let refreshAttempted = false;
 
           if (!hasRetried && originalRequest) {
+            refreshAttempted = true;
             originalRequest._retry = true;
 
             // Token may be stale, try to refresh once via backend endpoint.
             let refreshedSession: { access_token?: string; refresh_token?: string } | null = null;
-            let refreshError: unknown = null;
 
             try {
               const {
@@ -147,9 +268,14 @@ class ApiClient {
             }
           }
 
-          // Backend rejected the request after retry/refresh; expire local session to avoid endless loading loops.
-          await supabase.auth.signOut();
-          window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
+          // Only force sign-out when auth is truly invalid, not on transient resume/network failures.
+          const shouldForceSignOut =
+            !refreshAttempted || shouldForceSignOutAfterRefreshFailure(refreshError);
+
+          if (shouldForceSignOut) {
+            await supabase.auth.signOut();
+            window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT));
+          }
 
           return Promise.reject(error);
         }

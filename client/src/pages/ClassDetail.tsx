@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { CLASS_COLORS, type Assignment } from '@/lib/data';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClass } from '@/hooks-api/useClasses';
@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
 import { AnnouncementCard } from '@/components/AnnouncementCard';
+import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { StudentClassStream } from '@/components/StudentClassStream';
 import {
   DropdownMenu,
@@ -57,10 +58,12 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
 export default function ClassDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const { currentUserAvatar } = useRole();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] = useState<ClassAnnouncement | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const classId = id || '';
@@ -95,12 +98,28 @@ export default function ClassDetail() {
     Boolean(weightedGradeQuery.error);
 
   const cls = classQuery.data;
-  const assignments = assignmentsQuery.data || [];
+  const assignments = useMemo(() => assignmentsQuery.data || [], [assignmentsQuery.data]);
   const announcements = announcementsQuery.data || [];
   const materials = materialsQuery.data || [];
   const classStudents = studentsQuery.data || [];
   const classGrades = gradesQuery.data || [];
   const discussionCommentCount = (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
+
+  useEffect(() => {
+    const assignmentId = searchParams.get('assignmentId');
+    if (!assignmentId || assignments.length === 0) {
+      return;
+    }
+
+    if (selectedAssignment?.id === assignmentId) {
+      return;
+    }
+
+    const assignmentFromQuery = assignments.find((assignment) => assignment.id === assignmentId);
+    if (assignmentFromQuery) {
+      setSelectedAssignment(assignmentFromQuery);
+    }
+  }, [assignments, searchParams, selectedAssignment]);
 
   const assignmentGrades = new Map<string, string>();
   classGrades.forEach((grade: any) => {
@@ -362,8 +381,11 @@ export default function ClassDetail() {
                   <AnnouncementCard
                     key={a.id}
                     announcement={a}
-                    commentsCount={discussionCommentCount}
-                    onOpenDiscussion={() => setDiscussionOpen(true)}
+                    commentsCount={a.comments}
+                    onOpenComments={() => {
+                      setDiscussionOpen(false);
+                      setSelectedAnnouncementForComments(a);
+                    }}
                   />
                 ))}
               </div>
@@ -694,7 +716,7 @@ export default function ClassDetail() {
           onClick={() => setDiscussionOpen(false)}
         >
           <div
-            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-2xl lg:max-w-3xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <StudentClassStream
@@ -706,10 +728,40 @@ export default function ClassDetail() {
         </div>
       )}
 
+      {selectedAnnouncementForComments && (
+        <div
+          className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          onClick={() => setSelectedAnnouncementForComments(null)}
+        >
+          <div
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-2xl lg:max-w-3xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <AnnouncementCommentsPanel
+              courseId={classId}
+              announcement={selectedAnnouncementForComments}
+              onBack={() => setSelectedAnnouncementForComments(null)}
+            />
+          </div>
+        </div>
+      )}
+
       <AssignmentDetailDialog
         assignment={selectedAssignment}
         open={!!selectedAssignment}
-        onOpenChange={(open) => !open && setSelectedAssignment(null)}
+        onOpenChange={(open) => {
+          if (open) {
+            return;
+          }
+
+          setSelectedAssignment(null);
+
+          if (searchParams.has('assignmentId')) {
+            const nextParams = new URLSearchParams(searchParams);
+            nextParams.delete('assignmentId');
+            setSearchParams(nextParams, { replace: true });
+          }
+        }}
         teacherName={cls.teacher}
         classId={cls.id}
       />
