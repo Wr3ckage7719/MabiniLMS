@@ -20,13 +20,32 @@ interface TeacherHeaderProps {
   onToggleSidebar: () => void;
   onCreateClass: () => void;
   onSettings: () => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }
 
-export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: TeacherHeaderProps) {
+export function TeacherHeader({
+  onToggleSidebar,
+  onCreateClass,
+  onSettings,
+  searchQuery,
+  onSearchQueryChange,
+}: TeacherHeaderProps) {
   const { currentUserName, currentUserAvatar, currentUserAvatarUrl } = useRole();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+
+  const effectiveSearchQuery = searchQuery ?? localSearchQuery;
+
+  const handleSearchQueryChange = (value: string) => {
+    onSearchQueryChange?.(value);
+
+    if (searchQuery === undefined) {
+      setLocalSearchQuery(value);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -64,6 +83,8 @@ export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: Te
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search classes, assignments..."
+              value={effectiveSearchQuery}
+              onChange={(event) => handleSearchQueryChange(event.target.value)}
               className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 rounded-xl text-sm"
             />
           </div>
@@ -155,6 +176,8 @@ export function TeacherHeader({ onToggleSidebar, onCreateClass, onSettings }: Te
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search classes, assignments..."
+              value={effectiveSearchQuery}
+              onChange={(event) => handleSearchQueryChange(event.target.value)}
               className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 rounded-xl text-sm"
               autoFocus
             />

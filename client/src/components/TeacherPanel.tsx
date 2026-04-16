@@ -12,6 +12,7 @@ export function TeacherPanel() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings'>('dashboard');
   const [createClassOpen, setCreateClassOpen] = useState(false);
+  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const { data: classesData = [], refetch: refetchClasses } = useApiClasses();
 
@@ -39,6 +40,8 @@ export function TeacherPanel() {
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onCreateClass={() => setCreateClassOpen(true)}
           onSettings={() => handleViewChange('settings')}
+          searchQuery={headerSearchQuery}
+          onSearchQueryChange={setHeaderSearchQuery}
         />
 
         {/* Content area with sidebar */}
@@ -57,6 +60,8 @@ export function TeacherPanel() {
               currentView={currentView} 
               classes={classes}
               onClassesChange={setClasses}
+              searchQuery={headerSearchQuery}
+              onSearchQueryChange={setHeaderSearchQuery}
             />
           </main>
         </div>
