@@ -39,6 +39,14 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
   const { toast } = useToast();
   const { isInstallable, install } = usePWAInstall();
 
+  const normalizedRole = (user?.role || '').trim().toLowerCase();
+  const roleLabel =
+    normalizedRole === 'teacher'
+      ? 'Teacher'
+      : normalizedRole === 'student'
+      ? 'Student'
+      : null;
+
   const handleLogout = async () => {
     await logout();
     navigate('/login', { replace: true });
@@ -172,6 +180,13 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                 <div className="px-2 py-1.5">
                   <p className="text-sm font-medium">{currentUserName}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  {roleLabel && (
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <span className="inline-flex px-2 py-0.5 bg-primary/10 text-primary text-xs font-semibold rounded-full">
+                        {roleLabel}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="md:hidden rounded-lg cursor-pointer gap-2" onClick={() => navigate('/settings')}>
