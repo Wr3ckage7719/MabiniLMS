@@ -36,7 +36,6 @@ import {
   Plus,
   Trash2,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -83,7 +82,6 @@ export function CreateAssignmentDialog({
   const [newTopic, setNewTopic] = useState('');
   const [showTopicInput, setShowTopicInput] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -142,10 +140,6 @@ export function CreateAssignmentDialog({
   };
 
   const handleCreate = async () => {
-    if (isCreating) {
-      return;
-    }
-
     if (!validateForm()) return;
 
     if (!classId) {
@@ -156,8 +150,6 @@ export function CreateAssignmentDialog({
       });
       return;
     }
-
-    setIsCreating(true);
 
     try {
       if (assignmentType === 'activity') {
@@ -199,8 +191,6 @@ export function CreateAssignmentDialog({
         description: message,
         variant: 'destructive',
       });
-    } finally {
-      setIsCreating(false);
     }
   };
 
@@ -219,10 +209,6 @@ export function CreateAssignmentDialog({
   };
 
   const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen && isCreating) {
-      return;
-    }
-
     if (!newOpen) {
       resetForm();
     }
@@ -635,17 +621,12 @@ export function CreateAssignmentDialog({
             variant="outline"
             className="rounded-lg"
             onClick={() => handleOpenChange(false)}
-            disabled={isCreating}
           >
             Cancel
           </Button>
-          <Button className="rounded-lg gap-2" onClick={handleCreate} disabled={isCreating}>
-            {isCreating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileText className="h-4 w-4" />
-            )}
-            {isCreating ? 'Creating...' : 'Create Assignment'}
+          <Button className="rounded-lg gap-2" onClick={handleCreate}>
+            <FileText className="h-4 w-4" />
+            Create Assignment
           </Button>
         </DialogFooter>
       </DialogContent>

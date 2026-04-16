@@ -77,81 +77,61 @@ const buildEnrollmentMutationPayload = (
       };
 };
 
-type EnrollmentMutationVariant = {
-  status: string;
-  includeEnrolledAt: boolean;
-};
-
-const buildEnrollmentMutationVariants = (preferredStatus: string): EnrollmentMutationVariant[] => {
-  const statusOrder = Array.from(
-    new Set([
-      preferredStatus,
-      preferredStatus === LEGACY_ACTIVE_ENROLLMENT_STATUS
-        ? EnrollmentStatus.ACTIVE
-        : LEGACY_ACTIVE_ENROLLMENT_STATUS,
-    ])
-  );
-
-  const variants: EnrollmentMutationVariant[] = [];
-
-  for (const status of statusOrder) {
-    variants.push({ status, includeEnrolledAt: true });
-    variants.push({ status, includeEnrolledAt: false });
-  }
-
-  return variants;
-};
-
 const insertEnrollmentWithCompatibility = async (
   courseId: string,
   studentId: string
 ): Promise<{ data: Enrollment | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
-  const variants = buildEnrollmentMutationVariants(EnrollmentStatus.ACTIVE);
-  let lastError: { code?: string; message?: string; details?: string; hint?: string } | null = null;
+  const primaryInsertPayload = {
+    course_id: courseId,
+    student_id: studentId,
+    ...buildEnrollmentMutationPayload(EnrollmentStatus.ACTIVE, true),
+  };
 
-  for (let index = 0; index < variants.length; index += 1) {
-    const variant = variants[index];
-    const payload = {
-      course_id: courseId,
-      student_id: studentId,
-      ...buildEnrollmentMutationPayload(variant.status, variant.includeEnrolledAt),
-    };
+  const { data: primaryData, error: primaryError } = await supabaseAdmin
+    .from('enrollments')
+    .insert(primaryInsertPayload)
+    .select()
+    .single();
 
-    const { data, error } = await supabaseAdmin
-      .from('enrollments')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!error) {
-      return { data: data as Enrollment, error: null };
-    }
-
-    lastError = error;
-
-    const hasNextVariant = index < variants.length - 1;
-    const shouldTryFallback =
-      isStatusCompatibilityError(error) ||
-      isMissingColumnError(error, 'enrolled_at');
-
-    if (!hasNextVariant || !shouldTryFallback) {
-      break;
-    }
-
-    const nextVariant = variants[index + 1];
-    logger.warn('Retrying enrollment insert with compatibility fallback', {
-      courseId,
-      studentId,
-      attemptedStatus: variant.status,
-      attemptedIncludeEnrolledAt: variant.includeEnrolledAt,
-      errorCode: error.code,
-      errorMessage: error.message,
-      nextStatus: nextVariant.status,
-      nextIncludeEnrolledAt: nextVariant.includeEnrolledAt,
-    });
+  if (!primaryError) {
+    return { data: primaryData as Enrollment, error: null };
   }
 
-  return { data: null, error: lastError };
+  const fallbackStatus = isStatusCompatibilityError(primaryError)
+    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
+    : EnrollmentStatus.ACTIVE;
+  const includeEnrolledAt = !isMissingColumnError(primaryError, 'enrolled_at');
+
+  if (fallbackStatus === EnrollmentStatus.ACTIVE && includeEnrolledAt) {
+    return { data: null, error: primaryError };
+  }
+
+  logger.warn('Retrying enrollment insert with compatibility fallback', {
+    courseId,
+    studentId,
+    fallbackStatus,
+    includeEnrolledAt,
+    initialErrorCode: primaryError.code,
+    initialErrorMessage: primaryError.message,
+  });
+
+  const retryPayload = {
+    course_id: courseId,
+    student_id: studentId,
+    ...buildEnrollmentMutationPayload(fallbackStatus, includeEnrolledAt),
+  };
+
+  const { data: retryData, error: retryError } = await supabaseAdmin
+    .from('enrollments')
+    .insert(retryPayload)
+    .select()
+    .single();
+
+  if (!retryError) {
+    return { data: retryData as Enrollment, error: null };
+  }
+
+  return { data: null, error: retryError };
 };
 
 const reactivateEnrollmentWithCompatibility = async (
@@ -159,53 +139,55 @@ const reactivateEnrollmentWithCompatibility = async (
   studentId: string,
   preferLegacyStatus: boolean
 ): Promise<{ data: Enrollment[] | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
-  const preferredStatus = preferLegacyStatus
+  const primaryStatus = preferLegacyStatus
     ? LEGACY_ACTIVE_ENROLLMENT_STATUS
     : EnrollmentStatus.ACTIVE;
 
-  const variants = buildEnrollmentMutationVariants(preferredStatus);
-  let lastError: { code?: string; message?: string; details?: string; hint?: string } | null = null;
+  const primaryUpdatePayload = buildEnrollmentMutationPayload(primaryStatus, true);
 
-  for (let index = 0; index < variants.length; index += 1) {
-    const variant = variants[index];
-    const payload = buildEnrollmentMutationPayload(variant.status, variant.includeEnrolledAt);
+  const { data: primaryData, error: primaryError } = await supabaseAdmin
+    .from('enrollments')
+    .update(primaryUpdatePayload)
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .select();
 
-    const { data, error } = await supabaseAdmin
-      .from('enrollments')
-      .update(payload)
-      .eq('course_id', courseId)
-      .eq('student_id', studentId)
-      .select();
-
-    if (!error) {
-      return { data: (data || []) as Enrollment[], error: null };
-    }
-
-    lastError = error;
-
-    const hasNextVariant = index < variants.length - 1;
-    const shouldTryFallback =
-      isStatusCompatibilityError(error) ||
-      isMissingColumnError(error, 'enrolled_at');
-
-    if (!hasNextVariant || !shouldTryFallback) {
-      break;
-    }
-
-    const nextVariant = variants[index + 1];
-    logger.warn('Retrying enrollment reactivation with compatibility fallback', {
-      courseId,
-      studentId,
-      attemptedStatus: variant.status,
-      attemptedIncludeEnrolledAt: variant.includeEnrolledAt,
-      errorCode: error.code,
-      errorMessage: error.message,
-      nextStatus: nextVariant.status,
-      nextIncludeEnrolledAt: nextVariant.includeEnrolledAt,
-    });
+  if (!primaryError) {
+    return { data: (primaryData || []) as Enrollment[], error: null };
   }
 
-  return { data: null, error: lastError };
+  const fallbackStatus = isStatusCompatibilityError(primaryError)
+    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
+    : primaryStatus;
+  const includeEnrolledAt = !isMissingColumnError(primaryError, 'enrolled_at');
+
+  if (fallbackStatus === primaryStatus && includeEnrolledAt) {
+    return { data: null, error: primaryError };
+  }
+
+  logger.warn('Retrying enrollment reactivation with compatibility fallback', {
+    courseId,
+    studentId,
+    fallbackStatus,
+    includeEnrolledAt,
+    initialErrorCode: primaryError.code,
+    initialErrorMessage: primaryError.message,
+  });
+
+  const retryUpdatePayload = buildEnrollmentMutationPayload(fallbackStatus, includeEnrolledAt);
+
+  const { data: retryData, error: retryError } = await supabaseAdmin
+    .from('enrollments')
+    .update(retryUpdatePayload)
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .select();
+
+  if (!retryError) {
+    return { data: (retryData || []) as Enrollment[], error: null };
+  }
+
+  return { data: null, error: retryError };
 };
 
 const resolveCourseIdFromReference = async (courseReference: string): Promise<string> => {
