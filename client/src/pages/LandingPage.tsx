@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CheckCircle2, Download, Smartphone, Zap } from "lucide-react";
+import { ArrowRight, Zap } from "lucide-react";
 import { AppLogo } from "@/components/AppLogo";
-import { usePWAInstall } from "@/hooks/usePWAInstall";
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
-  const { isInstallable, isInstalled, install } = usePWAInstall();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -106,93 +104,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* PWA Download Section */}
-      <section className="relative px-4 sm:px-6 lg:px-8 pb-20">
-        <div className="absolute inset-x-0 -top-20 h-40 bg-gradient-to-b from-primary/10 to-transparent blur-2xl pointer-events-none"></div>
-
-        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-10 items-center rounded-3xl border border-primary/20 bg-gradient-to-br from-slate-950/80 via-slate-900/70 to-sky-950/60 p-6 sm:p-8 lg:p-10 overflow-hidden">
-          <div className="absolute -right-16 -bottom-16 h-48 w-48 rounded-full bg-primary/20 blur-3xl pointer-events-none"></div>
-          <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-accent/20 blur-2xl pointer-events-none"></div>
-
-          <div className="relative space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 text-primary px-3 py-1.5 text-sm font-semibold">
-              <Smartphone className="h-4 w-4" />
-              Download the mobile app
-            </div>
-
-            <h2 className="text-3xl sm:text-4xl font-bold leading-tight">
-              Bring Mabini Classroom
-              <span className="block bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to your home screen</span>
-            </h2>
-
-            <p className="text-sm sm:text-base text-slate-200/85 max-w-xl">
-              Install the PWA to open Mabini Classroom like a real app, receive faster updates,
-              and keep learning tools one tap away. Students can check classes quickly,
-              while teachers can post updates and track classroom activity on the go.
-            </p>
-
-            <div className="space-y-2 text-sm text-slate-200/90">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Quick launch from your phone home screen with an app-like experience.</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Optimized for mobile browsing so classes, tasks, and grades stay easy to read.</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2">
-              <Button
-                size="lg"
-                onClick={() => {
-                  void install();
-                }}
-                disabled={!isInstallable || isInstalled}
-                className="h-11 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70"
-              >
-                <Download className="h-4 w-4" />
-                {isInstalled ? "App Installed" : isInstallable ? "Download PWA App" : "Install option unavailable"}
-              </Button>
-              <p className="text-xs text-slate-300/90">
-                {!isInstallable && !isInstalled
-                  ? "Tip: open this page in Chrome or Edge on mobile/desktop and tap Install in your browser menu."
-                  : "Installation only takes a few seconds."}
-              </p>
-            </div>
-          </div>
-
-          <div className="relative flex justify-center lg:justify-end">
-            <div className="relative w-[240px] sm:w-[280px] rounded-[2rem] border border-white/20 bg-slate-950/80 p-3 shadow-2xl shadow-primary/20 animate-pulse">
-              <div className="rounded-[1.5rem] border border-primary/30 bg-slate-900/95 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="h-2.5 w-20 rounded-full bg-primary/50"></div>
-                  <div className="flex gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                    <span className="h-2 w-2 rounded-full bg-sky-400"></span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="h-2 rounded-full bg-slate-700/80"></div>
-                  <div className="h-2 rounded-full bg-slate-700/70 w-5/6"></div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl border border-primary/25 bg-primary/10 p-2.5 space-y-2">
-                    <div className="h-6 w-6 rounded-lg bg-primary/60"></div>
-                    <div className="h-1.5 rounded-full bg-slate-600"></div>
-                  </div>
-                  <div className="rounded-xl border border-accent/25 bg-accent/10 p-2.5 space-y-2">
-                    <div className="h-6 w-6 rounded-lg bg-accent/60"></div>
-                    <div className="h-1.5 rounded-full bg-slate-600"></div>
-                  </div>
-                </div>
-              </div>
-              <div className="pointer-events-none absolute -top-3 -right-3 h-6 w-6 rounded-full bg-primary/50 blur-sm animate-ping"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="relative overflow-hidden border-t border-border/30 py-12 px-4 sm:px-6 lg:px-8">
         <div className="absolute inset-0" aria-hidden="true">
@@ -210,24 +121,15 @@ export default function LandingPage() {
             <h2 className="text-base font-semibold text-white">Contact us</h2>
             <p>
               <span className="font-medium text-white">Phone:</span>{" "}
-              <a href="tel:+639480205567" className="text-slate-100 hover:text-white transition-colors">+6394 8020 5567</a>
+              <a href="tel:+639394920476" className="text-slate-100 hover:text-white transition-colors">+63 939 492 0476</a>
             </p>
             <p>
               <span className="font-medium text-white">Email:</span>{" "}
-              <a href="mailto:balonniccolo@gmail.com" className="text-slate-100 hover:text-white transition-colors">balonniccolo@gmail.com</a>
+              <a href="mailto:MarkAngloImportante@mabini.edu.ph" className="text-slate-100 hover:text-white transition-colors">MarkAngloImportante@mabini.edu.ph</a>
             </p>
             <p>
               <span className="font-medium text-white">Address:</span>{" "}
-              Vinzons, Camarines Norte
-            </p>
-            <p>
-              <span className="font-medium text-white">Bug reports:</span>{" "}
-              <a
-                href="mailto:balonniccolo@gmail.com?subject=Mabini%20Classroom%20Bug%20Report&body=Name%3A%0AUser%20Role%3A%0ABrowser%2FDevice%3A%0APage%20URL%3A%0ASteps%20to%20reproduce%3A%0AExpected%20result%3A%0AActual%20result%3A%0AScreenshot%20or%20screen%20recording%3A"
-                className="text-primary hover:text-accent transition-colors underline underline-offset-4"
-              >
-                Report a bug to the admin
-              </a>
+              Purok-9, Brgy. Alawihao, Daet, Camarines Norte, Philippines
             </p>
           </div>
 
@@ -237,12 +139,6 @@ export default function LandingPage() {
               <a href="#" className="hover:text-white transition-colors">Privacy</a>
               <a href="#" className="hover:text-white transition-colors">Terms</a>
               <a href="#" className="hover:text-white transition-colors">Cookies</a>
-              <a
-                href="mailto:balonniccolo@gmail.com?subject=Mabini%20Classroom%20Bug%20Report"
-                className="hover:text-primary transition-colors"
-              >
-                Report Bug
-              </a>
             </div>
           </div>
         </div>
