@@ -129,13 +129,13 @@ const ensureCourseDiscussionAccess = async (
   }
 
   if (userRole === UserRole.STUDENT) {
-    const { data: enrollment, error: enrollmentError } = await supabaseAdmin
+    const { data: enrollmentRows, error: enrollmentError } = await supabaseAdmin
       .from('enrollments')
       .select('id')
       .eq('course_id', courseId)
       .eq('student_id', userId)
       .in('status', ACTIVE_ENROLLMENT_STATUSES)
-      .maybeSingle();
+      .limit(1);
 
     if (enrollmentError) {
       logger.error('Failed to verify enrollment for course discussion access', {
@@ -146,7 +146,7 @@ const ensureCourseDiscussionAccess = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate course access', 500);
     }
 
-    if (enrollment) {
+    if (Array.isArray(enrollmentRows) && enrollmentRows.length > 0) {
       return accessInfo;
     }
   }

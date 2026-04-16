@@ -793,15 +793,25 @@ export const submitAssignment = async (
   const assignment = await getAssignmentById(assignmentId);
 
   // Check if student is enrolled in the course
-  const { data: enrollment } = await supabaseAdmin
+  const { data: enrollmentRows, error: enrollmentError } = await supabaseAdmin
     .from('enrollments')
     .select('id, status')
     .eq('course_id', assignment.course_id)
     .eq('student_id', userId)
     .in('status', ACTIVE_ENROLLMENT_STATUSES)
-    .single();
+    .limit(1);
 
-  if (!enrollment) {
+  if (enrollmentError) {
+    logger.error('Failed to verify enrollment before submission', {
+      assignmentId,
+      courseId: assignment.course_id,
+      studentId: userId,
+      error: enrollmentError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to verify enrollment status', 500);
+  }
+
+  if (!Array.isArray(enrollmentRows) || enrollmentRows.length === 0) {
     throw new ApiError(
       ErrorCode.FORBIDDEN,
       'You must be enrolled in the course to submit assignments',
@@ -1294,13 +1304,13 @@ const ensureAssignmentCommentAccess = async (
   }
 
   if (userRole === UserRole.STUDENT) {
-    const { data: enrollment, error } = await supabaseAdmin
+    const { data: enrollmentRows, error } = await supabaseAdmin
       .from('enrollments')
       .select('id')
       .eq('course_id', assignment.course_id)
       .eq('student_id', userId)
       .in('status', ACTIVE_ENROLLMENT_STATUSES)
-      .maybeSingle();
+      .limit(1);
 
     if (error) {
       logger.error('Failed to verify enrollment for assignment comments', {
@@ -1311,7 +1321,7 @@ const ensureAssignmentCommentAccess = async (
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to validate assignment access', 500);
     }
 
-    if (enrollment) {
+    if (Array.isArray(enrollmentRows) && enrollmentRows.length > 0) {
       return assignment;
     }
   }

@@ -125,12 +125,18 @@ export const getCourseAnalytics = async (
     throw new ApiError(ErrorCode.FORBIDDEN, 'Access denied', 403)
   }
 
-  // Get enrollment count
-  const { count: enrollmentCount } = await supabaseAdmin
+  // Get enrollment count (distinct students to protect against duplicate enrollment rows)
+  const { data: enrollmentRows } = await supabaseAdmin
     .from('enrollments')
-    .select('*', { count: 'exact', head: true })
+    .select('student_id')
     .eq('course_id', courseId)
     .in('status', ACTIVE_ENROLLMENT_STATUSES)
+
+  const enrollmentCount = new Set(
+    (enrollmentRows || [])
+      .map((row) => row.student_id)
+      .filter((studentId): studentId is string => Boolean(studentId))
+  ).size
 
   // Get material count
   const { count: materialCount } = await supabaseAdmin
@@ -254,13 +260,6 @@ export const getStudentAnalytics = async (
     throw new ApiError(ErrorCode.NOT_FOUND, 'Student not found', 404)
   }
 
-  // Get enrolled courses count
-  const { count: enrolledCourses } = await supabaseAdmin
-    .from('enrollments')
-    .select('*', { count: 'exact', head: true })
-    .eq('student_id', studentId)
-    .in('status', ACTIVE_ENROLLMENT_STATUSES)
-
   // Get assignments and submissions
   const { data: enrollments } = await supabaseAdmin
     .from('enrollments')
@@ -268,7 +267,9 @@ export const getStudentAnalytics = async (
     .eq('student_id', studentId)
     .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
-  const courseIds = enrollments?.map((e) => e.course_id) || []
+  const courseIds = Array.from(
+    new Set((enrollments || []).map((e) => e.course_id).filter((courseId): courseId is string => Boolean(courseId)))
+  )
 
   let totalAssignments = 0
   let completedAssignments = 0
@@ -341,7 +342,7 @@ export const getStudentAnalytics = async (
   return {
     student_id: studentId,
     student_name: `${student.first_name} ${student.last_name}`.trim(),
-    enrolled_courses: enrolledCourses || 0,
+    enrolled_courses: courseIds.length,
     total_assignments: totalAssignments,
     completed_assignments: completedAssignments,
     average_grade: averageGrade,
@@ -490,13 +491,17 @@ export const getTeacherAnalytics = async (
   // Get total students
   let totalStudents = 0
   if (courseIds.length > 0) {
-    const { count } = await supabaseAdmin
+    const { data: enrollmentRows } = await supabaseAdmin
       .from('enrollments')
-      .select('student_id', { count: 'exact', head: true })
+      .select('course_id, student_id')
       .in('course_id', courseIds)
       .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
-    totalStudents = count || 0
+    totalStudents = new Set(
+      (enrollmentRows || [])
+        .filter((row) => row.course_id && row.student_id)
+        .map((row) => `${row.course_id}:${row.student_id}`)
+    ).size
   }
 
   // Get assignments created
