@@ -172,6 +172,11 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
                 <div className="px-2 py-1.5">
                   <p className="text-sm font-medium">{currentUserName}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      Student
+                    </span>
+                  </div>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="md:hidden rounded-lg cursor-pointer gap-2" onClick={() => navigate('/settings')}>
