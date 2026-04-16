@@ -32,6 +32,7 @@ export interface Announcement {
   classId: string;
   author: string;
   avatar: string;
+  avatarUrl?: string | null;
   title?: string;
   content: string;
   timestamp: string;

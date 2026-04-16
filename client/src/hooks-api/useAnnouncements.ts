@@ -26,12 +26,14 @@ const toDisplayAnnouncement = (announcement: ApiAnnouncement): Announcement => {
   const lastName = announcement.author?.last_name?.trim() || '';
   const author = `${firstName} ${lastName}`.trim() || announcement.author?.email || 'Instructor';
   const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || author.slice(0, 2).toUpperCase();
+  const avatarUrl = announcement.author?.avatar_url || null;
 
   return {
     id: announcement.id,
     classId: announcement.course_id,
     author,
     avatar,
+    avatarUrl,
     title: announcement.title,
     content: announcement.content,
     timestamp: toRelativeTime(announcement.created_at),

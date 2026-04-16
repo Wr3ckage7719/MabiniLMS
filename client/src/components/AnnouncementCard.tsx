@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Announcement } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Heart, MessageSquare, Share2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -115,6 +115,9 @@ export function AnnouncementCard({ announcement, commentsCount, onOpenComments }
       <CardContent className="p-4 md:p-5">
         <div className="flex items-start gap-3">
           <Avatar className="h-9 w-9 md:h-10 md:w-10">
+            {announcement.avatarUrl ? (
+              <AvatarImage src={announcement.avatarUrl} alt={`${announcement.author} avatar`} />
+            ) : null}
             <AvatarFallback className="bg-accent text-accent-foreground text-sm font-semibold">
               {announcement.avatar}
             </AvatarFallback>

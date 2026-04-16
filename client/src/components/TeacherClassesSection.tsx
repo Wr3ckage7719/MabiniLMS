@@ -45,10 +45,18 @@ interface TeacherClassesSectionProps {
   onSelectClass: (classId: string) => void;
   classes: ClassItem[];
   onClassesChange: (classes: ClassItem[]) => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }
 
-export function TeacherClassesSection({ onSelectClass, classes, onClassesChange }: TeacherClassesSectionProps) {
-  const [searchQuery, setSearchQuery] = useState('');
+export function TeacherClassesSection({
+  onSelectClass,
+  classes,
+  onClassesChange,
+  searchQuery,
+  onSearchQueryChange,
+}: TeacherClassesSectionProps) {
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'students' | 'pending'>('name-asc');
   const [editOpen, setEditOpen] = useState(false);
@@ -56,6 +64,16 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
   const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | 'restore' | null>(null);
   const [actionClass, setActionClass] = useState<ClassItem | null>(null);
   const { toast } = useToast();
+
+  const effectiveSearchQuery = (searchQuery ?? localSearchQuery).trim().toLowerCase();
+
+  const handleSearchQueryChange = (value: string) => {
+    onSearchQueryChange?.(value);
+
+    if (searchQuery === undefined) {
+      setLocalSearchQuery(value);
+    }
+  };
 
   // Filter classes
   const activeClasses = classes.filter((cls) => !cls.archived);
@@ -83,10 +101,11 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
     const block = cls.block || '';
     const level = cls.level || '';
     const matchesSearch =
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
+      !effectiveSearchQuery ||
+      cls.name.toLowerCase().includes(effectiveSearchQuery) ||
+      block.toLowerCase().includes(effectiveSearchQuery) ||
+      level.toLowerCase().includes(effectiveSearchQuery) ||
+      cls.room.toLowerCase().includes(effectiveSearchQuery);
     return matchesSearch;
   }));
 
@@ -94,10 +113,11 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
     const block = cls.block || '';
     const level = cls.level || '';
     const matchesSearch =
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      block.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      level.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.room.toLowerCase().includes(searchQuery.toLowerCase());
+      !effectiveSearchQuery ||
+      cls.name.toLowerCase().includes(effectiveSearchQuery) ||
+      block.toLowerCase().includes(effectiveSearchQuery) ||
+      level.toLowerCase().includes(effectiveSearchQuery) ||
+      cls.room.toLowerCase().includes(effectiveSearchQuery);
     return matchesSearch;
   }));
 
@@ -266,8 +286,8 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search classes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchQuery ?? localSearchQuery}
+              onChange={(e) => handleSearchQueryChange(e.target.value)}
               className="pl-9 rounded-lg border-border"
             />
           </div>
@@ -338,7 +358,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-white/90 hover:bg-white shadow-sm hover:shadow-md transition-all active:bg-white/80"
+                            className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-white/90 dark:bg-slate-900/90 hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md transition-all active:bg-white/80 dark:active:bg-slate-800/90 text-slate-700 dark:text-slate-100"
                             title="Class options"
                           >
                             <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
@@ -474,7 +494,7 @@ export function TeacherClassesSection({ onSelectClass, classes, onClassesChange 
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70"
+                                className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70 text-slate-700 dark:text-slate-100"
                                 title="Class options"
                               >
                                 <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />

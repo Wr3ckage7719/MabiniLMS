@@ -1247,6 +1247,12 @@ export function TeacherClassStream({
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 <Avatar className="h-10 w-10 flex-shrink-0 ring-2 ring-blue-100/50 group-hover:ring-blue-200 transition-all">
+                                  {announcement.avatarUrl ? (
+                                    <AvatarImage
+                                      src={announcement.avatarUrl}
+                                      alt={`${announcement.author} avatar`}
+                                    />
+                                  ) : null}
                                   <AvatarFallback className="bg-gradient-to-br from-blue-400 to-blue-600 text-white font-semibold text-sm">
                                     {announcement.avatar}
                                   </AvatarFallback>

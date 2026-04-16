@@ -6,9 +6,16 @@ import { ClassItem } from '@/lib/data';
 interface TeacherClassesViewProps {
   classes: ClassItem[];
   onClassesChange: (classes: ClassItem[]) => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
 }
 
-export function TeacherClassesView({ classes, onClassesChange }: TeacherClassesViewProps) {
+export function TeacherClassesView({
+  classes,
+  onClassesChange,
+  searchQuery,
+  onSearchQueryChange,
+}: TeacherClassesViewProps) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
   if (selectedClassId) {
@@ -27,6 +34,8 @@ export function TeacherClassesView({ classes, onClassesChange }: TeacherClassesV
       onSelectClass={setSelectedClassId} 
       classes={classes}
       onClassesChange={onClassesChange}
+      searchQuery={searchQuery}
+      onSearchQueryChange={onSearchQueryChange}
     />
   );
 }

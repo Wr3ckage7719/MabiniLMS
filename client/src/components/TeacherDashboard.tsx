@@ -22,6 +22,8 @@ interface TeacherDashboardProps {
   currentView: 'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings';
   classes: ClassItem[];
   onClassesChange: (classes: ClassItem[]) => void;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
 }
 
 const formatDate = (value: string | null | undefined) => {
@@ -35,7 +37,13 @@ const formatDate = (value: string | null | undefined) => {
   });
 };
 
-export function TeacherDashboard({ currentView, classes, onClassesChange }: TeacherDashboardProps) {
+export function TeacherDashboard({
+  currentView,
+  classes,
+  onClassesChange,
+  searchQuery,
+  onSearchQueryChange,
+}: TeacherDashboardProps) {
   const { data, loading, error, refetch } = useTeacherDashboard();
 
   const renderDashboard = () => {
@@ -214,7 +222,14 @@ export function TeacherDashboard({ currentView, classes, onClassesChange }: Teac
   };
 
   if (currentView === 'classes') {
-    return <TeacherClassesView classes={classes} onClassesChange={onClassesChange} />;
+    return (
+      <TeacherClassesView
+        classes={classes}
+        onClassesChange={onClassesChange}
+        searchQuery={searchQuery}
+        onSearchQueryChange={onSearchQueryChange}
+      />
+    );
   }
 
   if (currentView === 'calendar') {
