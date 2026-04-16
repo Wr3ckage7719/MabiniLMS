@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabase.js';
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -367,7 +368,7 @@ export const sendToCourse = async (courseId: string, event: SocketEvent, payload
       .from('enrollments')
       .select('student_id')
       .eq('course_id', courseId)
-      .eq('status', 'active');
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
     const { data: course } = await supabaseAdmin
       .from('courses')

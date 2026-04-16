@@ -137,6 +137,7 @@ export const teacherService = {
   async getTeacherCourses(options?: { 
     status?: 'draft' | 'published' | 'archived';
     includeEnrollmentCount?: boolean;
+    limit?: number;
   }): Promise<{ data: TeacherCourse[] }> {
     const params = new URLSearchParams();
     if (options?.status) {
@@ -144,6 +145,9 @@ export const teacherService = {
     }
     if (options?.includeEnrollmentCount) {
       params.append('include_enrollment_count', 'true');
+    }
+    if (options?.limit) {
+      params.append('limit', options.limit.toString());
     }
     const query = params.toString();
     const response = await apiClient.get(`/courses${query ? `?${query}` : ''}`);
@@ -318,7 +322,7 @@ export const teacherService = {
   async getDashboardStats(): Promise<DashboardStats> {
     // Fetch courses and assignments in parallel
     const [coursesRes] = await Promise.all([
-      this.getTeacherCourses({ status: 'published', includeEnrollmentCount: true }),
+      this.getTeacherCourses({ status: 'published', includeEnrollmentCount: true, limit: 100 }),
     ]);
 
     const courses = coursesRes.data || [];

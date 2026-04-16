@@ -7,6 +7,10 @@
 import { supabaseAdmin } from '../lib/supabase.js'
 import { ApiError, ErrorCode, UserRole } from '../types/index.js'
 import { calculatePercentage, calculateLetterGrade } from '../types/grades.js'
+import {
+  ACTIVE_ENROLLMENT_STATUSES,
+  isActiveEnrollmentStatus,
+} from '../utils/enrollmentStatus.js'
 
 // ============================================
 // Types
@@ -126,7 +130,7 @@ export const getCourseAnalytics = async (
     .from('enrollments')
     .select('*', { count: 'exact', head: true })
     .eq('course_id', courseId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
   // Get material count
   const { count: materialCount } = await supabaseAdmin
@@ -255,14 +259,14 @@ export const getStudentAnalytics = async (
     .from('enrollments')
     .select('*', { count: 'exact', head: true })
     .eq('student_id', studentId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
   // Get assignments and submissions
   const { data: enrollments } = await supabaseAdmin
     .from('enrollments')
     .select('course_id')
     .eq('student_id', studentId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
   const courseIds = enrollments?.map((e) => e.course_id) || []
 
@@ -404,7 +408,7 @@ export const getPlatformAnalytics = async (
 
   const enrollmentStats = {
     total: enrollments?.length || 0,
-    active: enrollments?.filter((e) => e.status === 'active').length || 0,
+    active: enrollments?.filter((e) => isActiveEnrollmentStatus(e.status)).length || 0,
     completed: enrollments?.filter((e) => e.status === 'completed').length || 0,
     new_this_week: enrollments?.filter((e) => new Date(e.created_at) > oneWeekAgo).length || 0,
   }
@@ -490,7 +494,7 @@ export const getTeacherAnalytics = async (
       .from('enrollments')
       .select('student_id', { count: 'exact', head: true })
       .in('course_id', courseIds)
-      .eq('status', 'active')
+      .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
     totalStudents = count || 0
   }

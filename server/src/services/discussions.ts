@@ -5,6 +5,7 @@ import {
   DiscussionPostWithAuthor,
   ListDiscussionPostsQuery,
 } from '../types/discussions.js';
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 import { sendDiscussionPostNotification } from './notifications.js';
 import logger from '../utils/logger.js';
 
@@ -133,7 +134,7 @@ const ensureCourseDiscussionAccess = async (
       .select('id')
       .eq('course_id', courseId)
       .eq('student_id', userId)
-      .eq('status', 'active')
+      .in('status', ACTIVE_ENROLLMENT_STATUSES)
       .maybeSingle();
 
     if (enrollmentError) {
@@ -403,7 +404,7 @@ export const createDiscussionPost = async (
         .from('enrollments')
         .select('student_id')
         .eq('course_id', courseId)
-        .eq('status', 'active');
+        .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
       if (enrollmentError) {
         logger.warn('Failed to resolve discussion notification recipients', {

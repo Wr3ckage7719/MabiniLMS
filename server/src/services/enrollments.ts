@@ -11,14 +11,14 @@ import {
 import { CourseStatus } from '../types/courses.js';
 import { sendEnrollmentNotification } from './notifications.js';
 import logger from '../utils/logger.js';
+import {
+  ACTIVE_ENROLLMENT_STATUSES,
+  LEGACY_ACTIVE_ENROLLMENT_STATUS,
+  isActiveEnrollmentStatus,
+} from '../utils/enrollmentStatus.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHORT_CLASS_CODE_REGEX = /^[0-9a-f]{8}$/i;
-const LEGACY_ACTIVE_ENROLLMENT_STATUS = 'enrolled';
-const ACTIVE_ENROLLMENT_STATUSES = [
-  EnrollmentStatus.ACTIVE,
-  LEGACY_ACTIVE_ENROLLMENT_STATUS,
-];
 
 const normalizeDbErrorText = (error: { message?: string; details?: string; hint?: string } | null): string => {
   if (!error) {
@@ -56,11 +56,6 @@ const isStatusCompatibilityError = (
     (text.includes('invalid input value for enum') && text.includes('status')) ||
     (text.includes('status') && text.includes('check constraint'))
   );
-};
-
-const isActiveEnrollmentStatus = (status: unknown): boolean => {
-  const normalizedStatus = String(status || '').toLowerCase();
-  return ACTIVE_ENROLLMENT_STATUSES.includes(normalizedStatus as EnrollmentStatus | string);
 };
 
 const buildEnrollmentMutationPayload = (

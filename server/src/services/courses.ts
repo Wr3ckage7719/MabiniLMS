@@ -15,6 +15,7 @@ import {
   CourseStatus,
 } from '../types/courses.js';
 import logger from '../utils/logger.js';
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 
 // ============================================
 // Helpers
@@ -22,12 +23,6 @@ import logger from '../utils/logger.js';
 
 const COURSE_BASE_SELECT =
   'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
-
-const LEGACY_ACTIVE_ENROLLMENT_STATUS = 'enrolled';
-const ACTIVE_ENROLLMENT_STATUSES = [
-  'active',
-  LEGACY_ACTIVE_ENROLLMENT_STATUS,
-];
 
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
   if (!courses.length) {
@@ -73,6 +68,54 @@ const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => 
 const attachTeacherToCourse = async (course: Course): Promise<Course> => {
   const [result] = await attachTeachersToCourses([course]);
   return result;
+};
+
+const attachEnrollmentCountsToCourses = async (
+  courses: Course[]
+): Promise<CourseWithStats[]> => {
+  if (!courses.length) {
+    return [];
+  }
+
+  const courseIds = Array.from(
+    new Set(courses.map((course) => course.id).filter(Boolean))
+  );
+
+  const { data: enrollmentRows, error } = await supabaseAdmin
+    .from('enrollments')
+    .select('course_id')
+    .in('course_id', courseIds)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES);
+
+  if (error) {
+    logger.warn('Failed to fetch enrollment counts for course list', {
+      error: error.message,
+      courseCount: courseIds.length,
+    });
+
+    return courses.map((course) => ({
+      ...course,
+      enrollment_count: 0,
+    }));
+  }
+
+  const enrollmentCountByCourseId = new Map<string, number>();
+
+  for (const row of (enrollmentRows || []) as Array<{ course_id: string | null }>) {
+    if (!row.course_id) {
+      continue;
+    }
+
+    enrollmentCountByCourseId.set(
+      row.course_id,
+      (enrollmentCountByCourseId.get(row.course_id) || 0) + 1
+    );
+  }
+
+  return courses.map((course) => ({
+    ...course,
+    enrollment_count: enrollmentCountByCourseId.get(course.id) || 0,
+  }));
 };
 
 const hasActiveEnrollment = async (courseId: string, studentId: string): Promise<boolean> => {
@@ -234,7 +277,7 @@ export const getCourseById = async (
         .from('enrollments')
         .select('*', { count: 'exact', head: true })
         .eq('course_id', courseId)
-        .eq('status', 'active'),
+        .in('status', ACTIVE_ENROLLMENT_STATUSES),
       supabaseAdmin
         .from('assignments')
         .select('*', { count: 'exact', head: true })
@@ -256,7 +299,14 @@ export const listCourses = async (
   userId?: string,
   userRole?: UserRole
 ): Promise<PaginatedCourses> => {
-  const { page, limit, status, teacher_id, search } = query;
+  const {
+    page,
+    limit,
+    status,
+    teacher_id,
+    search,
+    include_enrollment_count,
+  } = query;
   const offset = (page - 1) * limit;
 
   let queryBuilder = supabaseAdmin
@@ -352,8 +402,14 @@ export const listCourses = async (
   const total = count || 0;
   const totalPages = Math.ceil(total / limit);
 
+  const baseCourses = await attachTeachersToCourses((data || []) as Course[]);
+  const coursesWithStats =
+    include_enrollment_count === 'true'
+      ? await attachEnrollmentCountsToCourses(baseCourses)
+      : baseCourses;
+
   return {
-    courses: await attachTeachersToCourses((data || []) as Course[]),
+    courses: coursesWithStats,
     total,
     page,
     limit,
@@ -812,7 +868,7 @@ export const getCourseStudents = async (
       )
     `)
     .eq('course_id', courseId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
     .order('enrolled_at', { ascending: true });
 
   if (error) {
