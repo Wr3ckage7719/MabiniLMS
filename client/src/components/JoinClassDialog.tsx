@@ -40,11 +40,24 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
-      const message =
+      const reason =
+        err?.response?.data?.error?.metadata?.details?.reason ||
+        err?.response?.data?.error?.metadata?.reason;
+
+      let message =
         err?.response?.data?.error?.message ||
         err?.response?.data?.message ||
         err?.message ||
         'Failed to join class';
+
+      if (reason === 'ENROLLMENT_DUPLICATE_RECORD' || reason === 'ALREADY_ENROLLED') {
+        message = 'You are already enrolled in this class.';
+      }
+
+      if (reason === 'ENROLLMENT_INSERT_FAILED' || reason === 'ENROLLMENT_REACTIVATE_FAILED') {
+        message = 'Enrollment is temporarily unavailable. Please try again in a few moments.';
+      }
+
       setError(message);
       toast({
         title: 'Error',
