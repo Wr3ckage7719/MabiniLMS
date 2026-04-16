@@ -24,8 +24,15 @@ export const coursesService = {
     return apiClient.get(`/courses${queryString ? `?${queryString}` : ''}`);
   },
 
-  async getCourseById(id: string) {
-    return apiClient.get(`/courses/${id}`);
+  async getCourseById(id: string, params?: { includeStats?: boolean }) {
+    const queryParams = new URLSearchParams();
+
+    if (params?.includeStats) {
+      queryParams.append('include_stats', 'true');
+    }
+
+    const queryString = queryParams.toString();
+    return apiClient.get(`/courses/${id}${queryString ? `?${queryString}` : ''}`);
   },
 
   async createCourse(data: CourseData) {
