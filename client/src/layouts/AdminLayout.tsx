@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   UserCheck,
   Users,
+  Bug,
   Settings,
   FileText,
   LogOut,
@@ -50,6 +51,7 @@ export default function AdminLayout() {
     { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/admin/teachers/pending', icon: UserCheck, label: 'Pending Teachers' },
     { to: '/admin/students', icon: Users, label: 'Student Management' },
+    { to: '/admin/bug-reports', icon: Bug, label: 'Bug Reports' },
     { to: '/admin/settings', icon: Settings, label: 'System Settings' },
     { to: '/admin/audit-logs', icon: FileText, label: 'Audit Logs' },
   ];

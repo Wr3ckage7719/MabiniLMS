@@ -3,6 +3,12 @@ import * as adminController from '../controllers/admin.js'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { validate } from '../middleware/validate.js'
 import { UserRole } from '../types/index.js'
+import {
+  bugReportIdParamSchema,
+  listBugReportsQuerySchema,
+  updateBugReportStatusSchema,
+} from '../types/bug-reports.js'
+import * as bugReportsController from '../controllers/bug-reports.js'
 import { z } from 'zod'
 
 const router = Router()
@@ -192,6 +198,29 @@ router.get(
 // ========================================
 // Dashboard Stats Routes
 // ========================================
+
+/**
+ * List submitted bug reports
+ */
+router.get(
+  '/bug-reports',
+  validate({
+    query: listBugReportsQuerySchema,
+  }),
+  bugReportsController.listBugReports
+)
+
+/**
+ * Update bug report status
+ */
+router.patch(
+  '/bug-reports/:id/status',
+  validate({
+    params: bugReportIdParamSchema,
+    body: updateBugReportStatusSchema,
+  }),
+  bugReportsController.updateBugReportStatus
+)
 
 /**
  * Get dashboard statistics

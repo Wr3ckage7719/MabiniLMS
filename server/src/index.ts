@@ -22,6 +22,7 @@ import {
   gradeRoutes,
   searchRoutes,
   notificationRoutes,
+  bugReportRoutes,
   analyticsRoutes,
   batchRoutes,
   twoFactorRoutes,
@@ -328,6 +329,7 @@ app.use('/api/assignments', assignmentRoutes);
 app.use('/api/grades', gradeRoutes);
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);

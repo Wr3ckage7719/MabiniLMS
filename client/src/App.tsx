@@ -23,6 +23,7 @@ import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
 import AuditLogsPage from "./pages/admin/AuditLogsPage";
+import BugReportsPage from "./pages/admin/BugReportsPage";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
@@ -76,6 +77,7 @@ const AppRoutes = () => (
       <Route path="/admin/students" element={<StudentManagementPage />} />
       <Route path="/admin/settings" element={<SystemSettingsPage />} />
       <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
+      <Route path="/admin/bug-reports" element={<BugReportsPage />} />
     </Route>
     
     {/* Regular App Routes */}

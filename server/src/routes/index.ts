@@ -10,6 +10,7 @@ export { default as assignmentRoutes } from './assignments.js';
 export { default as gradeRoutes } from './grades.js';
 export { default as searchRoutes } from './search.js';
 export { default as notificationRoutes } from './notifications.js';
+export { default as bugReportRoutes } from './bug-reports.js';
 export { default as analyticsRoutes } from './analytics.js';
 export { default as batchRoutes } from './batch.js';
 export { default as twoFactorRoutes } from './twoFactor.js';
