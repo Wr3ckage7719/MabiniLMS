@@ -234,7 +234,7 @@ export const getCourseById = async (
         .from('enrollments')
         .select('*', { count: 'exact', head: true })
         .eq('course_id', courseId)
-        .eq('status', 'active'),
+        .in('status', ACTIVE_ENROLLMENT_STATUSES),
       supabaseAdmin
         .from('assignments')
         .select('*', { count: 'exact', head: true })
@@ -812,7 +812,7 @@ export const getCourseStudents = async (
       )
     `)
     .eq('course_id', courseId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
     .order('enrolled_at', { ascending: true });
 
   if (error) {
