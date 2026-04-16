@@ -12,6 +12,7 @@ import {
   AlertCircle,
   ArrowRight,
   Activity,
+  Bug,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -80,6 +81,13 @@ export default function AdminDashboardPage() {
       icon: GraduationCap,
       color: 'bg-green-600',
       action: () => navigate('/admin/students'),
+    },
+    {
+      title: 'Bug Reports',
+      description: 'Review incoming user bug reports',
+      icon: Bug,
+      color: 'bg-rose-600',
+      action: () => navigate('/admin/bug-reports'),
     },
     {
       title: 'System Settings',
@@ -180,7 +188,7 @@ export default function AdminDashboardPage() {
         {/* Quick Actions */}
         <div>
           <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {quickActions.map((action, index) => (
               <Card
                 key={index}
