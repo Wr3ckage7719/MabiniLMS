@@ -14,10 +14,15 @@ import {
 } from "@/components/ui/dialog";
 import {
   ArrowRight,
+  BarChart3,
+  Bell,
+  BookOpen,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Download,
+  GraduationCap,
   Loader2,
   Monitor,
   Smartphone,
@@ -39,17 +44,17 @@ const deviceShowcaseSlides: Array<{
   {
     id: "phone",
     label: "Phone View",
-    description: "Check classes, announcements, and deadlines in a pocket-first layout.",
+    description: "View class schedules, school announcements, and assignment deadlines in a mobile-ready layout.",
   },
   {
     id: "tablet",
     label: "Tablet View",
-    description: "Split workspace for reading lessons while monitoring class activity.",
+    description: "Review lesson materials while monitoring class progress in a balanced workspace.",
   },
   {
     id: "desktop",
     label: "Desktop View",
-    description: "Full dashboard with wider controls for teachers and admins.",
+    description: "Use a complete dashboard for instruction management, grading, and administrative oversight.",
   },
 ];
 
@@ -308,19 +313,43 @@ export default function LandingPage() {
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary rounded-full text-sm font-semibold">
                 <Zap className="w-4 h-4" />
-                Modern classroom management
+                Learning Management System (LMS)
               </div>
               <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight">
-                Where Learning <span className="bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">Comes Alive</span>
+                One Platform for
+                <span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+                  Teaching and Learning
+                </span>
               </h1>
               <p className="text-lg text-muted-foreground max-w-xl">
-                A next-generation classroom platform that makes teaching elegant and learning effortless. Beautiful, fast, and built for how education works today.
+                Mabini Classroom is a complete LMS where teachers can create classes, share materials,
+                post assignments and quizzes, and track student progress, while students can access
+                lessons, submit work, and view grades in one place.
               </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-xl">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-primary" />
+                  Class content and modules
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-primary" />
+                  Assignments and quizzes
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-primary" />
+                  Grade and performance tracking
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                  <Bell className="h-4 w-4 text-primary" />
+                  Announcements and updates
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Button onClick={() => navigate("/login")} size="lg" className="bg-gradient-to-r from-primary to-accent hover:opacity-90 h-12 text-base">
-                Start for Free <ArrowRight className="w-5 h-5 ml-2" />
+                Start Here <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </div>
 
@@ -328,35 +357,55 @@ export default function LandingPage() {
           </div>
 
           {/* Right - Hero Visual */}
-          <div className="relative h-96 sm:h-full">
+          <div className="relative min-h-[340px] sm:min-h-[390px]">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 rounded-3xl blur-3xl transform -rotate-12"></div>
-            <div className="relative bg-gradient-to-br from-primary/5 to-accent/5 rounded-3xl border border-primary/20 p-8 backdrop-blur-sm overflow-hidden group">
+            <div className="relative bg-gradient-to-br from-primary/5 to-accent/5 rounded-3xl border border-primary/20 p-5 sm:p-7 backdrop-blur-sm overflow-hidden group">
               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-primary/10 to-transparent rounded-3xl animate-pulse"></div>
               </div>
               <div className="relative space-y-4">
-                {/* Classroom interface preview */}
-                <div className="bg-card rounded-xl p-4 border border-border/40">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="h-3 bg-primary/40 rounded w-32"></div>
-                    <div className="flex gap-2">
-                      <div className="w-2 h-2 rounded-full bg-success"></div>
-                      <div className="w-2 h-2 rounded-full bg-success/60"></div>
-                    </div>
+                <div className="flex items-center justify-between rounded-xl border border-border/40 bg-card/80 p-3.5">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Today in your LMS</p>
+                    <p className="text-xs text-slate-300/90">Classes, tasks, grades, and updates in one dashboard</p>
                   </div>
-                  <div className="space-y-2">
-                    <div className="h-2 bg-muted rounded w-full"></div>
-                    <div className="h-2 bg-muted rounded w-5/6"></div>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[11px] text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                    Live
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-card rounded-xl p-3 border border-border/40 space-y-2">
-                    <div className="w-8 h-8 bg-primary/60 rounded-lg"></div>
-                    <div className="h-2 bg-muted rounded w-3/4"></div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
+                    <div className="flex items-center gap-2 text-slate-200">
+                      <GraduationCap className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Classes and Sections</span>
+                    </div>
+                    <p className="text-xs text-slate-300/90 leading-relaxed">Organize subjects, sections, and schedules for every learner.</p>
                   </div>
-                  <div className="bg-card rounded-xl p-3 border border-border/40 space-y-2">
-                    <div className="w-8 h-8 bg-accent/60 rounded-lg"></div>
-                    <div className="h-2 bg-muted rounded w-2/3"></div>
+
+                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
+                    <div className="flex items-center gap-2 text-slate-200">
+                      <ClipboardCheck className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Assignments and Quizzes</span>
+                    </div>
+                    <p className="text-xs text-slate-300/90 leading-relaxed">Create tasks, set deadlines, and monitor submissions easily.</p>
+                  </div>
+
+                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
+                    <div className="flex items-center gap-2 text-slate-200">
+                      <BarChart3 className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Gradebook and Progress</span>
+                    </div>
+                    <p className="text-xs text-slate-300/90 leading-relaxed">Track performance with clear grading and progress visibility.</p>
+                  </div>
+
+                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
+                    <div className="flex items-center gap-2 text-slate-200">
+                      <Bell className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Announcements and Alerts</span>
+                    </div>
+                    <p className="text-xs text-slate-300/90 leading-relaxed">Keep classes aligned with instant notices and reminders.</p>
                   </div>
                 </div>
               </div>
@@ -376,28 +425,28 @@ export default function LandingPage() {
           <div className="relative space-y-5 order-2 lg:order-1">
             <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 text-primary px-3 py-1.5 text-sm font-semibold">
               <Smartphone className="h-4 w-4" />
-              Download the mobile app
+              Institutional Mobile Access
             </div>
 
             <h2 className="text-3xl sm:text-4xl font-bold leading-tight">
-              Bring Mabini Classroom
-              <span className="block bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">to your home screen</span>
+              Access Mabini Classroom
+              <span className="block bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">on any school-approved device</span>
             </h2>
 
             <p className="text-sm sm:text-base text-slate-200/85 max-w-xl">
-              Install the PWA to open Mabini Classroom like a real app, receive faster updates,
-              and keep learning tools one tap away. Students can check classes quickly,
-              while teachers can post updates and track classroom activity on the go.
+              Install the Mabini Classroom progressive web application (PWA) to access the LMS
+              from your home screen with reliable performance. Students can review lessons,
+              teachers can post coursework, and administrators can monitor activity in one secure platform.
             </p>
 
             <div className="space-y-2 text-sm text-slate-200/90">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Quick launch from your phone home screen with an app-like experience.</span>
+                <span>Open directly from your home screen with a reliable app-like experience.</span>
               </div>
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Optimized for mobile browsing so classes, tasks, and grades stay easy to read.</span>
+                <span>Optimized for classroom workflows so lessons, submissions, and grades remain easy to review.</span>
               </div>
             </div>
 
@@ -411,12 +460,12 @@ export default function LandingPage() {
                 className="h-11 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70"
               >
                 <Download className="h-4 w-4" />
-                {isInstalled ? "App Installed" : isInstallable ? "Download PWA App" : "Install option unavailable"}
+                {isInstalled ? "Application Installed" : isInstallable ? "Install Mabini Classroom App" : "Install option unavailable"}
               </Button>
               <p className="text-xs text-slate-300/90">
                 {!isInstallable && !isInstalled
-                  ? "Tip: open this page in Chrome or Edge on mobile/desktop and tap Install in your browser menu."
-                  : "Installation only takes a few seconds."}
+                  ? "Installation tip: open this page in Chrome or Edge, then select Install from your browser menu."
+                  : "Installation is completed in only a few seconds."}
               </p>
             </div>
           </div>
@@ -521,10 +570,10 @@ export default function LandingPage() {
 
         <div className="relative max-w-6xl mx-auto">
           <div className="mb-8 max-w-2xl space-y-4 rounded-xl border border-white/15 bg-black/20 px-5 py-4 text-sm text-slate-100/90 backdrop-blur-[2px]">
-            <h2 className="text-base font-semibold text-white">Contact us</h2>
+            <h2 className="text-base font-semibold text-white">School Contact Information</h2>
 
             <div className="space-y-2">
-              <p className="text-xs uppercase tracking-wide text-slate-300/90">Current support contact</p>
+              <p className="text-xs uppercase tracking-wide text-slate-300/90">Primary school support contact</p>
               <p>
                 <span className="font-medium text-white">Phone:</span>{" "}
                 <a href="tel:+639394920476" className="text-slate-100 hover:text-white transition-colors">+63 939 492 0476</a>
@@ -540,7 +589,7 @@ export default function LandingPage() {
             </div>
 
             <div className="border-t border-white/20 pt-3 space-y-2">
-              <p className="text-xs uppercase tracking-wide text-slate-300/90">Additional admin contact</p>
+              <p className="text-xs uppercase tracking-wide text-slate-300/90">Secondary administrative contact</p>
               <p>
                 <span className="font-medium text-white">Phone:</span>{" "}
                 <a href="tel:+639480205567" className="text-slate-100 hover:text-white transition-colors">+6394 8020 5567</a>
@@ -556,29 +605,29 @@ export default function LandingPage() {
             </div>
 
             <p>
-              <span className="font-medium text-white">Bug reports:</span>{" "}
+              <span className="font-medium text-white">System concerns and bug reports:</span>{" "}
               <button
                 type="button"
                 onClick={() => setIsBugDialogOpen(true)}
                 className="text-primary hover:text-accent transition-colors underline underline-offset-4"
               >
-                Report a bug to the admin
+                Submit a report to the administration
               </button>
             </p>
           </div>
 
           <div className="border-t border-white/20 pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-200/90">
-          <p>&copy; {new Date().getFullYear()} Mabini Classroom. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} Mabini Classroom Learning Management System. All rights reserved.</p>
             <div className="flex gap-6">
-              <a href="#" className="hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms</a>
-              <a href="#" className="hover:text-white transition-colors">Cookies</a>
+              <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+              <a href="#" className="hover:text-white transition-colors">Terms of Use</a>
+              <a href="#" className="hover:text-white transition-colors">Cookie Policy</a>
               <button
                 type="button"
                 onClick={() => setIsBugDialogOpen(true)}
                 className="hover:text-primary transition-colors"
               >
-                Report Bug
+                Report a System Issue
               </button>
             </div>
           </div>
