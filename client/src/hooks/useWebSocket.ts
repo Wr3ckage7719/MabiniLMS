@@ -371,36 +371,10 @@ export function useRealtimeNotifications() {
 
     const isStudent = (user?.role || '').toLowerCase() === 'student';
 
-    const extractCourseIdFromNotification = (
-      notification: NotificationPayload
-    ): string | null => {
-      const directCourseId = notification.data?.course_id || notification.data?.courseId;
-      if (typeof directCourseId === 'string' && directCourseId.trim().length > 0) {
-        return directCourseId;
-      }
-
-      const actionUrl = notification.data?.action_url || notification.data?.actionUrl;
-      if (typeof actionUrl !== 'string' || actionUrl.trim().length === 0) {
-        return null;
-      }
-
-      const match = actionUrl.match(/\/class\/([^/?#]+)/i);
-      return match?.[1] || null;
-    };
-
     // Subscribe to general notifications
     const unsubNotification = subscribe<NotificationPayload>(
       SocketEvent.NOTIFICATION,
       (notification) => {
-        const relatedCourseId = extractCourseIdFromNotification(notification);
-        const normalizedNotificationType = (notification.type || '').toLowerCase();
-
-        if (relatedCourseId) {
-          refreshCourseRealtimeData(relatedCourseId);
-        } else if (normalizedNotificationType === 'course_enrollment') {
-          void queryClient.invalidateQueries({ queryKey: ['classes'] });
-        }
-
         toast({
           title: notification.title,
           description: notification.message,
