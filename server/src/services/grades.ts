@@ -30,6 +30,7 @@ import { AuditEventType } from './audit.js'
 import { notifyGradeReleased, notifyStandingUpdated } from './websocket.js'
 import logger from '../utils/logger.js'
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js'
 
 const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
   const message = (error?.message || '').toLowerCase()
@@ -908,7 +909,7 @@ export const getWeightedCourseGrade = async (
     .select('id')
     .eq('course_id', courseId)
     .eq('student_id', targetStudentId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
     .maybeSingle()
 
   if (enrollmentError) {

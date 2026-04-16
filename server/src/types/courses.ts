@@ -41,6 +41,7 @@ export const listCoursesQuerySchema = z.object({
   status: z.nativeEnum(CourseStatus).optional(),
   teacher_id: z.string().uuid().optional(),
   search: z.string().optional(),
+  include_enrollment_count: z.enum(['true', 'false']).optional(),
 });
 
 // ============================================
@@ -123,7 +124,7 @@ export interface CourseMaterial {
 }
 
 export interface PaginatedCourses {
-  courses: Course[];
+  courses: CourseWithStats[];
   total: number;
   page: number;
   limit: number;

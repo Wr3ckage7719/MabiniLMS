@@ -39,6 +39,7 @@ import { Switch } from '@/components/ui/switch';
 import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
 import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
+import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
@@ -63,6 +64,7 @@ import {
 import { teacherService } from '@/services/teacher.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { Announcement as ClassAnnouncement } from '@/lib/data';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -234,6 +236,8 @@ export function TeacherClassStream({
   const [showStudentDetail, setShowStudentDetail] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<RecentSubmissionItem | null>(null);
   const [showSubmissionDetail, setShowSubmissionDetail] = useState(false);
+  const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] =
+    useState<ClassAnnouncement | null>(null);
   const [submissionGrade, setSubmissionGrade] = useState('');
   const [submissionFeedback, setSubmissionFeedback] = useState('');
   const [savingSubmissionGrade, setSavingSubmissionGrade] = useState(false);
@@ -570,6 +574,9 @@ export function TeacherClassStream({
       try {
         await announcementsService.deleteAnnouncement(announcementId);
         setAnnouncements((previous) => previous.filter((announcement) => announcement.id !== announcementId));
+        setSelectedAnnouncementForComments((previous) =>
+          previous?.id === announcementId ? null : previous
+        );
         await refetchAnnouncements();
         toast({
           title: 'Announcement deleted',
@@ -976,7 +983,7 @@ export function TeacherClassStream({
                   <p className="text-lg font-bold text-green-600">
                     {assignments.filter((item) => item.status === 'active').length}
                   </p>
-                  <p className="text-xs text-muted-foreground">Active</p>
+                  <p className="text-xs text-muted-foreground">Active Work</p>
                 </div>
               </div>
             </CardContent>
@@ -1333,8 +1340,8 @@ export function TeacherClassStream({
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 rounded-lg text-muted-foreground hover:text-blue-500 hover:bg-blue-50 transition-all"
-                                disabled
-                                title="Announcement comments are not available yet"
+                                onClick={() => setSelectedAnnouncementForComments(announcement)}
+                                title="View announcement comments"
                               >
                                 <MessageCircle className="h-4 w-4 mr-1.5" />
                                 <span className="text-xs">{announcement.comments}</span>
@@ -1745,6 +1752,24 @@ export function TeacherClassStream({
           }
         }
       `}</style>
+
+      {selectedAnnouncementForComments && (
+        <div
+          className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          onClick={() => setSelectedAnnouncementForComments(null)}
+        >
+          <div
+            className="h-full animate-in slide-in-from-bottom-4 zoom-in-95 duration-300 md:mx-auto md:my-6 md:h-[calc(100%-3rem)] md:max-w-2xl lg:max-w-3xl md:overflow-hidden md:rounded-3xl md:border md:border-border md:bg-card md:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <AnnouncementCommentsPanel
+              courseId={classId}
+              announcement={selectedAnnouncementForComments}
+              onBack={() => setSelectedAnnouncementForComments(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Teacher Assignment Detail Dialog */}
       {selectedAssignment && (

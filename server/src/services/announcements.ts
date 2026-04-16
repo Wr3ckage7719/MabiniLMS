@@ -14,6 +14,7 @@ import {
   UpdateAnnouncementInput,
   ListAnnouncementsQuery,
 } from '../types/announcements.js';
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 import { notifyAnnouncementCreated } from './websocket.js';
 import { sendAnnouncementNotification } from './notifications.js';
 import logger from '../utils/logger.js';
@@ -296,7 +297,7 @@ export const createAnnouncement = async (
       .from('enrollments')
       .select('student_id')
       .eq('course_id', courseId)
-      .eq('status', 'active');
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
     if (enrollmentError) {
       logger.warn('Failed to load course recipients for announcement notifications', {
@@ -467,7 +468,7 @@ const ensureAnnouncementCommentAccess = async (
       .select('id')
       .eq('course_id', announcement.course_id)
       .eq('student_id', userId)
-      .eq('status', 'active')
+      .in('status', ACTIVE_ENROLLMENT_STATUSES)
       .maybeSingle();
 
     if (enrollmentError) {

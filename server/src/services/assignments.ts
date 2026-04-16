@@ -23,6 +23,7 @@ import { sendAssignmentCreatedNotification } from './notifications.js';
 import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
@@ -536,7 +537,7 @@ export const createAssignment = async (
       .from('enrollments')
       .select('student_id')
       .eq('course_id', courseId)
-      .eq('status', 'active');
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
     if (enrollmentError) {
       logger.warn('Failed to load student recipients for assignment notifications', {
@@ -643,7 +644,7 @@ export const listAssignments = async (
         .from('enrollments')
         .select('course_id')
         .eq('student_id', userId)
-        .eq('status', 'active');
+        .in('status', ACTIVE_ENROLLMENT_STATUSES);
 
       if (enrollments && enrollments.length > 0) {
         const courseIds = enrollments.map(e => e.course_id);
@@ -797,7 +798,7 @@ export const submitAssignment = async (
     .select('id, status')
     .eq('course_id', assignment.course_id)
     .eq('student_id', userId)
-    .eq('status', 'active')
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
     .single();
 
   if (!enrollment) {
@@ -1298,7 +1299,7 @@ const ensureAssignmentCommentAccess = async (
       .select('id')
       .eq('course_id', assignment.course_id)
       .eq('student_id', userId)
-      .eq('status', 'active')
+      .in('status', ACTIVE_ENROLLMENT_STATUSES)
       .maybeSingle();
 
     if (error) {

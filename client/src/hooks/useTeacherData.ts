@@ -280,27 +280,50 @@ export function useNotifications(options?: UseNotificationsOptions): UseNotifica
   const [error, setError] = useState<string | null>(null);
 
   const fetchNotifications = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const [notifRes, countRes] = await Promise.all([
-        teacherService.getNotifications({
-          unread_only: options?.unreadOnly,
-          limit: options?.limit,
-        }),
-        teacherService.getNotificationCount(),
-      ]);
-      
-      setNotifications(notifRes.data || []);
-      setUnreadCount(countRes.unread || 0);
-    } catch (err: any) {
-      console.error('Error fetching notifications:', err);
-      setError(err.response?.data?.message || 'Failed to load notifications');
-      setNotifications([]);
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    setError(null);
+
+    const [notificationsResult, countResult] = await Promise.allSettled([
+      teacherService.getNotifications({
+        unread_only: options?.unreadOnly,
+        limit: options?.limit,
+      }),
+      teacherService.getNotificationCount(),
+    ]);
+
+    let nextError: string | null = null;
+
+    if (notificationsResult.status === 'fulfilled') {
+      const nextNotifications = notificationsResult.value.data || [];
+      setNotifications(nextNotifications);
+
+      if (countResult.status === 'fulfilled') {
+        setUnreadCount(countResult.value.unread || 0);
+      } else {
+        console.error('Error fetching notification count:', countResult.reason);
+        setUnreadCount(nextNotifications.filter((notification) => !notification.read).length);
+        nextError =
+          countResult.reason?.response?.data?.message ||
+          countResult.reason?.message ||
+          'Notification count is temporarily unavailable';
+      }
+    } else {
+      console.error('Error fetching notifications:', notificationsResult.reason);
+      nextError =
+        notificationsResult.reason?.response?.data?.message ||
+        notificationsResult.reason?.message ||
+        'Failed to load notifications';
+
+      // Keep the previous notification list visible when refresh fails.
+      if (countResult.status === 'fulfilled') {
+        setUnreadCount(countResult.value.unread || 0);
+      } else {
+        console.error('Error fetching notification count:', countResult.reason);
+      }
     }
+
+    setError(nextError);
+    setLoading(false);
   }, [options?.unreadOnly, options?.limit]);
 
   useEffect(() => {
@@ -393,6 +416,7 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
       const coursesRes = await teacherService.getTeacherCourses({ 
         status: 'published',
         includeEnrollmentCount: true,
+        limit: 100,
       });
       const courses = coursesRes.data || [];
 

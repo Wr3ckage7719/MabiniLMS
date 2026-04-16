@@ -10,7 +10,11 @@ export function useClasses(params?: { archived?: boolean; role?: 'student' | 'te
   return useQuery({
     queryKey: ['classes', user?.id || null, params],
     queryFn: async () => {
-      const response = await coursesService.getCourses(params);
+      const response = await coursesService.getCourses({
+        ...params,
+        includeEnrollmentCount: true,
+        limit: 100,
+      });
       return transformCourses(response.data?.courses || []);
     },
     enabled: !authLoading && isLoggedIn,
