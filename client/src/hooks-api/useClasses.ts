@@ -34,9 +34,7 @@ export function useClass(classId: string): UseQueryResult<ClassItem, Error> {
   return useQuery({
     queryKey: ['class', classId],
     queryFn: async () => {
-      const response = await coursesService.getCourseById(classId, {
-        includeStats: true,
-      });
+      const response = await coursesService.getCourseById(classId);
       return transformCourses([response.data])[0];
     },
     enabled: !authLoading && isLoggedIn && !!classId,
