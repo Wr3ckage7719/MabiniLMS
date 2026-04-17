@@ -8,6 +8,7 @@ import { coursesService } from '@/services/courses.service';
 import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { getFeedbackErrorMessage } from '@/lib/feedback';
 
 interface TeacherCreateClassDialogProps {
   open: boolean;
@@ -60,6 +61,8 @@ const levels = [
   'Expert',
 ];
 
+const MAX_CLASS_IMAGE_BYTES = 2 * 1024 * 1024;
+
 export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: TeacherCreateClassDialogProps) {
   const [className, setClassName] = useState('');
   const [section, setSection] = useState('');
@@ -111,12 +114,43 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: 'Invalid file type',
+          description: 'Please select an image file.',
+          variant: 'destructive',
+        });
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
+      if (file.size > MAX_CLASS_IMAGE_BYTES) {
+        toast({
+          title: 'Image too large',
+          description: 'Please upload an image smaller than 2MB.',
+          variant: 'destructive',
+        });
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const result = event.target?.result as string;
         setUploadedImage(result);
         setThemeMode('image');
         setShowCustomColor(false);
+      };
+      reader.onerror = () => {
+        toast({
+          title: 'Upload failed',
+          description: 'Could not read this image file. Please try another file.',
+          variant: 'destructive',
+        });
       };
       reader.readAsDataURL(file);
     }
@@ -151,7 +185,7 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
-      const message = error?.response?.data?.message || error?.message || 'Failed to create class';
+      const message = getFeedbackErrorMessage(error, 'Failed to create class');
       toast({
         title: 'Unable to create class',
         description: message,

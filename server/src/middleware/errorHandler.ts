@@ -33,6 +33,19 @@ interface ErrorResponse {
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
+const toHttpStatusCode = (value: unknown): number | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+
+  const normalized = Math.trunc(value)
+  if (normalized < 400 || normalized > 599) {
+    return null
+  }
+
+  return normalized
+}
+
 // ============================================
 // Error Handler
 // ============================================
@@ -96,6 +109,23 @@ const normalizeError = (err: any): AppError => {
   if (err.code && typeof err.code === 'string') {
     const supabaseError = convertSupabaseError(err)
     if (supabaseError) return supabaseError
+  }
+
+  // Preserve explicit HTTP status errors from lower-level middleware (for example body-parser 413).
+  const explicitStatusCode = toHttpStatusCode(err?.statusCode) || toHttpStatusCode(err?.status)
+  if (explicitStatusCode) {
+    const isPayloadTooLarge = explicitStatusCode === 413 || err?.type === 'entity.too.large'
+    return new AppError(
+      isPayloadTooLarge
+        ? 'Request payload is too large. Please upload a smaller image.'
+        : err.message || 'Request could not be processed',
+      explicitStatusCode,
+      isPayloadTooLarge ? 'PAYLOAD_TOO_LARGE' : explicitStatusCode >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR',
+      explicitStatusCode < 500,
+      {
+        type: err?.type,
+      }
+    )
   }
 
   // Generic Error to AppError

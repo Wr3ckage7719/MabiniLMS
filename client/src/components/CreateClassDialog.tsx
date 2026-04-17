@@ -8,6 +8,7 @@ import { coursesService } from '@/services/courses.service';
 import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { getFeedbackErrorMessage } from '@/lib/feedback';
 
 interface CreateClassDialogProps {
   open: boolean;
@@ -73,7 +74,7 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to create class';
+      const message = getFeedbackErrorMessage(err, 'Failed to create class');
       setError(message);
       toast({
         title: 'Error',

@@ -481,7 +481,11 @@ export function TeacherClassStream({
       setPersistedBackgroundImage(customBackgroundImage || null);
       setShowThemeSettings(false);
     } catch (error: any) {
-      const message = error?.response?.data?.message || error?.message || 'Failed to save class appearance';
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to save class appearance';
       toast({
         title: 'Save failed',
         description: message,
