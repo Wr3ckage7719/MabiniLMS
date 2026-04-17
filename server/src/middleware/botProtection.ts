@@ -5,6 +5,7 @@ import logger from '../utils/logger.js';
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 const getTurnstileSecret = (): string => (process.env.TURNSTILE_SECRET_KEY || '').trim();
+const isTurnstileEnforced = (): boolean => (process.env.TURNSTILE_ENFORCE || '').trim().toLowerCase() === 'true';
 
 const getClientIp = (req: Request): string => {
   const forwardedFor = req.headers['x-forwarded-for'];
@@ -32,6 +33,7 @@ export const verifyBotChallenge = async (
   next: NextFunction
 ): Promise<void> => {
   const turnstileSecret = getTurnstileSecret();
+  const enforceTurnstile = isTurnstileEnforced();
 
   // Bot verification is optional until TURNSTILE_SECRET_KEY is configured.
   if (!turnstileSecret) {
@@ -41,6 +43,14 @@ export const verifyBotChallenge = async (
 
   const token = extractCaptchaToken(req);
   if (!token) {
+    if (!enforceTurnstile) {
+      logger.warn('Turnstile token missing while TURNSTILE_ENFORCE is disabled; allowing request', {
+        path: req.path,
+      });
+      next();
+      return;
+    }
+
     const response: ApiResponse = {
       success: false,
       error: {
@@ -85,7 +95,13 @@ export const verifyBotChallenge = async (
         status: verifyResponse.status,
         errorCodes: verifyData['error-codes'] || [],
         path: req.path,
+        enforced: enforceTurnstile,
       });
+
+      if (!enforceTurnstile) {
+        next();
+        return;
+      }
 
       const response: ApiResponse = {
         success: false,

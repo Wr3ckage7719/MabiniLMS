@@ -73,7 +73,11 @@ export default function PendingTeachersPage() {
     }),
   });
 
-  const { data: pendingTeachers = [] } = useQuery({
+  const {
+    data: pendingTeachers = [],
+    isLoading: isPendingTeachersLoading,
+    error: pendingTeachersError,
+  } = useQuery({
     queryKey: ['pending-teachers'],
     queryFn: adminService.listPendingTeachers,
   });
@@ -85,6 +89,14 @@ export default function PendingTeachersPage() {
     () => new Set(pendingTeachers.map((teacher) => teacher.id)),
     [pendingTeachers]
   );
+
+  const pendingStatusById = useMemo(() => {
+    const statusMap = new Map<string, adminService.PendingTeacher['status']>();
+    pendingTeachers.forEach((teacher) => {
+      statusMap.set(teacher.id, teacher.status || 'legacy_pending_profile');
+    });
+    return statusMap;
+  }, [pendingTeachers]);
 
   const teacherIds = useMemo(() => new Set(teachers.map((teacher) => teacher.id)), [teachers]);
 
@@ -293,6 +305,8 @@ export default function PendingTeachersPage() {
     });
   };
 
+  const isTableLoading = isLoading || isPendingTeachersLoading;
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -301,6 +315,9 @@ export default function PendingTeachersPage() {
           <h1 className="text-3xl font-bold text-foreground mb-2">Teacher Management</h1>
           <p className="text-muted-foreground">
             Review pending applications and manage teacher accounts
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            New teacher requests can appear as Awaiting Email Verification first. Approval becomes available after email verification.
           </p>
         </div>
 
@@ -336,8 +353,16 @@ export default function PendingTeachersPage() {
           </div>
         </Card>
 
+        {pendingTeachersError && !isTableLoading && (
+          <Card className="bg-card border-destructive/40 p-4">
+            <div className="text-sm text-destructive">
+              Failed to load pending teacher applications. Please refresh the page.
+            </div>
+          </Card>
+        )}
+
         {/* Teachers List */}
-        {isLoading ? (
+        {isTableLoading ? (
           <Card className="bg-card border-border p-12">
             <div className="flex flex-col items-center justify-center text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
@@ -347,8 +372,12 @@ export default function PendingTeachersPage() {
         ) : sortedTeachers.length > 0 ? (
           <div className="space-y-4">
             {sortedTeachers.map((teacher) => {
-              const isPending = pendingTeacherIds.has(teacher.id) || teacher.pending_approval === true;
+              const pendingStatus =
+                pendingStatusById.get(teacher.id) || (teacher.pending_approval === true ? 'legacy_pending_profile' : undefined);
+              const isPending = Boolean(pendingStatus) || teacher.pending_approval === true;
               const isApplicationOnly = !teacherIds.has(teacher.id);
+              const canApprove = pendingStatus === 'pending_review' || pendingStatus === 'legacy_pending_profile';
+              const isAwaitingEmailVerification = pendingStatus === 'pending_email_verification';
               const firstName = teacher.first_name || 'Unknown';
               const lastName = teacher.last_name || '';
               const initials = `${firstName[0] || 'T'}${lastName[0] || ''}`.toUpperCase();
@@ -374,11 +403,17 @@ export default function PendingTeachersPage() {
                         </div>
                         <div className="mt-2">
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            isPending
-                              ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                              : 'bg-green-500/20 text-green-300 border border-green-500/30'
+                            pendingStatus === 'pending_email_verification'
+                              ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                              : isPending
+                                ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                                : 'bg-green-500/20 text-green-300 border border-green-500/30'
                           }`}>
-                            {isPending ? 'Pending Approval' : 'Approved'}
+                            {pendingStatus === 'pending_email_verification'
+                              ? 'Awaiting Email Verification'
+                              : isPending
+                                ? 'Pending Approval'
+                                : 'Approved'}
                           </span>
                         </div>
                       </div>
@@ -388,6 +423,12 @@ export default function PendingTeachersPage() {
                       <Calendar className="w-4 h-4" />
                       <span>Applied on {formatDate(teacher.created_at)}</span>
                     </div>
+
+                    {isAwaitingEmailVerification && (
+                      <div className="text-xs text-blue-300 mt-2">
+                        This applicant must verify their email before admin approval can proceed.
+                      </div>
+                    )}
                   </div>
 
                   {/* Action Buttons */}
@@ -406,18 +447,28 @@ export default function PendingTeachersPage() {
 
                     {isPending ? (
                       <>
-                        <Button
-                          onClick={() => handleApprove(teacher)}
-                          disabled={approveMutation.isPending}
-                          className="bg-green-600 hover:bg-green-700 text-white"
-                        >
-                          {approveMutation.isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          ) : (
-                            <Check className="w-4 h-4 mr-2" />
-                          )}
-                          Approve
-                        </Button>
+                        {canApprove ? (
+                          <Button
+                            onClick={() => handleApprove(teacher)}
+                            disabled={approveMutation.isPending}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            {approveMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Check className="w-4 h-4 mr-2" />
+                            )}
+                            Approve
+                          </Button>
+                        ) : (
+                          <Button
+                            disabled
+                            variant="outline"
+                            className="border-blue-400/40 text-blue-300"
+                          >
+                            Waiting for Verification
+                          </Button>
+                        )}
                         <Button
                           onClick={() => handleRejectClick(teacher)}
                           disabled={rejectMutation.isPending}
@@ -475,7 +526,7 @@ export default function PendingTeachersPage() {
               <p className="text-center">
                 {searchTerm
                   ? 'No teachers match your search criteria'
-                  : 'Teacher accounts will appear here once created'}
+                  : 'Teacher applications will appear here after signup. Unverified ones are marked as Awaiting Email Verification.'}
               </p>
             </div>
           </Card>
@@ -497,7 +548,7 @@ export default function PendingTeachersPage() {
             <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
               <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-red-300">
-                The teacher's account will be permanently deleted and they will be notified via email.
+                The teacher request will be rejected and the applicant will be notified by email.
               </div>
             </div>
 

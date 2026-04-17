@@ -42,6 +42,7 @@ export interface PendingTeacher {
   last_name: string
   created_at: string
   pending_approval: boolean
+  status?: 'legacy_pending_profile' | 'pending_email_verification' | 'pending_review'
 }
 
 export interface StudentData {
@@ -174,7 +175,7 @@ export const listPendingTeachers = async (): Promise<PendingTeacher[]> => {
     supabaseAdmin
       .from('teacher_applications')
       .select('id, email, first_name, last_name, created_at, status')
-      .eq('status', 'pending_review')
+      .in('status', ['pending_email_verification', 'pending_review'])
       .order('created_at', { ascending: false }),
   ])
 
@@ -188,17 +189,30 @@ export const listPendingTeachers = async (): Promise<PendingTeacher[]> => {
     throw new Error('Failed to fetch pending teachers')
   }
 
-  const pendingProfiles = (legacyResult.data || []) as PendingTeacher[]
-  const pendingApplications = (applicationResult.data || []).map((application) => ({
-    id: application.id,
-    email: application.email,
-    first_name: application.first_name,
-    last_name: application.last_name,
-    created_at: application.created_at,
-    pending_approval: true,
-  })) as PendingTeacher[]
+  const pendingProfiles: PendingTeacher[] = ((legacyResult.data || []) as PendingTeacher[]).map((profile) => ({
+    ...profile,
+    status: 'legacy_pending_profile' as const,
+  }))
+  const pendingApplications: PendingTeacher[] = (applicationResult.data || []).map((application) => {
+    const status: PendingTeacher['status'] =
+      application.status === 'pending_email_verification'
+        ? 'pending_email_verification'
+        : 'pending_review'
 
-  return [...pendingProfiles, ...pendingApplications].sort((a, b) => {
+    return {
+      id: application.id,
+      email: application.email,
+      first_name: application.first_name,
+      last_name: application.last_name,
+      created_at: application.created_at,
+      pending_approval: true,
+      status,
+    }
+  })
+
+  const mergedPendingTeachers: PendingTeacher[] = [...pendingProfiles, ...pendingApplications]
+
+  return mergedPendingTeachers.sort((a, b) => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
 }
