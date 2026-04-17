@@ -10,7 +10,6 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff } from 'lucide-react';
 
 interface SignupDialogProps {
   open: boolean;
@@ -26,10 +25,6 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -72,18 +67,8 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
     setError('');
 
     // Validation
-    if (!fullName || !password || !confirmPassword) {
+    if (!fullName) {
       setError('All fields are required');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -96,7 +81,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
     setIsLoading(true);
 
     try {
-      await register(normalizedEmail, password, fullName, 'teacher');
+      await register(normalizedEmail, '', fullName, 'teacher');
       
       // Reset form and close dialog
       resetForm();
@@ -104,7 +89,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
       
       toast({
         title: 'Teacher account submitted',
-        description: 'Please wait for admin verification before signing in.',
+        description: 'Verify your email first, then wait for admin approval. You will set your password after approval.',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed');
@@ -124,10 +109,6 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
   const resetForm = () => {
     setFullName('');
     setEmail('');
-    setPassword('');
-    setConfirmPassword('');
-    setShowPassword(false);
-    setShowConfirmPassword(false);
     setError('');
   };
 
@@ -138,7 +119,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
           <DialogTitle className="text-xl">{isTeacher ? 'Create Teacher Account' : 'Student Sign-up'}</DialogTitle>
           <DialogDescription>
             {isTeacher
-              ? 'Register your teacher account. Admin approval may be required before access.'
+              ? 'Submit your teacher application. You will verify your email first, then complete password setup only after admin approval.'
               : `Enter your institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}). We will send an account setup email so you can sign in with your password.`}
           </DialogDescription>
           <div className="pt-2">
@@ -196,47 +177,9 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
             </div>
 
             <div>
-              <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Password (min 8 characters)"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-11 rounded-xl border-0 bg-secondary/50 pr-10 focus-visible:ring-1 focus-visible:ring-primary/30"
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                  disabled={isLoading}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="relative">
-                <Input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  placeholder="Confirm Password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="h-11 rounded-xl border-0 bg-secondary/50 pr-10 focus-visible:ring-1 focus-visible:ring-primary/30"
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
-                  onClick={() => setShowConfirmPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                  disabled={isLoading}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Password setup happens after approval through a one-time onboarding link sent to your email.
+              </p>
             </div>
 
             {error && <div className="text-sm text-destructive text-center">{error}</div>}

@@ -260,6 +260,9 @@ describe('Email Verification Service', () => {
       // Mock token update
       const mockTokenUpdate = vi.fn().mockResolvedValue({ error: null })
 
+      // Mock temporary password cleanup update
+      const mockTemporaryPasswordUpdate = vi.fn().mockResolvedValue({ error: null })
+
       // Mock profile query
       const mockProfileQuery = vi.fn().mockResolvedValue({
         data: { email: mockEmail },
@@ -282,6 +285,14 @@ describe('Email Verification Service', () => {
             }),
             update: vi.fn().mockReturnValue({
               eq: mockTokenUpdate,
+            }),
+          } as any
+        } else if (table === 'temporary_passwords') {
+          return {
+            update: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                is: mockTemporaryPasswordUpdate,
+              }),
             }),
           } as any
         } else if (table === 'profiles') {

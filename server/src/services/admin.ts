@@ -164,19 +164,43 @@ const logAdminAction = async (
  * List all pending teachers waiting for approval
  */
 export const listPendingTeachers = async (): Promise<PendingTeacher[]> => {
-  const { data, error } = await supabaseAdmin
-    .from('profiles')
-    .select('id, email, first_name, last_name, created_at, pending_approval')
-    .eq('role', 'teacher')
-    .eq('pending_approval', true)
-    .order('created_at', { ascending: false })
+  const [legacyResult, applicationResult] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('id, email, first_name, last_name, created_at, pending_approval')
+      .eq('role', 'teacher')
+      .eq('pending_approval', true)
+      .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('teacher_applications')
+      .select('id, email, first_name, last_name, created_at, status')
+      .eq('status', 'pending_review')
+      .order('created_at', { ascending: false }),
+  ])
 
-  if (error) {
-    logger.error(`Error fetching pending teachers: ${error.message}`)
+  if (legacyResult.error) {
+    logger.error(`Error fetching pending teacher profiles: ${legacyResult.error.message}`)
     throw new Error('Failed to fetch pending teachers')
   }
 
-  return data as PendingTeacher[]
+  if (applicationResult.error) {
+    logger.error(`Error fetching pending teacher applications: ${applicationResult.error.message}`)
+    throw new Error('Failed to fetch pending teachers')
+  }
+
+  const pendingProfiles = (legacyResult.data || []) as PendingTeacher[]
+  const pendingApplications = (applicationResult.data || []).map((application) => ({
+    id: application.id,
+    email: application.email,
+    first_name: application.first_name,
+    last_name: application.last_name,
+    created_at: application.created_at,
+    pending_approval: true,
+  })) as PendingTeacher[]
+
+  return [...pendingProfiles, ...pendingApplications].sort((a, b) => {
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
 }
 
 const getManageableUser = async (userId: string): Promise<ManagedUser> => {
@@ -371,6 +395,152 @@ export const approveTeacher = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> => {
+  const { data: application, error: applicationError } = await supabaseAdmin
+    .from('teacher_applications')
+    .select('id, email, first_name, last_name, status, linked_user_id')
+    .eq('id', teacherId)
+    .maybeSingle()
+
+  if (applicationError && applicationError.code !== 'PGRST116') {
+    logger.error(`Error fetching teacher application ${teacherId}: ${applicationError.message}`)
+    throw new Error('Failed to approve teacher')
+  }
+
+  if (application) {
+    if (application.status !== 'pending_review') {
+      throw new Error('Teacher application is not pending review')
+    }
+
+    const normalizedEmail = application.email.trim().toLowerCase()
+    const nowIso = new Date().toISOString()
+    const onboardingToken = crypto.randomBytes(32).toString('hex')
+    const onboardingTokenHash = crypto.createHash('sha256').update(onboardingToken).digest('hex')
+    const onboardingExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+    let linkedUserId = application.linked_user_id || null
+
+    const { data: existingProfile, error: existingProfileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role')
+      .eq('email', normalizedEmail)
+      .maybeSingle()
+
+    if (existingProfileError && existingProfileError.code !== 'PGRST116') {
+      logger.error(`Error checking existing teacher profile ${normalizedEmail}: ${existingProfileError.message}`)
+      throw new Error('Failed to approve teacher')
+    }
+
+    if (existingProfile && existingProfile.role !== 'teacher') {
+      throw new Error('Email is already registered as a non-teacher account')
+    }
+
+    if (existingProfile) {
+      linkedUserId = existingProfile.id
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          pending_approval: false,
+          email_verified: true,
+          email_verified_at: nowIso,
+          approved_at: nowIso,
+          approved_by: adminId,
+          updated_at: nowIso,
+        })
+        .eq('id', existingProfile.id)
+
+      if (profileUpdateError) {
+        logger.error(`Error updating approved teacher profile ${existingProfile.id}: ${profileUpdateError.message}`)
+        throw new Error('Failed to approve teacher')
+      }
+    } else {
+      const bootstrapPassword = generateTemporaryPassword()
+      const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        password: bootstrapPassword,
+        email_confirm: true,
+        user_metadata: {
+          first_name: application.first_name,
+          last_name: application.last_name,
+          role: 'teacher',
+        },
+      })
+
+      if (authCreateError || !authData.user) {
+        logger.error(`Error creating approved teacher auth user for ${normalizedEmail}: ${authCreateError?.message}`)
+        throw new Error('Failed to approve teacher')
+      }
+
+      linkedUserId = authData.user.id
+
+      const { error: profileUpsertError } = await supabaseAdmin
+        .from('profiles')
+        .upsert({
+          id: linkedUserId,
+          email: normalizedEmail,
+          first_name: application.first_name,
+          last_name: application.last_name,
+          role: 'teacher',
+          pending_approval: false,
+          email_verified: true,
+          email_verified_at: nowIso,
+          approved_at: nowIso,
+          approved_by: adminId,
+          updated_at: nowIso,
+        })
+
+      if (profileUpsertError) {
+        logger.error(`Error creating teacher profile for approved application ${teacherId}: ${profileUpsertError.message}`)
+        throw new Error('Failed to approve teacher')
+      }
+    }
+
+    const { error: applicationUpdateError } = await supabaseAdmin
+      .from('teacher_applications')
+      .update({
+        status: 'approved',
+        linked_user_id: linkedUserId,
+        approved_at: nowIso,
+        approved_by: adminId,
+        onboarding_token_hash: onboardingTokenHash,
+        onboarding_expires_at: onboardingExpiresAt,
+        onboarding_used_at: null,
+        updated_at: nowIso,
+      })
+      .eq('id', teacherId)
+
+    if (applicationUpdateError) {
+      logger.error(`Error updating teacher application approval ${teacherId}: ${applicationUpdateError.message}`)
+      throw new Error('Failed to approve teacher')
+    }
+
+    await logAdminAction(
+      adminId,
+      'teacher_application_approved',
+      linkedUserId,
+      {
+        teacher_email: normalizedEmail,
+        teacher_name: `${application.first_name} ${application.last_name}`,
+        application_id: teacherId,
+      },
+      ipAddress,
+      userAgent
+    )
+
+    try {
+      const onboardingLink = `${emailService.getClientUrl()}/auth/reset-password?token=${onboardingToken}&flow=teacher-onboarding`
+      await emailService.sendTeacherOnboardingEmail(
+        normalizedEmail,
+        `${application.first_name} ${application.last_name}`,
+        onboardingLink
+      )
+    } catch (emailError) {
+      logger.error(`Failed to send teacher onboarding email: ${emailError}`)
+    }
+
+    logger.info(`Teacher application ${teacherId} approved by admin ${adminId}`)
+    return
+  }
+
   // Get teacher details
   const { data: teacher, error: fetchError } = await supabaseAdmin
     .from('profiles')
@@ -442,6 +612,69 @@ export const rejectTeacher = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> => {
+  const { data: application, error: applicationError } = await supabaseAdmin
+    .from('teacher_applications')
+    .select('id, email, first_name, last_name, status, linked_user_id')
+    .eq('id', teacherId)
+    .maybeSingle()
+
+  if (applicationError && applicationError.code !== 'PGRST116') {
+    logger.error(`Error fetching teacher application ${teacherId} for rejection: ${applicationError.message}`)
+    throw new Error('Failed to reject teacher')
+  }
+
+  if (application) {
+    if (application.status === 'approved' && application.linked_user_id) {
+      throw new Error('Approved teacher applications cannot be rejected')
+    }
+
+    const { error: applicationUpdateError } = await supabaseAdmin
+      .from('teacher_applications')
+      .update({
+        status: 'rejected',
+        rejected_reason: reason || null,
+        rejected_at: new Date().toISOString(),
+        verification_token_hash: null,
+        verification_expires_at: null,
+        onboarding_token_hash: null,
+        onboarding_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', teacherId)
+
+    if (applicationUpdateError) {
+      logger.error(`Error rejecting teacher application ${teacherId}: ${applicationUpdateError.message}`)
+      throw new Error('Failed to reject teacher')
+    }
+
+    await logAdminAction(
+      adminId,
+      'teacher_application_rejected',
+      application.linked_user_id || null,
+      {
+        teacher_email: application.email,
+        teacher_name: `${application.first_name} ${application.last_name}`,
+        reason: reason || 'No reason provided',
+        application_id: teacherId,
+      },
+      ipAddress,
+      userAgent
+    )
+
+    try {
+      await emailService.sendTeacherRejectionEmail(
+        application.email,
+        `${application.first_name} ${application.last_name}`,
+        reason
+      )
+    } catch (emailError) {
+      logger.error(`Failed to send teacher application rejection email: ${emailError}`)
+    }
+
+    logger.info(`Teacher application ${teacherId} rejected by admin ${adminId}`)
+    return
+  }
+
   // Get teacher details
   const { data: teacher, error: fetchError } = await supabaseAdmin
     .from('profiles')
@@ -867,30 +1100,45 @@ export const getAuditLogs = async (filters: AuditLogFilter = {}): Promise<{ logs
  * Get count of pending teachers for admin notifications
  */
 export const getPendingTeachersCount = async (): Promise<number> => {
-  const { count, error } = await supabaseAdmin
-    .from('profiles')
-    .select('id', { count: 'exact', head: true })
-    .eq('role', 'teacher')
-    .eq('pending_approval', true)
+  const [legacyCountResult, applicationCountResult] = await Promise.all([
+    supabaseAdmin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'teacher')
+      .eq('pending_approval', true),
+    supabaseAdmin
+      .from('teacher_applications')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending_review'),
+  ])
 
-  if (error) {
-    logger.error(`Error counting pending teachers: ${error.message}`)
+  if (legacyCountResult.error) {
+    logger.error(`Error counting pending teacher profiles: ${legacyCountResult.error.message}`)
     return 0
   }
 
-  return count || 0
+  if (applicationCountResult.error) {
+    logger.error(`Error counting pending teacher applications: ${applicationCountResult.error.message}`)
+    return 0
+  }
+
+  return (legacyCountResult.count || 0) + (applicationCountResult.count || 0)
 }
 
 /**
  * Get dashboard-level stats for admin pages
  */
 export const getDashboardStats = async (): Promise<AdminDashboardStats> => {
-  const [pendingTeachersResult, totalStudentsResult, totalTeachersResult, activeCoursesResult] = await Promise.all([
+  const [pendingTeachersResult, pendingApplicationsResult, totalStudentsResult, totalTeachersResult, activeCoursesResult] = await Promise.all([
     supabaseAdmin
       .from('profiles')
       .select('id', { count: 'exact', head: true })
       .eq('role', 'teacher')
       .eq('pending_approval', true),
+    supabaseAdmin
+      .from('teacher_applications')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending_review'),
     supabaseAdmin
       .from('profiles')
       .select('id', { count: 'exact', head: true })
@@ -905,9 +1153,10 @@ export const getDashboardStats = async (): Promise<AdminDashboardStats> => {
       .eq('status', 'published'),
   ])
 
-  if (pendingTeachersResult.error || totalStudentsResult.error || totalTeachersResult.error || activeCoursesResult.error) {
+  if (pendingTeachersResult.error || pendingApplicationsResult.error || totalStudentsResult.error || totalTeachersResult.error || activeCoursesResult.error) {
     logger.error('Failed to compute admin dashboard stats', {
       pendingTeachersError: pendingTeachersResult.error?.message,
+      pendingApplicationsError: pendingApplicationsResult.error?.message,
       totalStudentsError: totalStudentsResult.error?.message,
       totalTeachersError: totalTeachersResult.error?.message,
       activeCoursesError: activeCoursesResult.error?.message,
@@ -916,7 +1165,7 @@ export const getDashboardStats = async (): Promise<AdminDashboardStats> => {
   }
 
   return {
-    pending_teachers: pendingTeachersResult.count || 0,
+    pending_teachers: (pendingTeachersResult.count || 0) + (pendingApplicationsResult.count || 0),
     total_students: totalStudentsResult.count || 0,
     total_teachers: totalTeachersResult.count || 0,
     active_courses: activeCoursesResult.count || 0,

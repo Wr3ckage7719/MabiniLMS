@@ -82,6 +82,53 @@ export const authLimiter = createLimiter('auth', {
   handler: createRateLimitHandler('Too many login attempts, please try again later'),
 });
 
+// Endpoint-specific auth limiters
+export const signupLimiter = createLimiter('signup', {
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 6 : 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Count all requests for signup-style flows to reduce abuse and email spam.
+  skipSuccessfulRequests: false,
+  handler: createRateLimitHandler('Too many signup requests. Please try again later.'),
+});
+
+export const studentSignupLimiter = createLimiter('student-signup', {
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 4 : 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  handler: createRateLimitHandler('Too many account setup requests. Please try again later.'),
+});
+
+export const loginLimiter = createLimiter('login', {
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 5 : 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: createRateLimitHandler('Too many login attempts, please try again later'),
+});
+
+export const forgotPasswordLimiter = createLimiter('forgot-password', {
+  windowMs: 60 * 60 * 1000,
+  max: isProduction ? 8 : 160,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  handler: createRateLimitHandler('Too many password reset requests. Please try again later.'),
+});
+
+export const verificationEmailLimiter = createLimiter('verification-email', {
+  windowMs: 60 * 60 * 1000,
+  max: isProduction ? 8 : 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  handler: createRateLimitHandler('Too many verification requests. Please try again later.'),
+});
+
 // Google OAuth endpoints rate limiter - 20 requests per 15 minutes
 export const googleOAuthLimiter = createLimiter('google-oauth', {
   windowMs: 15 * 60 * 1000,

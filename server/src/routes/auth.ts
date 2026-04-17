@@ -3,10 +3,20 @@ import * as authController from '../controllers/auth.js';
 import * as emailVerificationController from '../controllers/email-verification.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { authLimiter } from '../middleware/rateLimiter.js';
+import {
+  signupLimiter,
+  studentSignupLimiter,
+  loginLimiter,
+  forgotPasswordLimiter,
+  verificationEmailLimiter,
+} from '../middleware/rateLimiter.js';
+import { verifyBotChallenge } from '../middleware/botProtection.js';
 import {
   signupSchema,
   studentCredentialSignupSchema,
+  studentSignupCompleteSchema,
+  teacherOnboardingCompleteSchema,
+  teacherSignupVerificationSchema,
   loginSchema,
   refreshTokenSchema,
   forgotPasswordSchema,
@@ -31,21 +41,47 @@ const router = Router();
 // Public routes with strict rate limiting
 router.post(
   '/signup',
-  authLimiter,
+  signupLimiter,
+  verifyBotChallenge,
   validate({ body: signupSchema }),
   authController.signup
 );
 
+router.get(
+  '/signup/teacher/verify',
+  verificationEmailLimiter,
+  validate({ query: teacherSignupVerificationSchema }),
+  authController.verifyTeacherSignup
+);
+
 router.post(
   '/student-signup',
-  authLimiter,
+  studentSignupLimiter,
+  verifyBotChallenge,
   validate({ body: studentCredentialSignupSchema }),
   authController.studentSignup
 );
 
 router.post(
+  '/student-signup/complete',
+  studentSignupLimiter,
+  verifyBotChallenge,
+  validate({ body: studentSignupCompleteSchema }),
+  authController.completeStudentSignup
+);
+
+router.post(
+  '/teacher-onboarding/complete',
+  signupLimiter,
+  verifyBotChallenge,
+  validate({ body: teacherOnboardingCompleteSchema }),
+  authController.completeTeacherOnboarding
+);
+
+router.post(
   '/login',
-  authLimiter,
+  loginLimiter,
+  verifyBotChallenge,
   validate({ body: loginSchema }),
   authController.login
 );
@@ -58,7 +94,8 @@ router.post(
 
 router.post(
   '/forgot-password',
-  authLimiter,
+  forgotPasswordLimiter,
+  verifyBotChallenge,
   validate({ body: forgotPasswordSchema }),
   authController.forgotPassword
 );
@@ -85,7 +122,7 @@ router.get(
 router.post(
   '/change-password',
   authenticate,
-  authLimiter,
+  loginLimiter,
   authController.changePassword
 );
 
@@ -98,14 +135,16 @@ router.get(
 
 router.post(
   '/resend-verification',
-  authLimiter,
+  verificationEmailLimiter,
+  verifyBotChallenge,
   validate({ body: resendVerificationSchema }),
   emailVerificationController.resendVerificationEmail
 );
 
 router.post(
   '/send-password-reset',
-  authLimiter,
+  forgotPasswordLimiter,
+  verifyBotChallenge,
   validate({ body: sendPasswordResetSchema }),
   emailVerificationController.forgotPassword
 );

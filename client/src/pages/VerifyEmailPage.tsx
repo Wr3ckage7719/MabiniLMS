@@ -31,6 +31,8 @@ const getErrorMessage = (error: unknown): string => {
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
+  const flow = (searchParams.get('flow') || '').trim().toLowerCase();
+  const isTeacherSignupFlow = flow === 'teacher-signup';
 
   const [status, setStatus] = useState<VerificationStatus>('loading');
   const [message, setMessage] = useState('Verifying your email...');
@@ -48,12 +50,20 @@ export default function VerifyEmailPage() {
 
     const verify = async () => {
       setStatus('loading');
-      setMessage('Verifying your email...');
+      setMessage(isTeacherSignupFlow ? 'Verifying your teacher application email...' : 'Verifying your email...');
 
       try {
-        await authService.verifyEmail(token);
+        if (isTeacherSignupFlow) {
+          await authService.verifyTeacherSignup(token);
+        } else {
+          await authService.verifyEmail(token);
+        }
         setStatus('success');
-        setMessage('Your email has been verified successfully. You can now sign in.');
+        setMessage(
+          isTeacherSignupFlow
+            ? 'Your email has been verified. Your teacher application is now pending administrator review.'
+            : 'Your email has been verified successfully. You can now sign in.'
+        );
       } catch (error) {
         setStatus('error');
         setMessage(getErrorMessage(error));
@@ -61,7 +71,7 @@ export default function VerifyEmailPage() {
     };
 
     void verify();
-  }, [token]);
+  }, [isTeacherSignupFlow, token]);
 
   const handleResend = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -107,7 +117,7 @@ export default function VerifyEmailPage() {
           </Button>
         ) : (
           <>
-            {!isLoading && (
+            {!isLoading && !isTeacherSignupFlow && (
               <form onSubmit={handleResend} className="space-y-3">
                 <label className="text-sm font-medium" htmlFor="resend-email">
                   Resend verification email
