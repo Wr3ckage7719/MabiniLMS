@@ -3,6 +3,7 @@ import logger from '../utils/logger.js'
 import * as emailService from './email.js'
 import crypto from 'crypto'
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js'
+import { ApiError, ErrorCode, UserRole } from '../types/index.js'
 
 const SYSTEM_SETTING_DESCRIPTIONS: Record<string, string> = {
   institutional_email_domains: 'Array of allowed email domains for student signup',
@@ -448,12 +449,20 @@ export const approveTeacher = async (
 
   if (applicationError && applicationError.code !== 'PGRST116') {
     logger.error(`Error fetching teacher application ${teacherId}: ${applicationError.message}`)
-    throw new Error('Failed to approve teacher')
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to load teacher application. Please try again.',
+      500
+    )
   }
 
   if (application) {
     if (application.status !== 'pending_review') {
-      throw new Error('Teacher application is not pending review')
+      throw new ApiError(
+        ErrorCode.CONFLICT,
+        'Teacher application is not ready for approval yet. Ask the applicant to verify email first.',
+        409
+      )
     }
 
     const normalizedEmail = application.email.trim().toLowerCase()
@@ -472,18 +481,64 @@ export const approveTeacher = async (
 
     if (existingProfileError && existingProfileError.code !== 'PGRST116') {
       logger.error(`Error checking existing teacher profile ${normalizedEmail}: ${existingProfileError.message}`)
-      throw new Error('Failed to approve teacher')
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Unable to check existing teacher account state. Please try again.',
+        500
+      )
     }
 
-    if (existingProfile && existingProfile.role !== 'teacher') {
-      throw new Error('Email is already registered as a non-teacher account')
+    if (existingProfile && existingProfile.role === UserRole.ADMIN) {
+      throw new ApiError(
+        ErrorCode.CONFLICT,
+        'This email already belongs to an administrator account.',
+        409
+      )
+    }
+
+    if (
+      existingProfile &&
+      existingProfile.role !== UserRole.TEACHER &&
+      existingProfile.role !== UserRole.STUDENT
+    ) {
+      throw new ApiError(
+        ErrorCode.CONFLICT,
+        'This email is linked to an unsupported account type.',
+        409
+      )
     }
 
     if (existingProfile) {
       linkedUserId = existingProfile.id
+
+      // Ensure approval always uses onboarding flow by rotating to a one-time bootstrap password.
+      const bootstrapPassword = generateTemporaryPassword()
+      const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(existingProfile.id, {
+        email: normalizedEmail,
+        password: bootstrapPassword,
+        email_confirm: true,
+        user_metadata: {
+          first_name: application.first_name,
+          last_name: application.last_name,
+          role: UserRole.TEACHER,
+        },
+      })
+
+      if (authUpdateError) {
+        logger.error(`Error preparing existing user ${existingProfile.id} for teacher onboarding: ${authUpdateError.message}`)
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Unable to prepare teacher onboarding account. Please try again.',
+          500
+        )
+      }
+
       const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
         .update({
+          first_name: application.first_name,
+          last_name: application.last_name,
+          role: UserRole.TEACHER,
           pending_approval: false,
           email_verified: true,
           email_verified_at: nowIso,
@@ -495,7 +550,11 @@ export const approveTeacher = async (
 
       if (profileUpdateError) {
         logger.error(`Error updating approved teacher profile ${existingProfile.id}: ${profileUpdateError.message}`)
-        throw new Error('Failed to approve teacher')
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Unable to update teacher profile during approval. Please try again.',
+          500
+        )
       }
     } else {
       const bootstrapPassword = generateTemporaryPassword()
@@ -512,7 +571,21 @@ export const approveTeacher = async (
 
       if (authCreateError || !authData.user) {
         logger.error(`Error creating approved teacher auth user for ${normalizedEmail}: ${authCreateError?.message}`)
-        throw new Error('Failed to approve teacher')
+
+        const normalizedAuthError = (authCreateError?.message || '').toLowerCase()
+        if (normalizedAuthError.includes('already') || normalizedAuthError.includes('exists')) {
+          throw new ApiError(
+            ErrorCode.CONFLICT,
+            'This email already has an account. Remove the existing account first or use a different email.',
+            409
+          )
+        }
+
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Unable to create teacher account for approval. Please try again.',
+          500
+        )
       }
 
       linkedUserId = authData.user.id
@@ -524,7 +597,7 @@ export const approveTeacher = async (
           email: normalizedEmail,
           first_name: application.first_name,
           last_name: application.last_name,
-          role: 'teacher',
+          role: UserRole.TEACHER,
           pending_approval: false,
           email_verified: true,
           email_verified_at: nowIso,
@@ -535,7 +608,11 @@ export const approveTeacher = async (
 
       if (profileUpsertError) {
         logger.error(`Error creating teacher profile for approved application ${teacherId}: ${profileUpsertError.message}`)
-        throw new Error('Failed to approve teacher')
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Unable to create teacher profile during approval. Please try again.',
+          500
+        )
       }
     }
 
@@ -555,7 +632,11 @@ export const approveTeacher = async (
 
     if (applicationUpdateError) {
       logger.error(`Error updating teacher application approval ${teacherId}: ${applicationUpdateError.message}`)
-      throw new Error('Failed to approve teacher')
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Unable to finalize teacher application approval. Please try again.',
+        500
+      )
     }
 
     await logAdminAction(
@@ -594,15 +675,27 @@ export const approveTeacher = async (
     .single()
 
   if (fetchError || !teacher) {
-    throw new Error('Teacher not found')
+    throw new ApiError(
+      ErrorCode.NOT_FOUND,
+      'Teacher not found',
+      404
+    )
   }
 
   if (teacher.role !== 'teacher') {
-    throw new Error('User is not a teacher')
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Selected account is not a teacher.',
+      400
+    )
   }
 
   if (!teacher.pending_approval) {
-    throw new Error('Teacher is already approved')
+    throw new ApiError(
+      ErrorCode.CONFLICT,
+      'Teacher is already approved.',
+      409
+    )
   }
 
   // Update teacher profile
@@ -617,7 +710,11 @@ export const approveTeacher = async (
 
   if (updateError) {
     logger.error(`Error approving teacher: ${updateError.message}`)
-    throw new Error('Failed to approve teacher')
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to approve teacher right now. Please try again.',
+      500
+    )
   }
 
   // Log the action
