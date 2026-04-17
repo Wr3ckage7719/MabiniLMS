@@ -325,7 +325,7 @@ export default function LoginPage() {
             {/* Google Login */}
             <Button
               onClick={handleGoogleLogin}
-              disabled={isLoading}
+              disabled={isLoading || isTeacher}
               variant="outline"
               className="w-full h-11 rounded-xl border font-medium gap-2.5"
             >
@@ -349,6 +349,12 @@ export default function LoginPage() {
               </svg>
               Continue with Google
             </Button>
+
+            {isTeacher && (
+              <p className="text-xs text-muted-foreground text-center">
+                Google sign-in is available in Student mode only.
+              </p>
+            )}
 
             {/* Sign Up Link */}
             <div className="text-center">

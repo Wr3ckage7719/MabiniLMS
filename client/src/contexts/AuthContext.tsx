@@ -712,6 +712,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async (roleIntent: 'student' | 'teacher' = 'student') => {
     try {
+      if (roleIntent === 'teacher') {
+        clearRoleIntent();
+        throw new Error(
+          'Teacher Google sign-in is not available. Please complete teacher signup and use your approved email and password.'
+        );
+      }
+
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(AUTH_ROLE_INTENT_STORAGE_KEY, roleIntent);
       }
@@ -721,9 +728,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         prompt: 'select_account',
       };
 
-      if (roleIntent === 'student') {
-        queryParams.hd = STUDENT_INSTITUTIONAL_DOMAIN;
-      }
+      queryParams.hd = STUDENT_INSTITUTIONAL_DOMAIN;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',

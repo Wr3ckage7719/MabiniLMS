@@ -37,6 +37,7 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const JSON_BODY_LIMIT = '5mb';
 
 const isEnvFlagEnabled = (value: string | undefined): boolean => {
   return (value || '').trim().toLowerCase() === 'true';
@@ -166,12 +167,12 @@ app.options('*', cors(corsOptions));
 
 // 3. Body parsing with size limits (DoS prevention)
 app.use(express.json({ 
-  limit: '1mb',  // Max JSON body size
+  limit: JSON_BODY_LIMIT,  // Max JSON body size
   strict: true,  // Only accept arrays and objects
 }));
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '1mb',  // Max URL-encoded body size
+  limit: JSON_BODY_LIMIT,  // Max URL-encoded body size
   parameterLimit: 1000, // Max number of parameters
 }));
 app.use(express.raw({ 
