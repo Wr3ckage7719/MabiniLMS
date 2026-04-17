@@ -120,9 +120,25 @@ export default function VerifyEmailPage() {
         </div>
 
         {isSuccess ? (
-          <Button asChild className="w-full">
-            <Link to="/login">Continue to Login</Link>
-          </Button>
+          <>
+            <Button asChild className="w-full">
+              <Link to="/login">Continue to Login</Link>
+            </Button>
+
+            {isTeacherSignupFlow && (
+              <div className="mt-4 rounded-xl border border-border/60 bg-secondary/20 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                  What Happens Next
+                </p>
+                <ol className="list-decimal pl-4 space-y-1 text-xs text-muted-foreground">
+                  <li>Your teacher application is now in the admin review queue.</li>
+                  <li>After approval, you will receive a teacher onboarding email.</li>
+                  <li>Open the onboarding link to set your password.</li>
+                  <li>Sign in from the teacher portal once onboarding is complete.</li>
+                </ol>
+              </div>
+            )}
+          </>
         ) : (
           <>
             {!isLoading && !isTeacherSignupFlow && (
