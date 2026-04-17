@@ -84,6 +84,26 @@ const toAbsoluteUrl = (url) => {
   }
 };
 
+const isSvgIconAsset = (value) => {
+  return typeof value === 'string' && /\.svg(?:\?|#|$)/i.test(value);
+};
+
+const resolveNotificationIcon = (value) => {
+  if (!value || isSvgIconAsset(value)) {
+    return '/icons/icon-192x192.png';
+  }
+
+  return value;
+};
+
+const resolveNotificationBadge = (value) => {
+  if (!value || isSvgIconAsset(value)) {
+    return '/icons/notification-badge-96x96.png';
+  }
+
+  return value;
+};
+
 self.addEventListener('push', (event) => {
   let payload = {};
 
@@ -105,8 +125,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: payload.icon || '/icons/icon-192x192.png',
-      badge: payload.badge || '/icons/notification-badge-96x96.png',
+      icon: resolveNotificationIcon(payload.icon),
+      badge: resolveNotificationBadge(payload.badge),
       tag: payload.tag || 'mabini-notification',
       data: {
         url,
