@@ -47,6 +47,17 @@ const isInstitutionalStudentEmail = (email: string): boolean => {
   return email.trim().toLowerCase().endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`);
 };
 
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+const isMissingLinkedAuthUserError = (message: string): boolean => {
+  const normalizedMessage = message.toLowerCase();
+  return (
+    (normalizedMessage.includes('sub claim') && normalizedMessage.includes('does not exist')) ||
+    (normalizedMessage.includes('user') && normalizedMessage.includes('does not exist')) ||
+    normalizedMessage.includes('invalid refresh token')
+  );
+};
+
 const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
   if (typeof window === 'undefined') {
     return [];
@@ -63,7 +74,7 @@ const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
       return [];
     }
 
-    return parsed
+    const sanitizedSessions = parsed
       .filter((item): item is StoredStudentAccountSession => {
         if (!item || typeof item !== 'object') {
           return false;
@@ -83,12 +94,36 @@ const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
       })
       .map((item) => ({
         ...item,
+        email: normalizeEmail(item.email),
         customName: typeof item.customName === 'string' ? item.customName.trim() : undefined,
         avatarUrl: item.avatarUrl || null,
       }))
       .sort((a, b) => {
         return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
       });
+
+    // Keep only the latest session for each unique user and email to prevent duplicate same-email entries.
+    const seenUserIds = new Set<string>();
+    const seenEmails = new Set<string>();
+
+    return sanitizedSessions.filter((sessionRecord) => {
+      const normalizedEmail = normalizeEmail(sessionRecord.email);
+
+      if (seenUserIds.has(sessionRecord.userId)) {
+        return false;
+      }
+
+      if (normalizedEmail && seenEmails.has(normalizedEmail)) {
+        return false;
+      }
+
+      seenUserIds.add(sessionRecord.userId);
+      if (normalizedEmail) {
+        seenEmails.add(normalizedEmail);
+      }
+
+      return true;
+    });
   } catch {
     return [];
   }
@@ -202,12 +237,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const persistStudentAccountSession = useCallback((nextSession: StoredStudentAccountSession) => {
     const currentSessions = readStoredStudentAccountSessions();
-    const existingSession = currentSessions.find((sessionRecord) => sessionRecord.userId === nextSession.userId);
+    const normalizedNextEmail = normalizeEmail(nextSession.email);
+    const existingSession = currentSessions.find(
+      (sessionRecord) =>
+        sessionRecord.userId === nextSession.userId || normalizeEmail(sessionRecord.email) === normalizedNextEmail
+    );
     const preservedCustomName = (existingSession?.customName || '').trim();
 
-    const existing = currentSessions.filter((sessionRecord) => sessionRecord.userId !== nextSession.userId);
+    const existing = currentSessions.filter(
+      (sessionRecord) =>
+        sessionRecord.userId !== nextSession.userId &&
+        normalizeEmail(sessionRecord.email) !== normalizedNextEmail
+    );
     const updatedSessions = [{
       ...nextSession,
+      email: normalizedNextEmail,
       customName: preservedCustomName || undefined,
     }, ...existing]
       .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())
@@ -769,7 +813,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (setSessionError) {
-      throw new Error(getApiErrorMessage(setSessionError, 'Unable to switch account. Please sign in again.'));
+      const message = getApiErrorMessage(setSessionError, 'Unable to switch account. Please sign in again.');
+
+      if (isMissingLinkedAuthUserError(message)) {
+        const updatedSessions = readStoredStudentAccountSessions().filter(
+          (sessionRecord) => sessionRecord.userId !== userId
+        );
+        writeStoredStudentAccountSessions(updatedSessions);
+        setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
+
+        throw new Error('This linked account no longer exists and was removed from this device. Add it again to continue.');
+      }
+
+      throw new Error(message);
     }
 
     const activeSession = setSessionData.session;

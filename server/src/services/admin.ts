@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../lib/supabase.js'
 import logger from '../utils/logger.js'
 import * as emailService from './email.js'
 import crypto from 'crypto'
+import { ALLOWED_DOMAIN } from '../types/google-oauth.js'
 
 const SYSTEM_SETTING_DESCRIPTIONS: Record<string, string> = {
   institutional_email_domains: 'Array of allowed email domains for student signup',
@@ -114,6 +115,7 @@ export interface AdminDashboardStats {
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const DEFAULT_STUDENT_EMAIL_DOMAINS = [ALLOWED_DOMAIN.toLowerCase()]
 
 const normalizeText = (value?: string): string | undefined => {
   if (value === undefined || value === null) return undefined
@@ -128,6 +130,35 @@ const normalizeStudentInput = (studentData: StudentData): StudentData => {
     last_name: normalizeText(studentData.last_name) || '',
     student_id: normalizeText(studentData.student_id)
   }
+}
+
+const normalizeInstitutionalDomains = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((domain) => (typeof domain === 'string' ? domain.trim().toLowerCase() : ''))
+      .filter((domain) => domain.length > 0)
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((domain) => domain.trim().toLowerCase())
+      .filter((domain) => domain.length > 0)
+  }
+
+  return []
+}
+
+const getAllowedStudentEmailDomains = async (): Promise<string[]> => {
+  const configuredDomains = await getSystemSetting('institutional_email_domains')
+  const normalizedDomains = normalizeInstitutionalDomains(configuredDomains)
+
+  return normalizedDomains.length > 0 ? normalizedDomains : DEFAULT_STUDENT_EMAIL_DOMAINS
+}
+
+const isAllowedStudentEmail = (email: string, allowedDomains: string[]): boolean => {
+  const normalizedEmail = email.trim().toLowerCase()
+  return allowedDomains.some((domain) => normalizedEmail.endsWith(`@${domain}`))
 }
 
 /**
@@ -772,6 +803,8 @@ export const createStudentAccount = async (
   const normalizedStudent = normalizeStudentInput(studentData)
   const { email, first_name, last_name, student_id } = normalizedStudent
 
+  const allowedDomains = await getAllowedStudentEmailDomains()
+
   if (!email || !EMAIL_REGEX.test(email)) {
     throw new Error('Invalid email address')
   }
@@ -782,6 +815,11 @@ export const createStudentAccount = async (
 
   if (!last_name) {
     throw new Error('Last name is required')
+  }
+
+  if (!isAllowedStudentEmail(email, allowedDomains)) {
+    const allowedDomainsMessage = allowedDomains.map((domain) => `@${domain}`).join(', ')
+    throw new Error(`Student email must use an institutional domain (${allowedDomainsMessage})`)
   }
 
   // Check if user already exists
