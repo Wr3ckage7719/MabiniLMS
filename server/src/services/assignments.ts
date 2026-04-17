@@ -34,10 +34,32 @@ const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
   } as AssignmentCommentWithAuthor;
 };
 
+type DatabaseErrorShape = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
+const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
+  'assignment_type',
+  'created_at',
+  'is_proctored',
+  'exam_duration_minutes',
+  'proctoring_policy',
+]);
+
+const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
+  return [error?.message, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
 const isMissingRelationError = (
-  error?: { code?: string; message?: string } | null
+  error?: DatabaseErrorShape | null
 ): boolean => {
-  const message = (error?.message || '').toLowerCase();
+  const message = normalizeDbErrorText(error);
   return (
     error?.code === '42P01' ||
     message.includes('could not find the table') ||
@@ -46,10 +68,10 @@ const isMissingRelationError = (
 };
 
 const isMissingColumnError = (
-  error: { message?: string } | null | undefined,
+  error: DatabaseErrorShape | null | undefined,
   columnName: string
 ): boolean => {
-  const message = (error?.message || '').toLowerCase();
+  const message = normalizeDbErrorText(error);
   return (
     message.includes('column') &&
     message.includes(columnName.toLowerCase()) &&
@@ -57,14 +79,123 @@ const isMissingColumnError = (
   );
 };
 
+const extractMissingColumnName = (error?: DatabaseErrorShape | null): string | null => {
+  const message = normalizeDbErrorText(error);
+  const match = message.match(/column\s+"?([a-z0-9_]+)"?\s+does not exist/i);
+  return match?.[1] || null;
+};
+
+const isPermissionDeniedError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42501' ||
+    message.includes('permission denied') ||
+    message.includes('row-level security')
+  );
+};
+
+const isAssignmentTypeCompatibilityError = (
+  error?: DatabaseErrorShape | null
+): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    message.includes('assignment_type') &&
+    (message.includes('check constraint') ||
+      message.includes('invalid input value') ||
+      message.includes('violates check constraint'))
+  );
+};
+
 const isMissingProctoringColumnError = (
-  error: { message?: string } | null | undefined
+  error: DatabaseErrorShape | null | undefined
 ): boolean => {
   return (
     isMissingColumnError(error, 'is_proctored') ||
     isMissingColumnError(error, 'exam_duration_minutes') ||
     isMissingColumnError(error, 'proctoring_policy')
   );
+};
+
+const insertAssignmentWithCompatibility = async (
+  payload: Record<string, unknown>,
+  context: {
+    courseId: string;
+    assignmentType: string;
+  }
+): Promise<{ data: Record<string, unknown> | null; error: DatabaseErrorShape | null }> => {
+  const insertPayload: Record<string, unknown> = { ...payload };
+  let lastError: DatabaseErrorShape | null = null;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('assignments')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (!error) {
+      return {
+        data: (data || {}) as Record<string, unknown>,
+        error: null,
+      };
+    }
+
+    lastError = error;
+
+    if (isAssignmentTypeCompatibilityError(error) && 'assignment_type' in insertPayload) {
+      delete insertPayload.assignment_type;
+
+      logger.warn('Retrying assignment insert without assignment_type due schema constraint drift', {
+        courseId: context.courseId,
+        assignmentType: context.assignmentType,
+        attempt: attempt + 1,
+        error: error.message,
+      });
+      continue;
+    }
+
+    if (isMissingProctoringColumnError(error)) {
+      delete insertPayload.is_proctored;
+      delete insertPayload.exam_duration_minutes;
+      delete insertPayload.proctoring_policy;
+
+      logger.warn('Retrying assignment insert without proctoring fields', {
+        courseId: context.courseId,
+        assignmentType: context.assignmentType,
+        attempt: attempt + 1,
+        error: error.message,
+      });
+      continue;
+    }
+
+    const missingColumn = extractMissingColumnName(error);
+    if (
+      missingColumn &&
+      ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS.has(missingColumn) &&
+      Object.prototype.hasOwnProperty.call(insertPayload, missingColumn)
+    ) {
+      delete insertPayload[missingColumn];
+
+      logger.warn('Retrying assignment insert without optional column', {
+        courseId: context.courseId,
+        assignmentType: context.assignmentType,
+        missingColumn,
+        attempt: attempt + 1,
+        error: error.message,
+      });
+      continue;
+    }
+
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  return {
+    data: null,
+    error: lastError,
+  };
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -458,44 +589,83 @@ export const createAssignment = async (
     };
   }
 
-  let { data, error } = await supabaseAdmin
-    .from('assignments')
-    .insert(insertPayload)
-    .select()
-    .single();
-
-  if (error && isMissingProctoringColumnError(error)) {
-    logger.warn('Assignment proctoring columns missing. Retrying create assignment without proctoring fields.', {
+  const { data: insertedAssignment, error } = await insertAssignmentWithCompatibility(
+    insertPayload,
+    {
       courseId,
       assignmentType,
-      error: error.message,
+    }
+  );
+
+  if (error || !insertedAssignment?.id) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Assignment storage is not available. Run migrations 001_initial_schema, 013_proctored_exam_pipeline, and latest migrations.',
+        503,
+        {
+          reason: 'ASSIGNMENTS_SCHEMA_OUTDATED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while creating assignments. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    logger.error('Failed to create assignment', { courseId, error: error?.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create assignment', 500, {
+      reason: 'ASSIGNMENT_INSERT_FAILED',
+      db_code: error?.code,
+      db_message: error?.message,
     });
-
-    delete insertPayload.is_proctored;
-    delete insertPayload.exam_duration_minutes;
-    delete insertPayload.proctoring_policy;
-
-    const fallbackInsert = await supabaseAdmin
-      .from('assignments')
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    data = fallbackInsert.data;
-    error = fallbackInsert.error;
   }
 
-  if (error) {
-    logger.error('Failed to create assignment', { courseId, error: error.message });
-    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create assignment', 500);
-  }
+  const nowIso = new Date().toISOString();
+  const data = normalizeAssignmentRecord({
+    ...insertedAssignment,
+    id: String(insertedAssignment.id),
+    course_id: String(insertedAssignment.course_id || courseId),
+    title: String(insertedAssignment.title || input.title),
+    description:
+      typeof insertedAssignment.description === 'string' || insertedAssignment.description === null
+        ? insertedAssignment.description
+        : input.description || null,
+    due_date:
+      typeof insertedAssignment.due_date === 'string' || insertedAssignment.due_date === null
+        ? insertedAssignment.due_date
+        : input.due_date || null,
+    max_points:
+      typeof insertedAssignment.max_points === 'number'
+        ? insertedAssignment.max_points
+        : input.max_points || 100,
+    created_at:
+      typeof insertedAssignment.created_at === 'string'
+        ? insertedAssignment.created_at
+        : nowIso,
+  }) as Assignment;
+
+  const effectiveAssignmentType = normalizeAssignmentType(
+    (data.assignment_type as string | undefined) || assignmentType
+  );
 
   await notifyAssignmentCreated(courseId, {
     id: data.id,
     title: data.title,
     courseId,
     courseName: course.title || 'Course',
-    assignmentType,
+    assignmentType: effectiveAssignmentType,
     dueDate: data.due_date || '',
   });
 
@@ -560,7 +730,7 @@ export const createAssignment = async (
         courseId,
         data.title,
         data.id,
-        assignmentType,
+        effectiveAssignmentType,
         notificationActor
       );
     }

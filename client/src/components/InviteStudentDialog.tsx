@@ -113,6 +113,10 @@ export function InviteStudentDialog({
         return 'Duplicate enrollment record detected';
       case 'ENROLLMENT_INSERT_FAILED':
         return 'Enrollment insert failed';
+      case 'ENROLLMENTS_SCHEMA_OUTDATED':
+        return 'Enrollment table schema needs migration';
+      case 'SUPABASE_PERMISSION_DENIED':
+        return 'Database permission is misconfigured';
       case 'STUDENT_LOOKUP_FAILED':
         return 'Student profile lookup failed';
       case 'ENROLLMENT_FAILED':

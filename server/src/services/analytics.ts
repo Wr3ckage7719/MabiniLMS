@@ -140,7 +140,7 @@ export const getCourseAnalytics = async (
 
   // Get material count
   const { count: materialCount } = await supabaseAdmin
-    .from('materials')
+    .from('course_materials')
     .select('*', { count: 'exact', head: true })
     .eq('course_id', courseId)
 
@@ -559,10 +559,10 @@ export const getTeacherAnalytics = async (
   let materialsAddedThisWeek = 0
   if (courseIds.length > 0) {
     const { count } = await supabaseAdmin
-      .from('materials')
+      .from('course_materials')
       .select('*', { count: 'exact', head: true })
       .in('course_id', courseIds)
-      .gte('created_at', oneWeekAgo.toISOString())
+      .gte('uploaded_at', oneWeekAgo.toISOString())
 
     materialsAddedThisWeek = count || 0
   }

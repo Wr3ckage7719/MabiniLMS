@@ -86,13 +86,13 @@ After creating your Supabase project:
 1. **Project Settings → API**
    - `SUPABASE_URL`: Project URL
    - `SUPABASE_ANON_KEY`: `anon` `public` key
-   - `SUPABASE_SERVICE_ROLE_KEY`: `service_role` `secret` key
+   - `SUPABASE_SERVICE_KEY`: `service_role` `secret` key
 
 2. **Add to `.env`:**
    ```env
    SUPABASE_URL=https://xxxxx.supabase.co
    SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
 
 ---

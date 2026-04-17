@@ -140,21 +140,21 @@ export const searchMaterials = async (
   }
 
   let dbQuery = supabaseAdmin
-    .from('materials')
+    .from('course_materials')
     .select(`
       id, 
       title, 
-      description, 
       type, 
+      file_url,
       course_id, 
-      created_at,
+      uploaded_at,
       course:courses!inner(id, title, status)
     `, { count: 'exact' })
 
   // Apply search
   dbQuery = applySearch(dbQuery, {
     query,
-    columns: ['title', 'description'],
+    columns: ['title'],
     mode: 'contains',
   })
 
@@ -185,14 +185,15 @@ export const searchMaterials = async (
       id: material.id,
       type: 'materials' as SearchEntityType,
       title: material.title,
-      description: material.description,
-      snippet: material.description ? extractSnippet(material.description, query, 100) : undefined,
+      description: null,
+      snippet: undefined,
       url: `/courses/${material.course_id}/materials/${material.id}`,
       metadata: {
         type: material.type,
+        file_url: material.file_url,
         course_id: material.course_id,
         course_title: course?.title,
-        created_at: material.created_at,
+        uploaded_at: material.uploaded_at,
       },
     }
   })

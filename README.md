@@ -278,7 +278,9 @@ NODE_ENV=development
 # Supabase
 SUPABASE_URL=your-project-url
 SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_SERVICE_KEY=your-service-role-key
+# Legacy alias also accepted by server runtime:
+# SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your-client-id
