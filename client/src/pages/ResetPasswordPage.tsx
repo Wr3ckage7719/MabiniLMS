@@ -8,8 +8,57 @@ import { Loader2, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
 import { authService } from '@/services/auth.service';
 
 const MIN_PASSWORD_LENGTH = 8;
+const HAS_UPPERCASE_REGEX = /[A-Z]/;
+const HAS_DIGIT_REGEX = /[0-9]/;
+const HAS_SPECIAL_REGEX = /[^A-Za-z0-9]/;
+
+const extractFieldValidationMessages = (error: unknown): string[] => {
+  if (typeof error !== 'object' || error === null) {
+    return [];
+  }
+
+  const maybeAxios = error as {
+    response?: {
+      data?: {
+        error?: {
+          metadata?: {
+            fields?: Record<string, string[] | string>;
+          };
+        };
+      };
+    };
+  };
+
+  const fields = maybeAxios.response?.data?.error?.metadata?.fields;
+  if (!fields || typeof fields !== 'object') {
+    return [];
+  }
+
+  const messages: string[] = [];
+  Object.values(fields).forEach((fieldErrors) => {
+    if (Array.isArray(fieldErrors)) {
+      fieldErrors.forEach((fieldError) => {
+        if (typeof fieldError === 'string' && fieldError.trim().length > 0) {
+          messages.push(fieldError.trim());
+        }
+      });
+      return;
+    }
+
+    if (typeof fieldErrors === 'string' && fieldErrors.trim().length > 0) {
+      messages.push(fieldErrors.trim());
+    }
+  });
+
+  return messages;
+};
 
 const getErrorMessage = (error: unknown): string => {
+  const fieldMessages = extractFieldValidationMessages(error);
+  if (fieldMessages.length > 0) {
+    return fieldMessages[0];
+  }
+
   if (typeof error === 'object' && error !== null) {
     const maybeAxios = error as {
       response?: { data?: { error?: { message?: string }; message?: string } };
@@ -43,23 +92,41 @@ export default function ResetPasswordPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const hasMinLength = password.length >= MIN_PASSWORD_LENGTH;
+  const hasUppercase = HAS_UPPERCASE_REGEX.test(password);
+  const hasDigit = HAS_DIGIT_REGEX.test(password);
+  const hasSpecialCharacter = HAS_SPECIAL_REGEX.test(password);
+  const passwordsMatch = password === confirmPassword;
+
+  const passwordChecks = useMemo(
+    () => [
+      { label: `At least ${MIN_PASSWORD_LENGTH} characters`, met: hasMinLength },
+      { label: 'At least one uppercase letter (A-Z)', met: hasUppercase },
+      { label: 'At least one number (0-9)', met: hasDigit },
+      { label: 'At least one special character', met: hasSpecialCharacter },
+    ],
+    [hasDigit, hasMinLength, hasSpecialCharacter, hasUppercase]
+  );
+
+  const allPasswordRequirementsMet = passwordChecks.every((check) => check.met);
+
   const validationMessage = useMemo(() => {
     if (!password) {
       return '';
     }
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    if (!allPasswordRequirementsMet) {
+      return 'Please complete all password requirements above.';
     }
 
-    if (password !== confirmPassword) {
+    if (!passwordsMatch) {
       return 'Passwords do not match.';
     }
 
     return '';
-  }, [password, confirmPassword]);
+  }, [allPasswordRequirementsMet, password, passwordsMatch]);
 
-  const canSubmit = Boolean(token) && password.length >= MIN_PASSWORD_LENGTH && password === confirmPassword && !isSubmitting;
+  const canSubmit = Boolean(token) && allPasswordRequirementsMet && passwordsMatch && !isSubmitting;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -71,12 +138,12 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    if (!allPasswordRequirementsMet) {
+      setError('Please complete all password requirements before continuing.');
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (!passwordsMatch) {
       setError('Passwords do not match.');
       return;
     }
@@ -105,6 +172,18 @@ export default function ResetPasswordPage() {
     }
   };
 
+  const title = isStudentSignupFlow
+    ? 'Complete Your Student Account'
+    : isTeacherOnboardingFlow
+      ? 'Complete Teacher Onboarding'
+      : 'Reset Your Password';
+
+  const subtitle = isStudentSignupFlow
+    ? 'Create a secure password to activate your student account.'
+    : isTeacherOnboardingFlow
+      ? 'Create a secure password to finish teacher onboarding.'
+      : 'Enter a new secure password for your account.';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-secondary/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl border bg-background/80 backdrop-blur p-6 md:p-8 shadow-lg">
@@ -112,14 +191,17 @@ export default function ResetPasswordPage() {
           <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
             <Lock className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-semibold">Reset Your Password</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            {isStudentSignupFlow
-              ? 'Create your password to activate your student account.'
-              : isTeacherOnboardingFlow
-                ? 'Create your password to finish teacher onboarding.'
-                : 'Enter a new password for your account.'}
-          </p>
+          <h1 className="text-2xl font-semibold">{title}</h1>
+          <p className="text-sm text-muted-foreground mt-2">{subtitle}</p>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-border/60 bg-secondary/20 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Instructions</p>
+          <ol className="text-xs text-muted-foreground space-y-1 list-decimal pl-4">
+            <li>Create a password that meets all requirements below.</li>
+            <li>Re-enter the same password in Confirm Password.</li>
+            <li>Submit to finish account setup and continue to login.</li>
+          </ol>
         </div>
 
         {!token && (
@@ -172,13 +254,35 @@ export default function ResetPasswordPage() {
             />
           </div>
 
+          <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Password Requirements</p>
+            <div className="space-y-1.5">
+              {passwordChecks.map((check) => (
+                <div key={check.label} className="flex items-center gap-2 text-xs">
+                  {check.met ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className={check.met ? 'text-emerald-600' : 'text-muted-foreground'}>{check.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {validationMessage && !error && !successMessage && (
             <p className="text-sm text-muted-foreground">{validationMessage}</p>
           )}
 
           <Button type="submit" className="w-full" disabled={!canSubmit}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isSubmitting ? 'Resetting Password...' : 'Reset Password'}
+            {isSubmitting
+              ? 'Submitting...'
+              : isStudentSignupFlow
+                ? 'Activate Student Account'
+                : isTeacherOnboardingFlow
+                  ? 'Finish Teacher Onboarding'
+                  : 'Reset Password'}
           </Button>
         </form>
 

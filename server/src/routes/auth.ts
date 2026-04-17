@@ -102,6 +102,7 @@ router.post(
 
 router.post(
   '/reset-password',
+  forgotPasswordLimiter,
   validate({ body: resetPasswordSchema }),
   authController.resetPassword
 );
@@ -129,6 +130,7 @@ router.post(
 // Email verification routes
 router.get(
   '/verify-email',
+  verificationEmailLimiter,
   validate({ query: verifyEmailSchema }),
   emailVerificationController.verifyEmail
 );
@@ -151,6 +153,7 @@ router.post(
 
 router.post(
   '/reset-password-token',
+  forgotPasswordLimiter,
   validate({ body: resetPasswordEmailSchema }),
   emailVerificationController.resetPassword
 );

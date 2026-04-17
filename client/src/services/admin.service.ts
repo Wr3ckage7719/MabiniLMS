@@ -12,6 +12,7 @@ export interface PendingTeacher {
   last_name: string;
   created_at: string;
   pending_approval: boolean;
+  status?: 'legacy_pending_profile' | 'pending_email_verification' | 'pending_review';
 }
 
 export interface StudentData {
