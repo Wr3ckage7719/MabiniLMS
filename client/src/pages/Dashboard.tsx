@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Archive, Loader2, RefreshCw } from 'lucide-react';
 import { ClassCard } from '@/components/ClassCard';
 import { StudentInvitations } from '@/components/StudentInvitations';
@@ -20,15 +20,42 @@ export default function Dashboard() {
   } = useApiClasses();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const isArchivedView = location.pathname === '/archived';
+  const searchQuery = (searchParams.get('q') || '').trim().toLowerCase();
+
+  const matchesSearchQuery = (cls: (typeof classes)[number]) => {
+    if (!searchQuery) {
+      return true;
+    }
+
+    const haystack = [
+      cls.name,
+      cls.section,
+      cls.block,
+      cls.level,
+      cls.room,
+      cls.schedule,
+      cls.code,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(searchQuery);
+  };
 
   const activeClasses = classes.filter(
-    (cls) => !cls.archived && !archivedClasses.includes(cls.id) && !unenrolledClasses.includes(cls.id)
+    (cls) =>
+      !cls.archived &&
+      !archivedClasses.includes(cls.id) &&
+      !unenrolledClasses.includes(cls.id) &&
+      matchesSearchQuery(cls)
   );
 
   const displayedArchivedClasses = classes.filter(
-    (cls) => cls.archived || archivedClasses.includes(cls.id)
+    (cls) => (cls.archived || archivedClasses.includes(cls.id)) && matchesSearchQuery(cls)
   );
 
   const handleArchiveClass = async (classId: string) => {
@@ -131,9 +158,13 @@ export default function Dashboard() {
               <div className="mb-3 p-2 bg-blue-100 rounded-full">
                 <Archive className="h-8 w-8 text-blue-500" />
               </div>
-              <h3 className="text-base font-semibold text-slate-900 mb-1">No Archived Classes</h3>
-              <p className="text-sm text-slate-600 text-center max-w-md">
-                You don't have any archived classes yet. Archive completed classes to keep your dashboard organized.
+              <h3 className="text-base font-semibold text-foreground mb-1">
+                {searchQuery ? 'No Archived Classes Match Your Search' : 'No Archived Classes'}
+              </h3>
+              <p className="text-sm text-muted-foreground text-center max-w-md">
+                {searchQuery
+                  ? 'Try a different class name, room, section, or schedule keyword.'
+                  : "You don't have any archived classes yet. Archive completed classes to keep your dashboard organized."}
               </p>
             </div>
           )}
@@ -155,7 +186,11 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="text-center py-12 text-muted-foreground">
-                <p className="text-sm">No active classes. Join a class to get started!</p>
+                <p className="text-sm">
+                  {searchQuery
+                    ? 'No classes match your search.'
+                    : 'No active classes. Join a class to get started!'}
+                </p>
               </div>
             )}
 
@@ -199,7 +234,11 @@ export default function Dashboard() {
                 </>
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
-                  <p className="text-lg">No active classes. Join a class to get started!</p>
+                  <p className="text-lg">
+                    {searchQuery
+                      ? 'No classes match your search.'
+                      : 'No active classes. Join a class to get started!'}
+                  </p>
                 </div>
               )}
             </div>

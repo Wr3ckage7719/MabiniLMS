@@ -121,13 +121,13 @@ export default function AdminDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
-            <p className="text-slate-400 mt-1">Welcome back! Here's what's happening.</p>
+            <h1 className="text-3xl font-bold text-foreground">Admin Dashboard</h1>
+            <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening.</p>
           </div>
         </div>
 
@@ -136,15 +136,15 @@ export default function AdminDashboardPage() {
           {statCards.map((stat, index) => (
             <Card
               key={index}
-              className="bg-slate-800 border-slate-700 p-6 cursor-pointer hover:bg-slate-750 transition-colors"
+              className="bg-card border-border p-6 cursor-pointer hover:bg-accent/40 transition-colors"
               onClick={stat.action}
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-slate-400 text-sm font-medium mb-2">{stat.title}</p>
-                  <p className="text-3xl font-bold text-white">
+                  <p className="text-muted-foreground text-sm font-medium mb-2">{stat.title}</p>
+                  <p className="text-3xl font-bold text-foreground">
                     {statsLoading ? (
-                      <span className="text-slate-600">--</span>
+                      <span className="text-muted-foreground">--</span>
                     ) : (
                       stat.value
                     )}
@@ -166,7 +166,7 @@ export default function AdminDashboardPage() {
                 <AlertCircle className="w-6 h-6 text-blue-400" />
               </div>
               <div className="flex-1">
-                <h3 className="text-white font-semibold mb-1">
+                <h3 className="text-foreground font-semibold mb-1">
                   {stats.pending_teachers} Teacher{stats.pending_teachers !== 1 ? 's' : ''} Awaiting Approval
                 </h3>
                 <p className="text-blue-300 text-sm mb-3">
@@ -187,21 +187,21 @@ export default function AdminDashboardPage() {
 
         {/* Quick Actions */}
         <div>
-          <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {quickActions.map((action, index) => (
               <Card
                 key={index}
-                className="bg-slate-800 border-slate-700 p-6 cursor-pointer hover:bg-slate-750 transition-colors group"
+                className="bg-card border-border p-6 cursor-pointer hover:bg-accent/40 transition-colors group"
                 onClick={action.action}
               >
                 <div className={`${action.color} w-12 h-12 rounded-lg flex items-center justify-center mb-4`}>
                   <action.icon className="w-6 h-6 text-white" />
                 </div>
-                <h3 className="text-white font-semibold mb-2 group-hover:text-blue-400 transition-colors">
+                <h3 className="text-foreground font-semibold mb-2 group-hover:text-primary transition-colors">
                   {action.title}
                 </h3>
-                <p className="text-slate-400 text-sm">{action.description}</p>
+                <p className="text-muted-foreground text-sm">{action.description}</p>
               </Card>
             ))}
           </div>
@@ -210,33 +210,33 @@ export default function AdminDashboardPage() {
         {/* Recent Activity */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white">Recent Activity</h2>
+            <h2 className="text-xl font-semibold text-foreground">Recent Activity</h2>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate('/admin/audit-logs')}
-              className="text-slate-400 hover:text-white"
+              className="text-muted-foreground hover:text-foreground"
             >
               View All
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
 
-          <Card className="bg-slate-800 border-slate-700">
+          <Card className="bg-card border-border">
             {logsLoading ? (
-              <div className="p-8 text-center text-slate-400">
+              <div className="p-8 text-center text-muted-foreground">
                 Loading recent activity...
               </div>
             ) : auditLogs && auditLogs.logs.length > 0 ? (
-              <div className="divide-y divide-slate-700">
+              <div className="divide-y divide-border">
                 {auditLogs.logs.map((log) => (
-                  <div key={log.id} className="p-4 hover:bg-slate-750 transition-colors">
+                  <div key={log.id} className="p-4 hover:bg-accent/30 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <p className="text-white font-medium mb-1">
+                        <p className="text-foreground font-medium mb-1">
                           {getActionLabel(log.action_type)}
                         </p>
-                        <p className="text-slate-400 text-sm">
+                        <p className="text-muted-foreground text-sm">
                           {log.admin?.first_name} {log.admin?.last_name}
                           {log.target_user && (
                             <span>
@@ -246,7 +246,7 @@ export default function AdminDashboardPage() {
                           )}
                         </p>
                       </div>
-                      <span className="text-slate-500 text-sm">
+                      <span className="text-muted-foreground text-sm">
                         {formatDate(log.created_at)}
                       </span>
                     </div>
@@ -254,7 +254,7 @@ export default function AdminDashboardPage() {
                 ))}
               </div>
             ) : (
-              <div className="p-8 text-center text-slate-400">
+              <div className="p-8 text-center text-muted-foreground">
                 No recent activity
               </div>
             )}

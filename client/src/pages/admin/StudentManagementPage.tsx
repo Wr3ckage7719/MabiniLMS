@@ -155,13 +155,13 @@ export default function StudentManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Student Management</h1>
-            <p className="text-slate-400">Create and manage student accounts</p>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Student Management</h1>
+            <p className="text-muted-foreground">Create and manage student accounts</p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -184,43 +184,43 @@ export default function StudentManagementPage() {
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card
-            className="bg-slate-800 border-slate-700 p-6 cursor-pointer hover:bg-slate-750 transition-colors group"
+            className="bg-card border-border p-6 cursor-pointer hover:bg-accent/40 transition-colors group"
             onClick={() => setCreateModalOpen(true)}
           >
             <div className="bg-green-600 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
               <UserPlus className="w-6 h-6 text-white" />
             </div>
-            <h3 className="text-white font-semibold mb-2 group-hover:text-green-400 transition-colors">
+            <h3 className="text-foreground font-semibold mb-2 group-hover:text-primary transition-colors">
               Create Single Student
             </h3>
-            <p className="text-slate-400 text-sm">
+            <p className="text-muted-foreground text-sm">
               Create a new student account with temporary password
             </p>
           </Card>
 
           <Card
-            className="bg-slate-800 border-slate-700 p-6 cursor-pointer hover:bg-slate-750 transition-colors group"
+            className="bg-card border-border p-6 cursor-pointer hover:bg-accent/40 transition-colors group"
             onClick={() => setBulkImportModalOpen(true)}
           >
             <div className="bg-blue-600 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
               <Upload className="w-6 h-6 text-white" />
             </div>
-            <h3 className="text-white font-semibold mb-2 group-hover:text-blue-400 transition-colors">
+            <h3 className="text-foreground font-semibold mb-2 group-hover:text-primary transition-colors">
               Bulk Import Students
             </h3>
-            <p className="text-slate-400 text-sm">
+            <p className="text-muted-foreground text-sm">
               Import multiple students from a CSV file
             </p>
           </Card>
         </div>
 
         {/* Info Card */}
-        <Card className="bg-blue-500/10 border-blue-500/30 p-6">
+        <Card className="bg-primary/10 border-primary/30 p-6">
           <div className="flex items-start gap-4">
-            <GraduationCap className="w-6 h-6 text-blue-400 flex-shrink-0" />
+            <GraduationCap className="w-6 h-6 text-primary flex-shrink-0" />
             <div>
-              <h3 className="text-white font-semibold mb-2">Student Account Management</h3>
-              <ul className="text-blue-300 text-sm space-y-1">
+              <h3 className="text-foreground font-semibold mb-2">Student Account Management</h3>
+              <ul className="text-muted-foreground text-sm space-y-1">
                 <li>• Created students receive temporary passwords via email</li>
                 <li>• Students must change their password on first login</li>
                 <li>• Temporary passwords expire after 7 days</li>
@@ -231,12 +231,12 @@ export default function StudentManagementPage() {
         </Card>
 
         {/* Student List */}
-        <Card className="bg-slate-800 border-slate-700 p-6">
+        <Card className="bg-card border-border p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-            <h3 className="text-lg font-semibold text-white">Students</h3>
+            <h3 className="text-lg font-semibold text-foreground">Students</h3>
             <div className="flex w-full md:w-auto flex-col md:flex-row gap-2">
               <div className="relative w-full md:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   value={search}
                   onChange={(e) => {
@@ -244,12 +244,12 @@ export default function StudentManagementPage() {
                     setPage(1);
                   }}
                   placeholder="Search by name or email"
-                  className="pl-9 bg-slate-900 border-slate-700 text-white"
+                  className="pl-9 bg-background border-input text-foreground placeholder:text-muted-foreground"
                 />
               </div>
               <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-                <SelectTrigger className="w-full md:w-52 bg-slate-900 border-slate-700 text-white">
-                  <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+                <SelectTrigger className="w-full md:w-52 bg-background border-input text-foreground">
+                  <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -264,10 +264,10 @@ export default function StudentManagementPage() {
 
           {studentsLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
             </div>
           ) : sortedStudents.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
+            <div className="text-center py-12 text-muted-foreground">
               <GraduationCap className="w-14 h-14 mx-auto mb-3 opacity-40" />
               <p>No students found</p>
             </div>
@@ -276,24 +276,24 @@ export default function StudentManagementPage() {
               {sortedStudents.map((student) => (
                 <div
                   key={student.id}
-                  className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-3"
+                  className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-4 py-3"
                 >
                   <div>
-                    <p className="text-white font-medium">
+                    <p className="text-foreground font-medium">
                       {(student.first_name || '').trim()} {(student.last_name || '').trim()}
                     </p>
-                    <p className="text-sm text-slate-400">{student.email}</p>
+                    <p className="text-sm text-muted-foreground">{student.email}</p>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-slate-500 mr-2">
+                    <p className="text-xs text-muted-foreground mr-2">
                       Joined {new Date(student.created_at).toLocaleDateString()}
                     </p>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="border-slate-600 hover:bg-slate-700"
+                      className="border-border hover:bg-accent"
                       onClick={() => openEditDialog(student)}
                     >
                       <Pencil className="w-4 h-4 mr-1" />
@@ -315,13 +315,13 @@ export default function StudentManagementPage() {
           )}
 
           <div className="mt-4 flex items-center justify-between">
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Page {page} of {totalPages}
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                className="border-slate-700"
+                className="border-border"
                 disabled={page <= 1}
                 onClick={() => setPage((prev) => Math.max(1, prev - 1))}
               >
@@ -329,7 +329,7 @@ export default function StudentManagementPage() {
               </Button>
               <Button
                 variant="outline"
-                className="border-slate-700"
+                className="border-border"
                 disabled={page >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
@@ -353,10 +353,10 @@ export default function StudentManagementPage() {
           }
         }}
       >
-        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+        <DialogContent className="bg-card border-border text-foreground max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Student</DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               Update the student account information.
             </DialogDescription>
           </DialogHeader>
@@ -368,7 +368,7 @@ export default function StudentManagementPage() {
                 id="edit-student-first-name"
                 value={editForm.first_name}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, first_name: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -379,7 +379,7 @@ export default function StudentManagementPage() {
                 id="edit-student-last-name"
                 value={editForm.last_name}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, last_name: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -391,7 +391,7 @@ export default function StudentManagementPage() {
                 type="email"
                 value={editForm.email}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -401,7 +401,7 @@ export default function StudentManagementPage() {
                 type="button"
                 variant="ghost"
                 onClick={() => setEditDialogOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </Button>
@@ -427,15 +427,15 @@ export default function StudentManagementPage() {
           }
         }}
       >
-        <AlertDialogContent className="bg-slate-800 border-slate-700 text-white">
+        <AlertDialogContent className="bg-card border-border text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Student Account</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
+            <AlertDialogDescription className="text-muted-foreground">
               This will permanently delete {selectedStudent?.email}. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-700 hover:text-white">
+            <AlertDialogCancel className="border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction

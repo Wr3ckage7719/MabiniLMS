@@ -159,28 +159,28 @@ export default function AuditLogsPage() {
   };
 
   return (
-    <div className="h-full bg-slate-900 p-6">
+    <div className="h-full bg-background p-6">
       <div className="max-w-6xl mx-auto h-full flex flex-col gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Audit Logs</h1>
-          <p className="text-slate-400">Track all administrative actions</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Audit Logs</h1>
+          <p className="text-muted-foreground">Track all administrative actions</p>
         </div>
 
-        <Card className="bg-slate-800 border-slate-700 p-4">
+        <Card className="bg-card border-border p-4">
           <div className="flex flex-col md:flex-row gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 type="text"
                 placeholder="Search logs..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-slate-900 border-slate-700 text-white"
+                className="pl-10 bg-background border-input text-foreground placeholder:text-muted-foreground"
               />
             </div>
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="w-full md:w-52 bg-slate-900 border-slate-700 text-white">
-                <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+              <SelectTrigger className="w-full md:w-52 bg-background border-input text-foreground">
+                <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -194,58 +194,58 @@ export default function AuditLogsPage() {
         </Card>
 
         {isLoading ? (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
               <p>Loading audit logs...</p>
             </div>
           </Card>
         ) : data && data.logs.length > 0 ? (
-          <Card className="bg-slate-800 border-slate-700">
+          <Card className="bg-card border-border">
             <div className="flex flex-col">
               <div className="max-h-[62vh] overflow-y-auto">
-                <div className="sticky top-0 z-10 grid grid-cols-12 gap-3 border-b border-slate-700 bg-slate-800/95 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur md:px-5">
+                <div className="sticky top-0 z-10 grid grid-cols-12 gap-3 border-b border-border bg-card/95 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur md:px-5">
                   <span className="col-span-7 md:col-span-5">Action</span>
                   <span className="hidden md:block md:col-span-4">Actor / Target</span>
                   <span className="col-span-5 md:col-span-3 text-right">Time</span>
                 </div>
 
                 {filteredLogs.length === 0 ? (
-                  <div className="p-10 text-center text-slate-400">No logs match your search.</div>
+                  <div className="p-10 text-center text-muted-foreground">No logs match your search.</div>
                 ) : (
-                  <div className="divide-y divide-slate-700">
+                  <div className="divide-y divide-border">
                     {filteredLogs.map((log) => {
                       const actorLabel = getPersonLabel(log.admin);
                       const targetLabel = log.target_user ? getPersonLabel(log.target_user) : null;
 
                       return (
-                        <div key={log.id} className="p-4 md:p-5 hover:bg-slate-750/60 transition-colors">
+                        <div key={log.id} className="p-4 md:p-5 hover:bg-accent/40 transition-colors">
                           <div className="grid grid-cols-12 gap-3 items-start">
                             <div className="col-span-7 md:col-span-5 min-w-0">
-                              <p className="text-white font-semibold mb-1">{getActionLabel(log.action_type)}</p>
-                              <p className="text-xs text-slate-400 md:hidden">
+                              <p className="text-foreground font-semibold mb-1">{getActionLabel(log.action_type)}</p>
+                              <p className="text-xs text-muted-foreground md:hidden">
                                 By {actorLabel}
                                 {log.admin?.email ? ` (${log.admin.email})` : ''}
                                 {targetLabel ? ` • Target: ${targetLabel}` : ''}
                               </p>
                             </div>
                             <div className="hidden md:block md:col-span-4 min-w-0">
-                              <p className="text-sm text-slate-300 truncate" title={actorLabel}>
+                              <p className="text-sm text-foreground/80 truncate" title={actorLabel}>
                                 {actorLabel}
                                 {log.admin?.email ? ` (${log.admin.email})` : ''}
                               </p>
-                              <p className="text-xs text-slate-500 truncate" title={targetLabel || undefined}>
+                              <p className="text-xs text-muted-foreground truncate" title={targetLabel || undefined}>
                                 {targetLabel ? `Target: ${targetLabel}` : 'Target: N/A'}
                               </p>
                             </div>
                             <div className="col-span-5 md:col-span-3 text-right">
-                              <span className="text-xs md:text-sm text-slate-500 whitespace-nowrap">
+                              <span className="text-xs md:text-sm text-muted-foreground whitespace-nowrap">
                                 {formatDate(log.created_at)}
                               </span>
                             </div>
                           </div>
 
-                          <p className="mt-3 text-sm text-slate-300 leading-relaxed">{getLogSummary(log)}</p>
+                          <p className="mt-3 text-sm text-foreground/80 leading-relaxed">{getLogSummary(log)}</p>
                         </div>
                       );
                     })}
@@ -254,23 +254,23 @@ export default function AuditLogsPage() {
               </div>
 
               {data.total > limit && (
-                <div className="p-4 border-t border-slate-700 flex items-center justify-between">
+                <div className="p-4 border-t border-border flex items-center justify-between">
                   <Button
                     onClick={() => setPage(Math.max(0, page - 1))}
                     disabled={page === 0}
                     variant="outline"
-                    className="border-slate-700"
+                    className="border-border"
                   >
                     Previous
                   </Button>
-                  <span className="text-slate-400 text-sm">
+                  <span className="text-muted-foreground text-sm">
                     Page {page + 1} of {Math.ceil(data.total / limit)}
                   </span>
                   <Button
                     onClick={() => setPage(page + 1)}
                     disabled={(page + 1) * limit >= data.total}
                     variant="outline"
-                    className="border-slate-700"
+                    className="border-border"
                   >
                     Next
                   </Button>
@@ -279,8 +279,8 @@ export default function AuditLogsPage() {
             </div>
           </Card>
         ) : (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center text-muted-foreground">
               <FileText className="w-16 h-16 mb-4 opacity-50" />
               <p>No audit logs found</p>
             </div>

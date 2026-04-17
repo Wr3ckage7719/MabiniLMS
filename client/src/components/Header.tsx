@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Menu, Search, Settings, Plus, LogOut, User, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useRole } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationsPopover } from '@/components/NotificationsPopover';
@@ -31,13 +31,49 @@ interface HeaderProps {
 
 export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
   const isMobile = useIsMobile();
+  const location = useLocation();
   const navigate = useNavigate();
   const { currentUserAvatar, currentUserName, currentUserAvatarUrl } = useRole();
   const { user, logout, loginWithGoogle, linkedStudentAccounts, switchStudentAccount } = useAuth();
   const { toast } = useToast();
   const { isInstallable, install } = usePWAInstall();
+
+  const isStudentSearchRoute = location.pathname === '/dashboard' || location.pathname === '/archived';
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const routeSearchValue = params.get('q') || '';
+
+    setSearchQuery(routeSearchValue);
+  }, [location.pathname, location.search]);
+
+  const applySearchQuery = (rawValue: string) => {
+    const nextValue = rawValue.trim();
+    const targetPath = isStudentSearchRoute ? location.pathname : '/dashboard';
+    const currentParams = new URLSearchParams(isStudentSearchRoute ? location.search : '');
+
+    if (nextValue) {
+      currentParams.set('q', nextValue);
+    } else {
+      currentParams.delete('q');
+    }
+
+    const nextSearch = currentParams.toString();
+    const nextUrl = `${targetPath}${nextSearch ? `?${nextSearch}` : ''}`;
+    const currentUrl = `${location.pathname}${location.search}`;
+
+    if (nextUrl !== currentUrl) {
+      navigate(nextUrl, { replace: isStudentSearchRoute });
+    }
+  };
+
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value);
+    applySearchQuery(value);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -101,6 +137,8 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search classes, assignments..."
+                value={searchQuery}
+                onChange={(event) => handleSearchQueryChange(event.target.value)}
                 className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 rounded-xl text-sm"
               />
             </div>
@@ -311,6 +349,8 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
             <Input
               placeholder="Search classes, assignments..."
               autoFocus
+              value={searchQuery}
+              onChange={(event) => handleSearchQueryChange(event.target.value)}
               className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30 rounded-xl text-sm h-10"
               onBlur={() => setSearchOpen(false)}
             />
