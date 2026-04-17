@@ -27,7 +27,7 @@ CLIENT_URL=https://your-domain.com
 # ============================================
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJhbGc...  # Get from Supabase Dashboard > Settings > API
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...  # KEEP SECRET - Server use only
+SUPABASE_SERVICE_KEY=eyJhbGc...  # KEEP SECRET - Server use only
 
 # ============================================
 # REQUIRED - Email Service
@@ -442,7 +442,7 @@ cat server/migrations/*.sql | psql "postgresql://..."
 
 **Solution:**
 1. Verify Supabase project is active (check status.supabase.com)
-2. Check `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are correct
+2. Check `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are correct
 3. Test connection: `psql "postgresql://postgres:[PASSWORD]@db..."`
 4. Check connection limit not exceeded (Supabase free tier: 60 connections)
 

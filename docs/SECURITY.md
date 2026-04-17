@@ -314,7 +314,7 @@ res.status(500).json({
 const dbPassword = process.env.DB_PASSWORD;
 
 // Validate required secrets on startup
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+if (!process.env.SUPABASE_SERVICE_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Missing required environment variable');
 }
 ```

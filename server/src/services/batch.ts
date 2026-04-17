@@ -610,7 +610,7 @@ export const copyCourse = async (
 
   // Copy materials
   const { data: materials } = await supabaseAdmin
-    .from('materials')
+    .from('course_materials')
     .select('*')
     .eq('course_id', sourceCourseId)
 
@@ -619,15 +619,15 @@ export const copyCourse = async (
     const newMaterials = materials.map((m) => ({
       course_id: newCourse.id,
       title: m.title,
-      description: m.description,
       type: m.type,
-      content: m.content,
       file_url: m.file_url,
-      order_index: m.order_index,
+      drive_file_id: m.drive_file_id,
+      drive_view_link: m.drive_view_link,
+      uploaded_at: m.uploaded_at,
     }))
 
     const { data: inserted } = await supabaseAdmin
-      .from('materials')
+      .from('course_materials')
       .insert(newMaterials)
       .select()
 
