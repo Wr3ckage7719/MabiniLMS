@@ -1,38 +1,133 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { supabase } from '@/lib/supabase';
 
-const resolveApiUrl = () => {
-  const configuredApiUrl = import.meta.env.VITE_API_URL;
-  if (configuredApiUrl) {
-    return configuredApiUrl;
+const normalizeApiBaseUrl = (value: string): string => value.trim().replace(/\/+$/, '');
+
+const resolveSameOriginApiUrl = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
   }
 
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    return `${window.location.origin}/api`;
-  }
-
-  return 'http://localhost:3000/api';
+  return `${window.location.origin}/api`;
 };
 
-const API_URL = resolveApiUrl();
+const shouldIncludeLocalhostApiFallback = (): boolean => {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return true;
+  }
+
+  // Avoid mixed-content failures when app is served over HTTPS.
+  return window.location.protocol !== 'https:';
+};
+
+const resolveApiBaseCandidates = (): string[] => {
+  const configuredApiUrl = import.meta.env.VITE_API_URL;
+  const candidates: string[] = [];
+
+  if (configuredApiUrl) {
+    candidates.push(configuredApiUrl);
+  }
+
+  const sameOriginApiUrl = resolveSameOriginApiUrl();
+  if (sameOriginApiUrl) {
+    candidates.push(sameOriginApiUrl);
+  }
+
+  if (shouldIncludeLocalhostApiFallback()) {
+    candidates.push('http://localhost:3000/api');
+  }
+
+  return Array.from(
+    new Set(
+      candidates
+        .map((candidate) => candidate.trim())
+        .filter((candidate) => candidate.length > 0)
+        .map((candidate) => normalizeApiBaseUrl(candidate))
+    )
+  );
+};
+
+const API_BASE_URL_CANDIDATES = resolveApiBaseCandidates();
+const API_URL = API_BASE_URL_CANDIDATES[0] || 'http://localhost:3000/api';
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const AUTH_LOOKUP_TIMEOUT_MS = 4000;
+const RETRYABLE_API_METHODS = new Set(['get', 'head', 'options']);
+
+const AUTH_ENDPOINTS_SAFE_TO_RETRY = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/student-signup',
+  '/auth/send-password-reset',
+  '/auth/reset-password-token',
+  '/auth/resend-verification',
+] as const;
 
 const toErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const responseData = error.response?.data as
       | { error?: { message?: string }; message?: string }
+      | string
       | undefined;
-    return String(
-      responseData?.error?.message || responseData?.message || error.message || ''
-    ).toLowerCase();
+
+    const responseMessage =
+      typeof responseData === 'string'
+        ? responseData
+        : responseData?.error?.message || responseData?.message;
+
+    return String(responseMessage || error.message || '').toLowerCase().slice(0, 1500);
   }
 
   if (error instanceof Error) {
-    return error.message.toLowerCase();
+    return error.message.toLowerCase().slice(0, 1500);
   }
 
-  return String(error || '').toLowerCase();
+  return String(error || '').toLowerCase().slice(0, 1500);
+};
+
+const getRequestPath = (url: string): string => {
+  try {
+    return new URL(url, 'https://mabinilms.local').pathname.toLowerCase();
+  } catch {
+    return String(url || '').toLowerCase();
+  }
+};
+
+const isRouteLikelyMissing = (error: AxiosError): boolean => {
+  if (error.response?.status !== 404) {
+    return false;
+  }
+
+  const normalizedMessage = toErrorMessage(error);
+  return (
+    normalizedMessage.includes('route') && normalizedMessage.includes('not found') ||
+    normalizedMessage.includes('cannot get') ||
+    normalizedMessage.includes('cannot post') ||
+    normalizedMessage.includes('<!doctype html') ||
+    normalizedMessage.includes('<html')
+  );
+};
+
+const isRetryableTransportFailure = (error: AxiosError): boolean => {
+  if (!error.response) {
+    return true;
+  }
+
+  const status = error.response.status;
+  if (status === 502 || status === 503 || status === 504) {
+    return true;
+  }
+
+  return isRouteLikelyMissing(error);
+};
+
+const getNextApiBaseUrl = (currentBaseUrl: string | undefined): string | null => {
+  const normalizedCurrentBase = normalizeApiBaseUrl(currentBaseUrl || API_URL);
+  return API_BASE_URL_CANDIDATES.find((candidate) => candidate !== normalizedCurrentBase) || null;
 };
 
 const isRefreshRejectedByAuth = (error: unknown): boolean => {
@@ -141,9 +236,109 @@ const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: 
   ]);
 };
 
+interface RefreshTokenResponse {
+  success: boolean;
+  data?: {
+    access_token: string;
+    refresh_token: string;
+  };
+}
+
+const shouldAttemptRefreshOnNextApiBase = (error: unknown): boolean => {
+  if (isRefreshRejectedByAuth(error)) {
+    return false;
+  }
+
+  if (axios.isAxiosError(error)) {
+    return isRetryableTransportFailure(error);
+  }
+
+  const normalizedMessage = toErrorMessage(error);
+  return (
+    normalizedMessage.includes('timed out') ||
+    normalizedMessage.includes('network') ||
+    normalizedMessage.includes('failed to fetch')
+  );
+};
+
+const refreshSessionToken = async (refreshToken: string): Promise<RefreshTokenResponse> => {
+  let lastError: unknown = null;
+
+  for (const apiBaseUrl of API_BASE_URL_CANDIDATES) {
+    try {
+      const refreshResponse = await withTimeout(
+        axios.post<RefreshTokenResponse>(
+          `${apiBaseUrl}/auth/refresh`,
+          { refresh_token: refreshToken },
+          {
+            timeout: AUTH_LOOKUP_TIMEOUT_MS,
+            withCredentials: true,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        ),
+        AUTH_LOOKUP_TIMEOUT_MS,
+        'Auth session refresh timed out'
+      );
+
+      if (!refreshResponse.data?.success || !refreshResponse.data.data) {
+        throw new Error('Session refresh failed');
+      }
+
+      return refreshResponse.data;
+    } catch (error) {
+      lastError = error;
+
+      if (!shouldAttemptRefreshOnNextApiBase(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error('Session refresh failed');
+};
+
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  _apiBaseRetryAttempted?: boolean;
 }
+
+const canRetryWithAlternateApiBase = (
+  error: AxiosError,
+  requestConfig: RetryableRequestConfig | undefined
+): boolean => {
+  if (!requestConfig || API_BASE_URL_CANDIDATES.length <= 1) {
+    return false;
+  }
+
+  if (requestConfig._apiBaseRetryAttempted) {
+    return false;
+  }
+
+  if (!isRetryableTransportFailure(error)) {
+    return false;
+  }
+
+  const method = String(requestConfig.method || 'get').toLowerCase();
+  const requestPath = getRequestPath(String(requestConfig.url || ''));
+  const isSafeMethod = RETRYABLE_API_METHODS.has(method);
+
+  const isRetryableAuthPost =
+    method === 'post' &&
+    AUTH_ENDPOINTS_SAFE_TO_RETRY.some((endpoint) => requestPath.startsWith(endpoint));
+
+  if (!isSafeMethod && !isRetryableAuthPost) {
+    return false;
+  }
+
+  const nextBaseUrl = getNextApiBaseUrl(requestConfig.baseURL);
+  return Boolean(nextBaseUrl);
+};
 
 class ApiClient {
   private client: AxiosInstance;
@@ -194,8 +389,19 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
+        const originalRequest = error.config as RetryableRequestConfig | undefined;
+
+        if (canRetryWithAlternateApiBase(error, originalRequest)) {
+          const nextApiBaseUrl = getNextApiBaseUrl(originalRequest?.baseURL);
+
+          if (nextApiBaseUrl && originalRequest) {
+            originalRequest._apiBaseRetryAttempted = true;
+            originalRequest.baseURL = nextApiBaseUrl;
+            return this.client.request(originalRequest);
+          }
+        }
+
         if (error.response?.status === 401) {
-          const originalRequest = error.config as RetryableRequestConfig | undefined;
           const hasRetried = Boolean(originalRequest?._retry);
           let refreshError: unknown = null;
           let refreshAttempted = false;
@@ -222,33 +428,13 @@ class ApiClient {
                 throw new Error('Missing refresh token');
               }
 
-              const refreshResponse = await withTimeout(
-                axios.post<{
-                  success: boolean;
-                  data?: {
-                    access_token: string;
-                    refresh_token: string;
-                  };
-                }>(
-                  `${API_URL}/auth/refresh`,
-                  { refresh_token: refreshToken },
-                  {
-                    timeout: AUTH_LOOKUP_TIMEOUT_MS,
-                    withCredentials: true,
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                  }
-                ),
-                AUTH_LOOKUP_TIMEOUT_MS,
-                'Auth session refresh timed out'
-              );
+              const refreshResponse = await refreshSessionToken(refreshToken);
 
-              if (!refreshResponse.data?.success || !refreshResponse.data.data) {
+              if (!refreshResponse.data) {
                 throw new Error('Session refresh failed');
               }
 
-              refreshedSession = refreshResponse.data.data;
+              refreshedSession = refreshResponse.data;
 
               const { error: setSessionError } = await supabase.auth.setSession({
                 access_token: refreshedSession.access_token || '',
