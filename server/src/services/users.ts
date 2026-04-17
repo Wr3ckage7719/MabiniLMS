@@ -142,10 +142,39 @@ export const listUsers = async (query: ListUsersQuery): Promise<PaginatedUsers> 
   }
 
   // Apply search filter (search in email, first_name, last_name)
-  if (search) {
-    queryBuilder = queryBuilder.or(
-      `email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`
-    );
+  const normalizedSearch = String(search || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[(),]/g, '');
+
+  if (normalizedSearch.length > 0) {
+    const tokens = normalizedSearch
+      .split(' ')
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    const searchConditions = new Set<string>([
+      `email.ilike.%${normalizedSearch}%`,
+      `first_name.ilike.%${normalizedSearch}%`,
+      `last_name.ilike.%${normalizedSearch}%`,
+    ]);
+
+    tokens.forEach((token) => {
+      searchConditions.add(`email.ilike.%${token}%`);
+      searchConditions.add(`first_name.ilike.%${token}%`);
+      searchConditions.add(`last_name.ilike.%${token}%`);
+    });
+
+    if (tokens.length >= 2) {
+      const first = tokens[0];
+      const second = tokens[1];
+
+      searchConditions.add(`and(first_name.ilike.%${first}%,last_name.ilike.%${second}%)`);
+      searchConditions.add(`and(first_name.ilike.%${second}%,last_name.ilike.%${first}%)`);
+    }
+
+    queryBuilder = queryBuilder.or(Array.from(searchConditions).join(','));
   }
 
   // Apply pagination

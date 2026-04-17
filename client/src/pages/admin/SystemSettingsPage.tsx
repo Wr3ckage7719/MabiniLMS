@@ -120,19 +120,19 @@ export default function SystemSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-slate-900 p-6">
+      <div className="min-h-screen bg-background p-6">
         <div className="max-w-2xl mx-auto">
-          <Card className="bg-slate-800 border-slate-700 p-6 space-y-4">
-            <h1 className="text-xl font-semibold text-white">Failed to load system settings</h1>
-            <p className="text-slate-300 text-sm">
+          <Card className="bg-card border-border p-6 space-y-4">
+            <h1 className="text-xl font-semibold text-foreground">Failed to load system settings</h1>
+            <p className="text-muted-foreground text-sm">
               {error instanceof Error
                 ? error.message
                 : 'Unable to load settings right now. Please retry.'}
@@ -147,24 +147,24 @@ export default function SystemSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">System Settings</h1>
-          <p className="text-slate-400">Configure system-wide settings</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">System Settings</h1>
+          <p className="text-muted-foreground">Configure system-wide settings</p>
         </div>
 
-        <Card className="bg-slate-800 border-slate-700 p-6 space-y-6">
+        <Card className="bg-card border-border p-6 space-y-6">
           {/* Institutional Email Domains */}
           <div>
-            <Label className="text-white mb-3 block">Institutional Email Domains</Label>
-            <p className="text-sm text-slate-400 mb-4">
+            <Label className="text-foreground mb-3 block">Institutional Email Domains</Label>
+            <p className="text-sm text-muted-foreground mb-4">
               Email domains allowed for student signup (e.g., school.edu, university.edu)
             </p>
             <div className="space-y-2">
               {emailDomains.map((domain, index) => (
                 <div key={index} className="flex items-center gap-2">
-                  <Input value={domain} readOnly className="bg-slate-900 border-slate-700 text-white" />
+                  <Input value={domain} readOnly className="bg-background border-input text-foreground" />
                   <Button
                     variant="ghost"
                     size="icon"
@@ -180,7 +180,7 @@ export default function SystemSettingsPage() {
                   value={newDomain}
                   onChange={(e) => setNewDomain(e.target.value)}
                   placeholder="example.edu"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground placeholder:text-muted-foreground"
                   onKeyPress={(e) => e.key === 'Enter' && handleAddDomain()}
                 />
                 <Button onClick={handleAddDomain} className="bg-blue-600 hover:bg-blue-700">
@@ -191,10 +191,10 @@ export default function SystemSettingsPage() {
           </div>
 
           {/* Teacher Approval */}
-          <div className="flex items-center justify-between py-4 border-t border-slate-700">
+          <div className="flex items-center justify-between py-4 border-t border-border">
             <div>
-              <Label className="text-white">Require Teacher Approval</Label>
-              <p className="text-sm text-slate-400 mt-1">
+              <Label className="text-foreground">Require Teacher Approval</Label>
+              <p className="text-sm text-muted-foreground mt-1">
                 Teachers must be approved by admin before accessing features
               </p>
             </div>
@@ -205,10 +205,10 @@ export default function SystemSettingsPage() {
           </div>
 
           {/* Student Self Signup */}
-          <div className="flex items-center justify-between py-4 border-t border-slate-700">
+          <div className="flex items-center justify-between py-4 border-t border-border">
             <div>
-              <Label className="text-white">Allow Student Self-Signup</Label>
-              <p className="text-sm text-slate-400 mt-1">
+              <Label className="text-foreground">Allow Student Self-Signup</Label>
+              <p className="text-sm text-muted-foreground mt-1">
                 Students can register accounts themselves (not recommended)
               </p>
             </div>
@@ -219,14 +219,14 @@ export default function SystemSettingsPage() {
           </div>
 
           {/* Email / SMTP Settings */}
-          <div className="space-y-4 py-4 border-t border-slate-700">
+          <div className="space-y-4 py-4 border-t border-border">
             <div>
-              <Label className="text-white mb-2 block">Email Provider</Label>
-              <p className="text-sm text-slate-400 mb-3">
+              <Label className="text-foreground mb-2 block">Email Provider</Label>
+              <p className="text-sm text-muted-foreground mb-3">
                 Use smtp or gmail in production. Keep mock for local development only.
               </p>
               <Select value={emailProvider} onValueChange={(value) => setEmailProvider(value as 'mock' | 'smtp' | 'gmail')}>
-                <SelectTrigger className="bg-slate-900 border-slate-700 text-white">
+                <SelectTrigger className="bg-background border-input text-foreground">
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
                 <SelectContent>
@@ -239,67 +239,67 @@ export default function SystemSettingsPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-white">From Email</Label>
+                <Label className="text-foreground">From Email</Label>
                 <Input
                   value={emailFrom}
                   onChange={(e) => setEmailFrom(e.target.value)}
                   placeholder="your_email@example.com"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
-                <p className="text-xs text-slate-500">Use an address authorized by your SMTP provider.</p>
+                <p className="text-xs text-muted-foreground">Use an address authorized by your SMTP provider.</p>
               </div>
               <div className="space-y-2">
-                <Label className="text-white">From Name</Label>
+                <Label className="text-foreground">From Name</Label>
                 <Input
                   value={emailFromName}
                   onChange={(e) => setEmailFromName(e.target.value)}
                   placeholder="MabiniLMS"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white">SMTP Host</Label>
+                <Label className="text-foreground">SMTP Host</Label>
                 <Input
                   value={smtpHost}
                   onChange={(e) => setSmtpHost(e.target.value)}
                   placeholder="smtp.gmail.com"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white">SMTP Port</Label>
+                <Label className="text-foreground">SMTP Port</Label>
                 <Input
                   value={smtpPort}
                   onChange={(e) => setSmtpPort(e.target.value)}
                   placeholder="587"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white">SMTP User</Label>
+                <Label className="text-foreground">SMTP User</Label>
                 <Input
                   value={smtpUser}
                   onChange={(e) => setSmtpUser(e.target.value)}
                   placeholder="your_email@example.com"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-white">SMTP Password</Label>
+                <Label className="text-foreground">SMTP Password</Label>
                 <Input
                   type="password"
                   value={smtpPass}
                   onChange={(e) => setSmtpPass(e.target.value)}
                   placeholder="Leave blank to keep current password"
-                  className="bg-slate-900 border-slate-700 text-white"
+                  className="bg-background border-input text-foreground"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-2 border-t border-slate-700">
+            <div className="flex items-center justify-between py-2 border-t border-border">
               <div>
-                <Label className="text-white">SMTP Secure (TLS)</Label>
-                <p className="text-sm text-slate-400 mt-1">Enable when your SMTP provider requires secure transport</p>
+                <Label className="text-foreground">SMTP Secure (TLS)</Label>
+                <p className="text-sm text-muted-foreground mt-1">Enable when your SMTP provider requires secure transport</p>
               </div>
               <Switch checked={smtpSecure} onCheckedChange={setSmtpSecure} />
             </div>

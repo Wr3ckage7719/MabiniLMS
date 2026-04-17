@@ -158,27 +158,27 @@ export default function BugReportsPage() {
   }
 
   return (
-    <div className="h-full bg-slate-900 p-6">
+    <div className="h-full bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Bug Reports</h1>
-            <p className="text-slate-400">Review user-submitted issues and track resolution status.</p>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Bug Reports</h1>
+            <p className="text-muted-foreground">Review user-submitted issues and track resolution status.</p>
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-muted-foreground">
             Showing {filteredReports.length} of {data?.total || 0} reports
           </div>
         </div>
 
-        <Card className="bg-slate-800 border-slate-700 p-4">
+        <Card className="bg-card border-border p-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="relative md:col-span-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder="Search title, reporter, email, or page"
-                className="pl-9 bg-slate-900 border-slate-700 text-white"
+                className="pl-9 bg-background border-input text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
@@ -186,7 +186,7 @@ export default function BugReportsPage() {
               value={statusFilter}
               onValueChange={(value) => setStatusFilter(value as BugReportStatus | 'all')}
             >
-              <SelectTrigger className="bg-slate-900 border-slate-700 text-white">
+              <SelectTrigger className="bg-background border-input text-foreground">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -203,7 +203,7 @@ export default function BugReportsPage() {
               value={severityFilter}
               onValueChange={(value) => setSeverityFilter(value as BugReportSeverity | 'all')}
             >
-              <SelectTrigger className="bg-slate-900 border-slate-700 text-white">
+              <SelectTrigger className="bg-background border-input text-foreground">
                 <SelectValue placeholder="Filter by severity" />
               </SelectTrigger>
               <SelectContent>
@@ -218,15 +218,15 @@ export default function BugReportsPage() {
         </Card>
 
         {isLoading ? (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin mb-3" />
               <p>Loading bug reports...</p>
             </div>
           </Card>
         ) : filteredReports.length === 0 ? (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center text-muted-foreground">
               <Bug className="w-14 h-14 mb-3 opacity-50" />
               <p>No bug reports match your current filters.</p>
             </div>
@@ -239,36 +239,36 @@ export default function BugReportsPage() {
               const isPending = updateMutation.isPending
 
               return (
-                <Card key={report.id} className="bg-slate-800 border-slate-700 p-5 space-y-4">
+                <Card key={report.id} className="bg-card border-border p-5 space-y-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-lg font-semibold text-white">{report.title}</h2>
+                        <h2 className="text-lg font-semibold text-foreground">{report.title}</h2>
                         <Badge variant={getStatusBadgeVariant(report.status)}>{report.status.replace('_', ' ')}</Badge>
                         <Badge variant="outline" className={getSeverityBadgeClass(report.severity)}>
                           {report.severity}
                         </Badge>
                       </div>
-                      <p className="text-sm text-slate-300">{report.description}</p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-sm text-foreground/80">{report.description}</p>
+                      <p className="text-xs text-muted-foreground">
                         Submitted by {report.reporter_name} ({report.reporter_email}) on {formatDate(report.created_at)}
                       </p>
                       {report.page_url && (
-                        <p className="text-xs text-blue-300 break-all">Page: {report.page_url}</p>
+                        <p className="text-xs text-primary break-all">Page: {report.page_url}</p>
                       )}
                     </div>
                   </div>
 
                   {report.steps_to_reproduce && (
-                    <div className="rounded-md border border-slate-700 bg-slate-900/60 p-3">
-                      <p className="text-xs font-semibold text-slate-300 mb-1">Steps to Reproduce</p>
-                      <p className="text-sm text-slate-400 whitespace-pre-wrap">{report.steps_to_reproduce}</p>
+                    <div className="rounded-md border border-border bg-background/60 p-3">
+                      <p className="text-xs font-semibold text-foreground/80 mb-1">Steps to Reproduce</p>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{report.steps_to_reproduce}</p>
                     </div>
                   )}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                     <div>
-                      <p className="text-xs text-slate-400 mb-1">Set Status</p>
+                        <p className="text-xs text-muted-foreground mb-1">Set Status</p>
                       <Select
                         value={draftStatus}
                         onValueChange={(value) =>
@@ -278,7 +278,7 @@ export default function BugReportsPage() {
                           }))
                         }
                       >
-                        <SelectTrigger className="bg-slate-900 border-slate-700 text-white">
+                        <SelectTrigger className="bg-background border-input text-foreground">
                           <SelectValue placeholder="Status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -292,7 +292,7 @@ export default function BugReportsPage() {
                     </div>
 
                     <div className="md:col-span-2">
-                      <p className="text-xs text-slate-400 mb-1">Admin Notes</p>
+                      <p className="text-xs text-muted-foreground mb-1">Admin Notes</p>
                       <Textarea
                         value={draftNotes}
                         onChange={(event) =>
@@ -301,7 +301,7 @@ export default function BugReportsPage() {
                             [report.id]: event.target.value,
                           }))
                         }
-                        className="bg-slate-900 border-slate-700 text-white"
+                        className="bg-background border-input text-foreground"
                         rows={3}
                         placeholder="Optional notes for triage or resolution details"
                       />

@@ -358,7 +358,7 @@ export function TeacherClassesSection({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-white/90 dark:bg-slate-900/90 hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md transition-all active:bg-white/80 dark:active:bg-slate-800/90 text-slate-700 dark:text-slate-100"
+                            className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-card/90 hover:bg-card shadow-sm hover:shadow-md transition-all active:bg-card/95 text-foreground"
                             title="Class options"
                           >
                             <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
@@ -430,7 +430,7 @@ export function TeacherClassesSection({
                         {/* Room and Schedule */}
                         <div className="space-y-1 text-xs text-muted-foreground">
                           <div>
-                            <span className="font-medium text-gray-900">{cls.room}</span>
+                            <span className="font-medium text-foreground">{cls.room}</span>
                           </div>
                           <div>
                             {formatSchedule(cls.schedule)}
@@ -494,7 +494,7 @@ export function TeacherClassesSection({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70 text-slate-700 dark:text-slate-100"
+                                className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70 text-foreground"
                                 title="Class options"
                               >
                                 <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
@@ -617,7 +617,7 @@ export function TeacherClassesSection({
                         {/* Room and Schedule */}
                         <div className="space-y-1 text-xs text-muted-foreground">
                           <div>
-                            <span className="font-medium text-gray-900">{cls.room}</span>
+                            <span className="font-medium text-foreground">{cls.room}</span>
                           </div>
                           <div>
                             {formatSchedule(cls.schedule)}

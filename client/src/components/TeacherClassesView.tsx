@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TeacherClassesSection } from './TeacherClassesSection';
 import { TeacherClassDetail } from './TeacherClassDetail';
 import { ClassItem } from '@/lib/data';
@@ -17,6 +17,12 @@ export function TeacherClassesView({
   onSearchQueryChange,
 }: TeacherClassesViewProps) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if ((searchQuery || '').trim().length > 0) {
+      setSelectedClassId(null);
+    }
+  }, [searchQuery]);
 
   if (selectedClassId) {
     const selectedClass = classes.find((item) => item.id === selectedClassId) || null;

@@ -264,21 +264,21 @@ export default function PendingTeachersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">Teacher Management</h1>
-          <p className="text-slate-400">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Teacher Management</h1>
+          <p className="text-muted-foreground">
             Review pending applications and manage teacher accounts
           </p>
         </div>
 
         {/* Search Bar */}
-        <Card className="bg-slate-800 border-slate-700 p-4">
+        <Card className="bg-card border-border p-4">
           <div className="flex flex-col md:flex-row gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 type="text"
                 placeholder="Search by name or email..."
@@ -287,12 +287,12 @@ export default function PendingTeachersPage() {
                   setSearchTerm(e.target.value);
                   setPage(1);
                 }}
-                className="pl-10 bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+                className="pl-10 bg-background border-input text-foreground placeholder:text-muted-foreground"
               />
             </div>
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="w-full md:w-56 bg-slate-900 border-slate-700 text-white">
-                <ArrowUpDown className="w-4 h-4 mr-2 text-slate-400" />
+              <SelectTrigger className="w-full md:w-56 bg-background border-input text-foreground">
+                <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -308,8 +308,8 @@ export default function PendingTeachersPage() {
 
         {/* Teachers List */}
         {isLoading ? (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center justify-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center justify-center text-muted-foreground">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
               <p>Loading teachers...</p>
             </div>
@@ -323,7 +323,7 @@ export default function PendingTeachersPage() {
               const initials = `${firstName[0] || 'T'}${lastName[0] || ''}`.toUpperCase();
 
               return (
-                <Card key={teacher.id} className="bg-slate-800 border-slate-700 p-6">
+                <Card key={teacher.id} className="bg-card border-border p-6">
                   <div className="flex items-start justify-between gap-4">
                   {/* Teacher Info */}
                   <div className="flex-1">
@@ -334,10 +334,10 @@ export default function PendingTeachersPage() {
                         </span>
                       </div>
                       <div>
-                        <h3 className="text-xl font-semibold text-white">
+                        <h3 className="text-xl font-semibold text-foreground">
                           {firstName} {lastName}
                         </h3>
-                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Mail className="w-4 h-4" />
                           {teacher.email}
                         </div>
@@ -353,7 +353,7 @@ export default function PendingTeachersPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="w-4 h-4" />
                       <span>Applied on {formatDate(teacher.created_at)}</span>
                     </div>
@@ -364,7 +364,7 @@ export default function PendingTeachersPage() {
                     <Button
                       onClick={() => openEditDialog(teacher)}
                       variant="outline"
-                      className="border-slate-600 hover:bg-slate-700"
+                      className="border-border hover:bg-accent"
                       disabled={updateTeacherMutation.isPending}
                     >
                       <Pencil className="w-4 h-4 mr-2" />
@@ -411,13 +411,13 @@ export default function PendingTeachersPage() {
             })}
 
             <div className="pt-2 flex items-center justify-between">
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-muted-foreground">
                 Page {page} of {totalPages}
               </p>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  className="border-slate-700"
+                  className="border-border"
                   disabled={page <= 1}
                   onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                 >
@@ -425,7 +425,7 @@ export default function PendingTeachersPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-slate-700"
+                  className="border-border"
                   disabled={page >= totalPages}
                   onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
                 >
@@ -435,10 +435,10 @@ export default function PendingTeachersPage() {
             </div>
           </div>
         ) : (
-          <Card className="bg-slate-800 border-slate-700 p-12">
-            <div className="flex flex-col items-center justify-center text-slate-400">
+          <Card className="bg-card border-border p-12">
+            <div className="flex flex-col items-center justify-center text-muted-foreground">
               <UserCheck className="w-16 h-16 mb-4 opacity-50" />
-              <h3 className="text-lg font-semibold text-white mb-2">No Teachers Found</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">No Teachers Found</h3>
               <p className="text-center">
                 {searchTerm
                   ? 'No teachers match your search criteria'
@@ -451,10 +451,10 @@ export default function PendingTeachersPage() {
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-        <DialogContent className="bg-slate-800 border-slate-700 text-white">
+        <DialogContent className="bg-card border-border text-foreground">
           <DialogHeader>
             <DialogTitle>Reject Teacher Application</DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               Are you sure you want to reject {selectedTeacher?.first_name} {selectedTeacher?.last_name}?
               This action cannot be undone.
             </DialogDescription>
@@ -476,7 +476,7 @@ export default function PendingTeachersPage() {
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="Provide a reason for rejection that will be included in the notification email..."
-                className="bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+                className="bg-background border-input text-foreground placeholder:text-muted-foreground"
                 rows={4}
               />
             </div>
@@ -489,7 +489,7 @@ export default function PendingTeachersPage() {
                 setRejectDialogOpen(false);
                 setRejectReason('');
               }}
-              className="text-slate-400 hover:text-white"
+              className="text-muted-foreground hover:text-foreground"
             >
               Cancel
             </Button>
@@ -514,10 +514,10 @@ export default function PendingTeachersPage() {
           }
         }}
       >
-        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+        <DialogContent className="bg-card border-border text-foreground max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Teacher</DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               Update teacher account information.
             </DialogDescription>
           </DialogHeader>
@@ -529,7 +529,7 @@ export default function PendingTeachersPage() {
                 id="edit-teacher-first-name"
                 value={editForm.first_name}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, first_name: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -540,7 +540,7 @@ export default function PendingTeachersPage() {
                 id="edit-teacher-last-name"
                 value={editForm.last_name}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, last_name: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -552,7 +552,7 @@ export default function PendingTeachersPage() {
                 type="email"
                 value={editForm.email}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
-                className="bg-slate-900 border-slate-700 text-white"
+                className="bg-background border-input text-foreground"
                 required
               />
             </div>
@@ -562,7 +562,7 @@ export default function PendingTeachersPage() {
                 type="button"
                 variant="ghost"
                 onClick={() => setEditDialogOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </Button>
@@ -588,15 +588,15 @@ export default function PendingTeachersPage() {
           }
         }}
       >
-        <AlertDialogContent className="bg-slate-800 border-slate-700 text-white">
+        <AlertDialogContent className="bg-card border-border text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Teacher Account</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
+            <AlertDialogDescription className="text-muted-foreground">
               This will permanently delete {selectedTeacher?.email}. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-700 hover:text-white">
+            <AlertDialogCancel className="border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction

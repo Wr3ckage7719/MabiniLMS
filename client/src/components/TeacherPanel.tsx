@@ -25,6 +25,14 @@ export function TeacherPanel() {
     setSidebarOpen(false);
   };
 
+  const handleHeaderSearchQueryChange = (value: string) => {
+    setHeaderSearchQuery(value);
+
+    if (value.trim() && currentView !== 'classes') {
+      setCurrentView('classes');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Animated background elements */}
@@ -41,7 +49,7 @@ export function TeacherPanel() {
           onCreateClass={() => setCreateClassOpen(true)}
           onSettings={() => handleViewChange('settings')}
           searchQuery={headerSearchQuery}
-          onSearchQueryChange={setHeaderSearchQuery}
+          onSearchQueryChange={handleHeaderSearchQueryChange}
         />
 
         {/* Content area with sidebar */}
@@ -61,7 +69,7 @@ export function TeacherPanel() {
               classes={classes}
               onClassesChange={setClasses}
               searchQuery={headerSearchQuery}
-              onSearchQueryChange={setHeaderSearchQuery}
+              onSearchQueryChange={handleHeaderSearchQueryChange}
             />
           </main>
         </div>
