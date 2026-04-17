@@ -3,6 +3,8 @@ import { AuthRequest, ApiResponse } from '../types/index.js';
 import {
   SignupInput,
   StudentCredentialSignupInput,
+  StudentSignupCompleteInput,
+  TeacherOnboardingCompleteInput,
   LoginInput,
   RefreshTokenInput,
   ForgotPasswordInput,
@@ -64,11 +66,11 @@ export const signup = async (
     const input: SignupInput = req.body;
     const result = await authService.signup(input);
 
-    const response: ApiResponse<AuthResponse> = {
+    const response: ApiResponse<{ message: string }> = {
       success: true,
       data: result,
     };
-    res.status(201).json(response);
+    res.status(200).json(response);
   } catch (error) {
     next(error);
   }
@@ -116,6 +118,78 @@ export const studentSignup = async (
       data: {
         message: result.message,
         delivery: result.delivery,
+      },
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeStudentSignup = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const input: StudentSignupCompleteInput = req.body;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    const result = await authService.completeStudentSignup(input, ipAddress, userAgent);
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: result.message,
+      },
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyTeacherSignup = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const token = String(req.query.token || '');
+    const result = await authService.verifyTeacherSignup(token);
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: result.message,
+      },
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeTeacherOnboarding = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const input: TeacherOnboardingCompleteInput = req.body;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    const result = await authService.completeTeacherOnboarding(input, ipAddress, userAgent);
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: result.message,
       },
     };
 

@@ -3,6 +3,8 @@ import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
   SignupInput,
   StudentCredentialSignupInput,
+  StudentSignupCompleteInput,
+  TeacherOnboardingCompleteInput,
   LoginInput,
   RefreshTokenInput,
   AuthResponse,
@@ -11,13 +13,12 @@ import {
 } from '../types/auth.js';
 import crypto from 'crypto';
 import logger from '../utils/logger.js';
-import * as emailVerificationService from './email-verification.js';
 import * as emailService from './email.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import * as twoFactorService from './twoFactor.js';
 import * as invitationService from './invitations.js';
-import { generateTemporaryPassword, getPendingTeachersCount } from './admin.js';
+import { getPendingTeachersCount } from './admin.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import { notifyAdminsPendingTeacher } from './websocket.js';
 
@@ -91,419 +92,555 @@ const toStudentNameFromEmail = (email: string): { firstName: string; lastName: s
   return { firstName: segments[0], lastName: segments.slice(1).join(' ') };
 };
 
-const issueTemporaryPassword = async (userId: string, temporaryPassword: string): Promise<void> => {
-  const passwordHash = crypto.createHash('sha256').update(temporaryPassword).digest('hex');
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
-  await supabaseAdmin
-    .from('temporary_passwords')
-    .update({ used_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .is('used_at', null);
-
-  const { error: tempPassError } = await supabaseAdmin
-    .from('temporary_passwords')
-    .insert({
-      user_id: userId,
-      temp_password_hash: passwordHash,
-      must_change_password: true,
-      expires_at: expiresAt.toISOString(),
-    });
-
-  if (tempPassError) {
-    logger.error('Failed to issue temporary password record', {
-      userId,
-      error: tempPassError.message,
-    });
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'Failed to prepare temporary credentials',
-      500
-    );
-  }
-};
-
 const clearTemporaryPasswordRequirement = async (userId: string): Promise<void> => {
   const clearedAt = new Date().toISOString();
 
-  const { data: activeRows, error: activeUpdateError } = await supabaseAdmin
+  const { error: clearError } = await supabaseAdmin
     .from('temporary_passwords')
     .update({
       used_at: clearedAt,
       must_change_password: false,
     })
     .eq('user_id', userId)
-    .eq('must_change_password', true)
-    .is('used_at', null)
-    .select('id');
+    .is('used_at', null);
 
-  if (activeUpdateError) {
+  if (clearError) {
     logger.warn('Failed to clear temporary password requirement', {
       userId,
-      stage: 'active-only',
-      error: activeUpdateError.message,
-    });
-    return;
-  }
-
-  if (Array.isArray(activeRows) && activeRows.length > 0) {
-    return;
-  }
-
-  const { error: fallbackUpdateError } = await supabaseAdmin
-    .from('temporary_passwords')
-    .update({
-      used_at: clearedAt,
-      must_change_password: false,
-    })
-    .eq('user_id', userId)
-    .eq('must_change_password', true);
-
-  if (fallbackUpdateError) {
-    logger.warn('Failed to clear temporary password requirement', {
-      userId,
-      stage: 'fallback-any-must-change',
-      error: fallbackUpdateError.message,
+      error: clearError.message,
     });
   }
 };
 
-const getStudentSignupEmailErrorMessage = (error: unknown): string => {
-  const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
-  const message = rawMessage.toLowerCase();
+const STUDENT_SIGNUP_GENERIC_MESSAGE =
+  'If eligible, an account setup link has been sent to your institutional inbox.';
 
-  if (
-    message.includes('email provider is set to mock') ||
-    message.includes('email credentials are missing') ||
-    message.includes('smtp host is missing')
-  ) {
-    return 'Email service is not configured. Please contact the administrator.';
-  }
+const STUDENT_SIGNUP_COMPLETE_MESSAGE =
+  'Your student account is ready. You can now sign in with your email and password.';
 
-  if (
-    message.includes('invalid login') ||
-    message.includes('badcredentials') ||
-    message.includes('username and password not accepted') ||
-    message.includes('authentication failed') ||
-    message.includes('authentication unsuccessful') ||
-    message.includes('535')
-  ) {
-    return 'Email service authentication failed. Please contact the administrator.';
-  }
+const TEACHER_SIGNUP_GENERIC_MESSAGE =
+  'If eligible, a verification link has been sent to your email. Verify first, then wait for admin approval.';
 
-  if (
-    message.includes('user unknown') ||
-    message.includes('mailbox unavailable') ||
-    message.includes('recipient address rejected') ||
-    message.includes('550 5.1.1')
-  ) {
-    return 'The institutional inbox could not receive email. Please verify the email address and try again.';
-  }
+const TEACHER_SIGNUP_VERIFIED_MESSAGE =
+  'Your email is verified. Your teacher application is now pending administrator review.';
 
-  if (message.includes('failed to send email after')) {
-    return 'Could not deliver credentials email right now. Please try again in a few minutes.';
-  }
+const TEACHER_ONBOARDING_COMPLETE_MESSAGE =
+  'Your teacher account is ready. You can now sign in with your email and password.';
 
-  if (message.includes('timeout') || message.includes('timed out')) {
-    return 'Credentials email timed out while sending. Please try again.';
-  }
+const STUDENT_SIGNUP_CHALLENGE_TTL_MS = 30 * 60 * 1000;
+const STUDENT_SIGNUP_COOLDOWN_MS = 5 * 60 * 1000;
+const STUDENT_SIGNUP_DAILY_CAP = 5;
+const TEACHER_SIGNUP_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const TWO_FACTOR_LOGIN_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
-  return 'Could not send credentials email. Please try again.';
+type StudentSignupChallenge = {
+  id: string;
+  email: string;
+  token_hash: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
 };
 
-const STUDENT_SIGNUP_CREDENTIALS_MESSAGE =
-  'Temporary login credentials have been sent to your institutional inbox.';
-
-const STUDENT_SIGNUP_RESET_LINK_MESSAGE =
-  'Account setup link sent. Set your password there, then sign in with your email and password.';
-
-const shouldUseStudentSignupResetLinkFallback = (error: unknown): boolean => {
-  const rawMessage = error instanceof Error ? error.message : String(error || 'Unknown email error');
-  const message = rawMessage.toLowerCase();
-
-  // Non-transient setup/auth/recipient errors should fail explicitly instead of switching flow.
-  if (
-    message.includes('email provider is set to mock') ||
-    message.includes('email credentials are missing') ||
-    message.includes('smtp host is missing') ||
-    message.includes('invalid login') ||
-    message.includes('badcredentials') ||
-    message.includes('username and password not accepted') ||
-    message.includes('authentication failed') ||
-    message.includes('authentication unsuccessful') ||
-    message.includes('535') ||
-    message.includes('user unknown') ||
-    message.includes('mailbox unavailable') ||
-    message.includes('recipient address rejected') ||
-    message.includes('550 5.1.1')
-  ) {
-    return false;
-  }
-
-  if (
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('econnreset') ||
-    message.includes('econnrefused') ||
-    message.includes('enotfound') ||
-    message.includes('socket hang up') ||
-    message.includes('failed to send email after')
-  ) {
-    return true;
-  }
-
-  return false;
+type TeacherApplication = {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  status: 'pending_email_verification' | 'pending_review' | 'approved' | 'rejected';
+  verification_token_hash: string | null;
+  verification_expires_at: string | null;
+  onboarding_token_hash: string | null;
+  onboarding_expires_at: string | null;
+  onboarding_used_at: string | null;
+  linked_user_id: string | null;
 };
 
-const sendStudentSignupResetLinkFallback = async (email: string): Promise<boolean> => {
-  const resetUrl = `${emailService.getClientUrl()}/auth/reset-password`;
-
-  const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-    redirectTo: resetUrl,
-  });
-
-  if (error) {
-    logger.error('Student signup fallback password reset email failed', {
-      email,
-      error: error.message,
-    });
-    return false;
-  }
-
-  return true;
+type TwoFactorLoginChallenge = {
+  id: string;
+  user_id: string;
+  expires_at: string;
+  consumed_at: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
 };
 
-/**
- * Sign up a new user with email and password
- */
-export const signup = async (input: SignupInput): Promise<AuthResponse> => {
-  const { email, password, first_name, last_name, role } = input;
-  const normalizedEmail = normalizeEmail(email);
-  const requestedRole = role === UserRole.TEACHER ? UserRole.TEACHER : UserRole.STUDENT;
+const isNotFoundError = (error: { code?: string } | null): boolean => {
+  return error?.code === 'PGRST116';
+};
 
-  // Check institutional email domain for students
-  if (requestedRole === UserRole.STUDENT) {
-    assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
-  }
+const generateFlowToken = (): string => crypto.randomBytes(32).toString('hex');
 
-  // Create user in Supabase Auth
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email: normalizedEmail,
-    password,
-    // Use explicit confirmation here because the app enforces access by role/approval policy.
-    // Keeping this false causes immediate sign-in to fail right after account creation.
-    email_confirm: true,
-    user_metadata: {
-      first_name,
-      last_name,
-      role: requestedRole,
-    },
-  });
+const hashFlowToken = (token: string): string => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
 
-  if (authError) {
-    logger.error('Signup failed', { email, error: authError.message });
-    const normalizedAuthError = authError.message.toLowerCase();
-    
-    if (
-      normalizedAuthError.includes('already registered') ||
-      normalizedAuthError.includes('already exists') ||
-      normalizedAuthError.includes('duplicate')
-    ) {
-      throw new ApiError(
-        ErrorCode.CONFLICT,
-        'A user with this email already exists',
-        409
-      );
-    }
+const getNormalizedName = (
+  firstName: string | undefined,
+  lastName: string | undefined,
+  email: string
+): { firstName: string; lastName: string } => {
+  const trimmedFirstName = (firstName || '').trim();
+  const trimmedLastName = (lastName || '').trim();
 
-    if (normalizedAuthError.includes('password') || normalizedAuthError.includes('email')) {
-      throw new ApiError(
-        ErrorCode.VALIDATION_ERROR,
-        authError.message,
-        400
-      );
-    }
-    
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      `Failed to create user account: ${authError.message}`,
-      500
-    );
-  }
-
-  if (!authData.user) {
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'User creation failed',
-      500
-    );
-  }
-
-  // Create or update profile in profiles table
-  // For teachers, set pending_approval flag
-  const isPendingTeacher = requestedRole === UserRole.TEACHER
-  
-  const { error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .upsert({
-      id: authData.user.id,
-      email: normalizedEmail,
-      first_name,
-      last_name,
-      role: requestedRole,
-      email_verified: false,
-      pending_approval: isPendingTeacher, // Teachers require admin approval
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-
-  if (profileError) {
-    logger.error('Profile creation failed', { 
-      userId: authData.user.id, 
-      error: profileError.message 
-    });
-    // Don't fail the signup, profile trigger should handle this
-  }
-
-  // Log if this is a teacher signup that requires approval
-  if (isPendingTeacher) {
-    logger.info('Teacher signup - pending admin approval', { 
-      userId: authData.user.id, 
-      email 
-    })
-
-    try {
-      const pendingCount = await getPendingTeachersCount();
-
-      notifyAdminsPendingTeacher({
-        id: authData.user.id,
-        name: `${first_name} ${last_name}`,
-        email: normalizedEmail,
-        pendingCount,
-      });
-    } catch (notificationError) {
-      logger.error('Failed to notify admins of pending teacher signup', {
-        userId: authData.user.id,
-        error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
-      });
-    }
-  }
-
-  // Send email verification
-  const baseUrl = emailService.getClientUrl()
-  try {
-    await emailVerificationService.sendEmailVerificationToken(authData.user.id, normalizedEmail, baseUrl)
-    logger.info('Verification email sent', { userId: authData.user.id, email: normalizedEmail })
-  } catch (emailError) {
-    logger.error('Failed to send verification email', { 
-      userId: authData.user.id, 
-      error: emailError instanceof Error ? emailError.message : 'Unknown error'
-    })
-    // Don't fail signup if email fails to send
-  }
-
-  // Generate magic link (not used, but validates the user exists)
-  await supabaseAdmin.auth.admin.generateLink({
-    type: 'magiclink',
-    email: normalizedEmail,
-  });
-
-  // Teachers should wait for admin approval and are not auto-signed in.
-  const shouldAutoSignIn = !isPendingTeacher;
-  let session: AuthSession = {
-    access_token: '',
-    refresh_token: '',
-    expires_in: 0,
-    token_type: 'bearer',
-  };
-
-  if (shouldAutoSignIn) {
-    const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-
-    if (signInError || !signInData.session) {
-      logger.error('Auto sign-in failed after signup', {
-        userId: authData.user.id,
-        error: signInError?.message,
-      });
-      throw new ApiError(
-        ErrorCode.INTERNAL_ERROR,
-        'Account created but login failed. Please try logging in.',
-        500
-      );
-    }
-
-    session = {
-      access_token: signInData.session.access_token,
-      refresh_token: signInData.session.refresh_token,
-      expires_in: signInData.session.expires_in || 3600,
-      token_type: 'bearer',
+  if (trimmedFirstName && trimmedLastName) {
+    return {
+      firstName: trimmedFirstName,
+      lastName: trimmedLastName,
     };
   }
 
-  // Fetch the created profile
-  const profile = await getUserProfile(authData.user.id);
+  return toStudentNameFromEmail(email);
+};
+
+const createTwoFactorLoginChallenge = async (
+  userId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<string> => {
+  const nowIso = new Date().toISOString();
+  const expiresAtIso = new Date(Date.now() + TWO_FACTOR_LOGIN_CHALLENGE_TTL_MS).toISOString();
+
+  await supabaseAdmin
+    .from('two_factor_login_challenges')
+    .update({ consumed_at: nowIso })
+    .eq('user_id', userId)
+    .is('consumed_at', null);
+
+  const { data, error } = await supabaseAdmin
+    .from('two_factor_login_challenges')
+    .insert({
+      user_id: userId,
+      expires_at: expiresAtIso,
+      ip_address: ipAddress || null,
+      user_agent: userAgent || null,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data?.id) {
+    logger.error('Failed to create two-factor login challenge', {
+      userId,
+      error: error?.message,
+    });
+
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to start two-factor verification. Please try again.',
+      500
+    );
+  }
+
+  return data.id as string;
+};
+
+const consumeTwoFactorLoginChallenge = async (
+  challengeId: string,
+  userId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  const { data: challenge, error } = await supabaseAdmin
+    .from('two_factor_login_challenges')
+    .select('id, user_id, expires_at, consumed_at, ip_address, user_agent')
+    .eq('id', challengeId)
+    .maybeSingle();
+
+  if (error || !challenge) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid or expired. Please sign in again.',
+      401
+    );
+  }
+
+  const typedChallenge = challenge as TwoFactorLoginChallenge;
+  if (typedChallenge.user_id !== userId) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid or expired. Please sign in again.',
+      401
+    );
+  }
+
+  if (typedChallenge.consumed_at) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid or expired. Please sign in again.',
+      401
+    );
+  }
+
+  if (new Date(typedChallenge.expires_at).getTime() < Date.now()) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session has expired. Please sign in again.',
+      401
+    );
+  }
+
+  if (typedChallenge.ip_address && ipAddress && typedChallenge.ip_address !== ipAddress) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid. Please sign in again.',
+      401
+    );
+  }
+
+  if (typedChallenge.user_agent && userAgent && typedChallenge.user_agent !== userAgent) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid. Please sign in again.',
+      401
+    );
+  }
+
+  const { error: consumeError } = await supabaseAdmin
+    .from('two_factor_login_challenges')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('id', typedChallenge.id)
+    .is('consumed_at', null);
+
+  if (consumeError) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Two-factor verification session is invalid or expired. Please sign in again.',
+      401
+    );
+  }
+};
+
+/**
+ * Public teacher signup request.
+ */
+export const signup = async (input: SignupInput): Promise<{ message: string }> => {
+  const { email, first_name, last_name, role } = input;
+  const normalizedEmail = normalizeEmail(email);
+
+  const normalizedFirstName = (first_name || '').trim();
+  const normalizedLastName = (last_name || '').trim();
+
+  if (role && role !== UserRole.TEACHER) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Public signup is available for teacher applications only.',
+      400
+    );
+  }
+
+  if (!normalizedFirstName || !normalizedLastName) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'First and last name are required.',
+      400
+    );
+  }
+
+  const { data: existingProfile, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, role, pending_approval')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  if (profileError && !isNotFoundError(profileError)) {
+    logger.error('Failed to lookup existing profile for teacher signup', {
+      email: normalizedEmail,
+      error: profileError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to process signup request right now.',
+      500
+    );
+  }
+
+  if (existingProfile && existingProfile.role !== UserRole.TEACHER) {
+    return { message: TEACHER_SIGNUP_GENERIC_MESSAGE };
+  }
+
+  if (existingProfile && existingProfile.role === UserRole.TEACHER && existingProfile.pending_approval !== true) {
+    return { message: TEACHER_SIGNUP_GENERIC_MESSAGE };
+  }
+
+  const verificationToken = generateFlowToken();
+  const verificationTokenHash = hashFlowToken(verificationToken);
+  const verificationExpiresAt = new Date(Date.now() + TEACHER_SIGNUP_VERIFICATION_TTL_MS).toISOString();
+
+  const { data: existingApplication, error: applicationLookupError } = await supabaseAdmin
+    .from('teacher_applications')
+    .select('id, email, first_name, last_name, status')
+    .eq('email', normalizedEmail)
+    .in('status', ['pending_email_verification', 'pending_review', 'approved'])
+    .maybeSingle();
+
+  if (applicationLookupError && !isNotFoundError(applicationLookupError)) {
+    logger.error('Failed to lookup existing teacher application', {
+      email: normalizedEmail,
+      error: applicationLookupError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to process signup request right now.',
+      500
+    );
+  }
+
+  if (existingApplication?.status === 'pending_review' || existingApplication?.status === 'approved') {
+    return { message: TEACHER_SIGNUP_GENERIC_MESSAGE };
+  }
+
+  if (existingApplication?.id) {
+    const { error: updateError } = await supabaseAdmin
+      .from('teacher_applications')
+      .update({
+        first_name: normalizedFirstName,
+        last_name: normalizedLastName,
+        status: 'pending_email_verification',
+        verification_token_hash: verificationTokenHash,
+        verification_expires_at: verificationExpiresAt,
+        email_verified_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingApplication.id);
+
+    if (updateError) {
+      logger.error('Failed to update teacher application', {
+        email: normalizedEmail,
+        error: updateError.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Unable to process signup request right now.',
+        500
+      );
+    }
+  } else {
+    const { error: createError } = await supabaseAdmin
+      .from('teacher_applications')
+      .insert({
+        email: normalizedEmail,
+        first_name: normalizedFirstName,
+        last_name: normalizedLastName,
+        status: 'pending_email_verification',
+        verification_token_hash: verificationTokenHash,
+        verification_expires_at: verificationExpiresAt,
+      });
+
+    if (createError) {
+      logger.error('Failed to create teacher application', {
+        email: normalizedEmail,
+        error: createError.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Unable to process signup request right now.',
+        500
+      );
+    }
+  }
+
+  const verificationLink = `${emailService.getClientUrl()}/auth/verify-email?token=${verificationToken}&flow=teacher-signup`;
+
+  try {
+    await emailService.sendTeacherApplicationVerificationEmail(
+      normalizedEmail,
+      `${normalizedFirstName} ${normalizedLastName}`,
+      verificationLink
+    );
+  } catch (emailError) {
+    logger.error('Teacher signup verification email failed', {
+      email: normalizedEmail,
+      error: emailError instanceof Error ? emailError.message : String(emailError),
+    });
+  }
 
   return {
-    user: profile,
-    session,
+    message: TEACHER_SIGNUP_GENERIC_MESSAGE,
   };
 };
 
 /**
- * Student self-signup that sends temporary credentials via email.
+ * Student self-signup request that sends a one-time setup link.
  */
 export const requestStudentCredentialSignup = async (
   input: StudentCredentialSignupInput,
   ipAddress?: string,
   userAgent?: string
-): Promise<{ message: string; delivery: 'credentials_email' | 'password_reset_link' }> => {
+): Promise<{ message: string; delivery: 'verification_link' }> => {
   const normalizedEmail = normalizeEmail(input.email);
 
   assertInstitutionalStudentEmail(normalizedEmail, 'Student signup');
 
+  const dayWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: recentCount, error: countError } = await supabaseAdmin
+    .from('student_signup_challenges')
+    .select('id', { count: 'exact', head: true })
+    .eq('email', normalizedEmail)
+    .gte('created_at', dayWindowStart);
+
+  if (countError) {
+    logger.error('Failed counting student signup challenge requests', {
+      email: normalizedEmail,
+      error: countError.message,
+    });
+  }
+
+  const { data: latestChallenge, error: latestChallengeError } = await supabaseAdmin
+    .from('student_signup_challenges')
+    .select('created_at')
+    .eq('email', normalizedEmail)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestChallengeError && !isNotFoundError(latestChallengeError)) {
+    logger.error('Failed reading latest student signup challenge', {
+      email: normalizedEmail,
+      error: latestChallengeError.message,
+    });
+  }
+
+  const latestCreatedAt = latestChallenge?.created_at ? new Date(latestChallenge.created_at).getTime() : 0;
+  const isOnCooldown = latestCreatedAt > 0 && Date.now() - latestCreatedAt < STUDENT_SIGNUP_COOLDOWN_MS;
+  const exceededDailyCap = (recentCount || 0) >= STUDENT_SIGNUP_DAILY_CAP;
+
+  if (isOnCooldown || exceededDailyCap) {
+    return {
+      message: STUDENT_SIGNUP_GENERIC_MESSAGE,
+      delivery: 'verification_link',
+    };
+  }
+
+  const challengeToken = generateFlowToken();
+  const challengeTokenHash = hashFlowToken(challengeToken);
+  const challengeExpiresAt = new Date(Date.now() + STUDENT_SIGNUP_CHALLENGE_TTL_MS).toISOString();
+
+  const { error: insertError } = await supabaseAdmin
+    .from('student_signup_challenges')
+    .insert({
+      email: normalizedEmail,
+      token_hash: challengeTokenHash,
+      expires_at: challengeExpiresAt,
+      request_ip: ipAddress || null,
+      request_user_agent: userAgent || null,
+    });
+
+  if (insertError) {
+    logger.error('Failed to create student signup challenge', {
+      email: normalizedEmail,
+      error: insertError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to process signup request right now.',
+      500
+    );
+  }
+
+  const accountSetupLink = `${emailService.getClientUrl()}/auth/reset-password?token=${challengeToken}&flow=student-signup`;
+
+  try {
+    await emailService.sendStudentSignupVerificationEmail(normalizedEmail, accountSetupLink);
+  } catch (emailError) {
+    logger.error('Failed to send student signup verification email', {
+      email: normalizedEmail,
+      error: emailError instanceof Error ? emailError.message : String(emailError),
+    });
+  }
+
+  return {
+    message: STUDENT_SIGNUP_GENERIC_MESSAGE,
+    delivery: 'verification_link',
+  };
+};
+
+export const completeStudentSignup = async (
+  input: StudentSignupCompleteInput,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<{ message: string }> => {
+  const tokenHash = hashFlowToken(input.token);
+
+  const { data: challenge, error: challengeError } = await supabaseAdmin
+    .from('student_signup_challenges')
+    .select('id, email, token_hash, expires_at, used_at, created_at')
+    .eq('token_hash', tokenHash)
+    .maybeSingle();
+
+  if (challengeError && !isNotFoundError(challengeError)) {
+    logger.error('Failed to lookup student signup challenge', {
+      error: challengeError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to complete account setup.',
+      500
+    );
+  }
+
+  if (!challenge) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Invalid or expired signup link.',
+      401
+    );
+  }
+
+  const typedChallenge = challenge as StudentSignupChallenge;
+
+  if (typedChallenge.used_at) {
+    throw new ApiError(
+      ErrorCode.CONFLICT,
+      'This signup link has already been used.',
+      409
+    );
+  }
+
+  if (new Date(typedChallenge.expires_at).getTime() < Date.now()) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Signup link has expired. Please request a new one.',
+      401
+    );
+  }
+
+  const normalizedEmail = normalizeEmail(typedChallenge.email);
+  const resolvedName = getNormalizedName(input.first_name, input.last_name, normalizedEmail);
+
   const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role')
+    .select('id, role, first_name, last_name')
     .eq('email', normalizedEmail)
-    .single();
+    .maybeSingle();
 
-  if (profileLookupError && profileLookupError.code !== 'PGRST116') {
-    logger.error('Failed to lookup profile for student signup', {
+  if (profileLookupError && !isNotFoundError(profileLookupError)) {
+    logger.error('Failed to lookup profile for student signup completion', {
       email: normalizedEmail,
       error: profileLookupError.message,
     });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
-      'Failed to process signup request',
+      'Unable to complete account setup.',
       500
     );
   }
 
-  const temporaryPassword = generateTemporaryPassword();
-  let userId = '';
-  let firstName = 'Student';
-  let lastName = 'User';
+  let userId = existingProfile?.id || '';
 
   if (existingProfile) {
     if (existingProfile.role !== UserRole.STUDENT) {
       throw new ApiError(
-        ErrorCode.CONFLICT,
-        'This email is already registered as a non-student account.',
-        409
+        ErrorCode.FORBIDDEN,
+        'This signup link cannot be used for this account.',
+        403
       );
     }
 
-    userId = existingProfile.id;
-    const parsedName = toStudentNameFromEmail(normalizedEmail);
-    firstName = existingProfile.first_name || parsedName.firstName;
-    lastName = existingProfile.last_name || parsedName.lastName;
+    const firstName = (existingProfile.first_name || resolvedName.firstName).trim();
+    const lastName = (existingProfile.last_name || resolvedName.lastName).trim();
 
     const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-      password: temporaryPassword,
+      password: input.password,
       email_confirm: true,
       user_metadata: {
         first_name: firstName,
@@ -513,110 +650,80 @@ export const requestStudentCredentialSignup = async (
     });
 
     if (authUpdateError) {
-      logger.error('Failed to reset student credentials', {
+      logger.error('Failed to update student credentials during signup completion', {
         userId,
         email: normalizedEmail,
         error: authUpdateError.message,
       });
       throw new ApiError(
         ErrorCode.INTERNAL_ERROR,
-        'Failed to issue student credentials',
+        'Unable to complete account setup.',
         500
       );
     }
   } else {
-    const parsedName = toStudentNameFromEmail(normalizedEmail);
-    firstName = parsedName.firstName;
-    lastName = parsedName.lastName;
-
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
-      password: temporaryPassword,
+      password: input.password,
       email_confirm: true,
       user_metadata: {
-        first_name: firstName,
-        last_name: lastName,
+        first_name: resolvedName.firstName,
+        last_name: resolvedName.lastName,
         role: UserRole.STUDENT,
       },
     });
 
-    if (authError || !authData.user) {
-      logger.error('Failed to create student via self-signup', {
+    if (authCreateError || !authData.user) {
+      logger.error('Failed to create student account from signup challenge', {
         email: normalizedEmail,
-        error: authError?.message,
+        error: authCreateError?.message,
       });
       throw new ApiError(
         ErrorCode.INTERNAL_ERROR,
-        'Failed to create student account',
+        'Unable to complete account setup.',
         500
       );
     }
 
     userId = authData.user.id;
-
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert({
-        id: userId,
-        email: normalizedEmail,
-        first_name: firstName,
-        last_name: lastName,
-        role: UserRole.STUDENT,
-        email_verified: true,
-        email_verified_at: new Date().toISOString(),
-        pending_approval: false,
-        updated_at: new Date().toISOString(),
-      });
-
-    if (profileError) {
-      logger.error('Failed to upsert student profile during self-signup', {
-        userId,
-        email: normalizedEmail,
-        error: profileError.message,
-      });
-    }
   }
 
-  await issueTemporaryPassword(userId, temporaryPassword);
-
-  let delivery: 'credentials_email' | 'password_reset_link' = 'credentials_email';
-  const studentName = `${firstName} ${lastName}`.trim();
-  try {
-    await emailService.sendStudentCredentialsEmail(
-      normalizedEmail,
-      studentName || 'Student',
-      normalizedEmail,
-      temporaryPassword
-    );
-  } catch (emailError) {
-    const safeMessage = getStudentSignupEmailErrorMessage(emailError);
-    logger.error('Failed to send student credentials email', {
-      userId,
+  const { error: upsertProfileError } = await supabaseAdmin
+    .from('profiles')
+    .upsert({
+      id: userId,
       email: normalizedEmail,
-      safeMessage,
-      error: emailError instanceof Error ? emailError.message : 'Unknown error',
+      first_name: resolvedName.firstName,
+      last_name: resolvedName.lastName,
+      role: UserRole.STUDENT,
+      pending_approval: false,
+      email_verified: true,
+      email_verified_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
-    if (!shouldUseStudentSignupResetLinkFallback(emailError)) {
-      throw new ApiError(
-        ErrorCode.INTERNAL_ERROR,
-        safeMessage,
-        500
-      );
-    }
-
-    const fallbackSent = await sendStudentSignupResetLinkFallback(normalizedEmail);
-    if (!fallbackSent) {
-      throw new ApiError(
-        ErrorCode.INTERNAL_ERROR,
-        safeMessage,
-        500
-      );
-    }
-
-    delivery = 'password_reset_link';
-    await clearTemporaryPasswordRequirement(userId);
+  if (upsertProfileError) {
+    logger.error('Failed to upsert student profile after signup completion', {
+      userId,
+      email: normalizedEmail,
+      error: upsertProfileError.message,
+    });
   }
+
+  const { error: markUsedError } = await supabaseAdmin
+    .from('student_signup_challenges')
+    .update({ used_at: new Date().toISOString() })
+    .eq('id', typedChallenge.id)
+    .is('used_at', null);
+
+  if (markUsedError) {
+    logger.warn('Failed to mark student signup challenge as used', {
+      challengeId: typedChallenge.id,
+      error: markUsedError.message,
+    });
+  }
+
+  await clearTemporaryPasswordRequirement(userId);
 
   await auditService.logAuthEvent(
     userId,
@@ -624,19 +731,252 @@ export const requestStudentCredentialSignup = async (
     ipAddress,
     userAgent,
     {
-      source: 'student_self_signup',
+      source: 'student_signup_challenge',
       email: normalizedEmail,
-      credentials_issued: delivery === 'credentials_email',
-      fallback_reset_link: delivery === 'password_reset_link',
     }
   );
 
   return {
-    message:
-      delivery === 'credentials_email'
-        ? STUDENT_SIGNUP_CREDENTIALS_MESSAGE
-        : STUDENT_SIGNUP_RESET_LINK_MESSAGE,
-    delivery,
+    message: STUDENT_SIGNUP_COMPLETE_MESSAGE,
+  };
+};
+
+export const verifyTeacherSignup = async (token: string): Promise<{ message: string }> => {
+  const tokenHash = hashFlowToken(token);
+
+  const { data: application, error: applicationError } = await supabaseAdmin
+    .from('teacher_applications')
+    .select('id, email, first_name, last_name, status, verification_token_hash, verification_expires_at')
+    .eq('verification_token_hash', tokenHash)
+    .maybeSingle();
+
+  if (applicationError && !isNotFoundError(applicationError)) {
+    logger.error('Failed to lookup teacher verification token', {
+      error: applicationError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to verify application at this time.',
+      500
+    );
+  }
+
+  if (!application) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Invalid or expired verification link.',
+      401
+    );
+  }
+
+  const typedApplication = application as TeacherApplication;
+
+  if (typedApplication.status !== 'pending_email_verification') {
+    throw new ApiError(
+      ErrorCode.CONFLICT,
+      'This verification link has already been used.',
+      409
+    );
+  }
+
+  const verificationExpiresAtMs = typedApplication.verification_expires_at
+    ? new Date(typedApplication.verification_expires_at).getTime()
+    : 0;
+
+  if (!verificationExpiresAtMs || verificationExpiresAtMs < Date.now()) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Verification link has expired. Please submit a new signup request.',
+      401
+    );
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('teacher_applications')
+    .update({
+      status: 'pending_review',
+      email_verified_at: new Date().toISOString(),
+      verification_token_hash: null,
+      verification_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', typedApplication.id);
+
+  if (updateError) {
+    logger.error('Failed to mark teacher application as verified', {
+      applicationId: typedApplication.id,
+      error: updateError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to verify application at this time.',
+      500
+    );
+  }
+
+  try {
+    const pendingCount = await getPendingTeachersCount();
+    notifyAdminsPendingTeacher({
+      id: typedApplication.id,
+      name: `${typedApplication.first_name} ${typedApplication.last_name}`,
+      email: typedApplication.email,
+      pendingCount,
+    });
+  } catch (notificationError) {
+    logger.error('Failed to notify admins after teacher verification', {
+      applicationId: typedApplication.id,
+      error: notificationError instanceof Error ? notificationError.message : String(notificationError),
+    });
+  }
+
+  return {
+    message: TEACHER_SIGNUP_VERIFIED_MESSAGE,
+  };
+};
+
+export const completeTeacherOnboarding = async (
+  input: TeacherOnboardingCompleteInput,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<{ message: string }> => {
+  const tokenHash = hashFlowToken(input.token);
+
+  const { data: application, error: applicationError } = await supabaseAdmin
+    .from('teacher_applications')
+    .select(
+      'id, email, first_name, last_name, status, linked_user_id, onboarding_token_hash, onboarding_expires_at, onboarding_used_at'
+    )
+    .eq('onboarding_token_hash', tokenHash)
+    .maybeSingle();
+
+  if (applicationError && !isNotFoundError(applicationError)) {
+    logger.error('Failed to lookup teacher onboarding token', {
+      error: applicationError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to complete onboarding at this time.',
+      500
+    );
+  }
+
+  if (!application) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Invalid or expired onboarding link.',
+      401
+    );
+  }
+
+  const typedApplication = application as TeacherApplication;
+
+  if (typedApplication.status !== 'approved' || !typedApplication.linked_user_id) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'This onboarding link is no longer valid.',
+      403
+    );
+  }
+
+  if (typedApplication.onboarding_used_at) {
+    throw new ApiError(
+      ErrorCode.CONFLICT,
+      'This onboarding link has already been used.',
+      409
+    );
+  }
+
+  const onboardingExpiresAtMs = typedApplication.onboarding_expires_at
+    ? new Date(typedApplication.onboarding_expires_at).getTime()
+    : 0;
+
+  if (!onboardingExpiresAtMs || onboardingExpiresAtMs < Date.now()) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Onboarding link has expired. Please contact your administrator.',
+      401
+    );
+  }
+
+  const userId = typedApplication.linked_user_id;
+  const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    password: input.password,
+    email_confirm: true,
+    user_metadata: {
+      first_name: typedApplication.first_name,
+      last_name: typedApplication.last_name,
+      role: UserRole.TEACHER,
+    },
+  });
+
+  if (updateAuthError) {
+    logger.error('Failed to set teacher onboarding password', {
+      userId,
+      applicationId: typedApplication.id,
+      error: updateAuthError.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Unable to complete onboarding at this time.',
+      500
+    );
+  }
+
+  const { error: profileUpsertError } = await supabaseAdmin
+    .from('profiles')
+    .upsert({
+      id: userId,
+      email: normalizeEmail(typedApplication.email),
+      first_name: typedApplication.first_name,
+      last_name: typedApplication.last_name,
+      role: UserRole.TEACHER,
+      pending_approval: false,
+      email_verified: true,
+      email_verified_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+  if (profileUpsertError) {
+    logger.error('Failed to upsert teacher profile during onboarding completion', {
+      userId,
+      applicationId: typedApplication.id,
+      error: profileUpsertError.message,
+    });
+  }
+
+  const { error: markOnboardingUsedError } = await supabaseAdmin
+    .from('teacher_applications')
+    .update({
+      onboarding_used_at: new Date().toISOString(),
+      onboarding_token_hash: null,
+      onboarding_expires_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', typedApplication.id);
+
+  if (markOnboardingUsedError) {
+    logger.warn('Failed to mark teacher onboarding link as used', {
+      applicationId: typedApplication.id,
+      error: markOnboardingUsedError.message,
+    });
+  }
+
+  await clearTemporaryPasswordRequirement(userId);
+
+  await auditService.logAuthEvent(
+    userId,
+    AuditEventType.ACCOUNT_CREATED,
+    ipAddress,
+    userAgent,
+    {
+      source: 'teacher_onboarding_completed',
+      email: normalizeEmail(typedApplication.email),
+      application_id: typedApplication.id,
+    }
+  );
+
+  return {
+    message: TEACHER_ONBOARDING_COMPLETE_MESSAGE,
   };
 };
 
@@ -652,6 +992,7 @@ export const login = async (
     email,
     password,
     twoFactorCode,
+    twoFactorChallengeId,
     portal = 'app',
     remember_me = true,
   } = input;
@@ -780,14 +1121,33 @@ export const login = async (
     );
   }
 
+  if (profile.email_verified !== true && profile.role !== UserRole.ADMIN) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      { reason: 'email_not_verified', email: profile.email }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Please verify your email before signing in.',
+      403
+    );
+  }
+
   // Check if 2FA is enabled
   const has2FA = await twoFactorService.isTwoFactorEnabled(data.user.id);
   
   if (has2FA) {
     // If 2FA is enabled but no code provided, return requires2FA flag
     if (!twoFactorCode) {
+      const challengeId = await createTwoFactorLoginChallenge(data.user.id, ipAddress, userAgent);
       // Sign out the session immediately (don't grant access yet)
-      await supabaseAdmin.auth.admin.signOut(data.session.access_token);
+      await supabaseAdmin.auth.admin.signOut(data.user.id);
       
       return {
         user: profile,
@@ -798,9 +1158,25 @@ export const login = async (
           token_type: 'bearer',
         },
         requires2FA: true,
-        tempToken: data.session.access_token, // Temp token for verification
+        twoFactorChallengeId: challengeId,
       };
     }
+
+    if (!twoFactorChallengeId) {
+      await supabaseAdmin.auth.admin.signOut(data.user.id);
+      throw new ApiError(
+        ErrorCode.UNAUTHORIZED,
+        'Two-factor verification session expired. Please sign in again.',
+        401
+      );
+    }
+
+    await consumeTwoFactorLoginChallenge(
+      twoFactorChallengeId,
+      data.user.id,
+      ipAddress,
+      userAgent
+    );
     
     // Verify 2FA code
     try {
@@ -812,7 +1188,7 @@ export const login = async (
       );
     } catch (error) {
       // Sign out on failed 2FA
-      await supabaseAdmin.auth.admin.signOut(data.session.access_token);
+      await supabaseAdmin.auth.admin.signOut(data.user.id);
       throw error;
     }
   }
@@ -850,17 +1226,6 @@ export const login = async (
         ...syncResult,
       });
     }
-  }
-
-  // Check if email is verified (optional enforcement - can be enabled later)
-  if (!profile.email_verified) {
-    logger.warn('Login attempt with unverified email', { userId: data.user.id, email })
-    // For now, just log a warning. To enforce verification, uncomment:
-    // throw new ApiError(
-    //   ErrorCode.FORBIDDEN,
-    //   'Please verify your email before logging in. Check your inbox for the verification link.',
-    //   403
-    // );
   }
 
   return {

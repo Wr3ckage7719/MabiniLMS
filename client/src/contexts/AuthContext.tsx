@@ -18,6 +18,10 @@ const MAX_STUDENT_ACCOUNT_SESSIONS = 5;
 const TEACHER_PENDING_APPROVAL_MESSAGE = 'Your teacher account is pending admin approval. Please wait for approval from the admin.';
 const TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE = 'No approved teacher account was found for this Google login. Please request a teacher account and wait for admin approval.';
 
+const toTwoFactorChallengeKey = (portal: 'app' | 'admin', normalizedEmail: string): string => {
+  return `${portal}:${normalizedEmail}`;
+};
+
 interface StoredStudentAccountSession {
   userId: string;
   email: string;
@@ -181,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<{ access_token?: string } | null>(null);
   const [linkedStudentAccounts, setLinkedStudentAccounts] = useState<LinkedStudentAccount[]>([]);
+  const [twoFactorChallenges, setTwoFactorChallenges] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const refreshLinkedStudentAccounts = useCallback(() => {
@@ -487,8 +492,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fullName: string,
     role: 'student' | 'teacher' = 'teacher'
   ) => {
-    if (!email || !password || !fullName) {
-      throw new Error('All fields are required');
+    if (!email || !fullName) {
+      throw new Error('Email and full name are required');
     }
 
     if (role === 'student') {
@@ -501,7 +506,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const response = await authService.signup({
         email: trimmedEmail,
-        password,
         full_name: fullName,
         first_name: firstToken || 'User',
         last_name: restTokens.join(' ') || 'Name',
@@ -557,8 +561,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Email and password are required');
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const challengeKey = toTwoFactorChallengeKey(portal, normalizedEmail);
+    const challengeId = twoFactorCode ? twoFactorChallenges[challengeKey] : undefined;
+
     try {
-      const normalizedEmail = email.trim().toLowerCase();
       clearRoleIntent();
       setRememberSessionPersistence(rememberMe);
       if (!rememberMe) {
@@ -570,6 +577,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: normalizedEmail,
           password,
           twoFactorCode,
+          twoFactorChallengeId: challengeId,
           portal,
           rememberMe,
         }),
@@ -582,8 +590,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (response.data.requires2FA) {
+        const nextChallengeId = response.data.twoFactorChallengeId;
+        if (!nextChallengeId) {
+          throw new Error('Two-factor challenge was not issued. Please try signing in again.');
+        }
+
+        setTwoFactorChallenges((currentMap) => ({
+          ...currentMap,
+          [challengeKey]: nextChallengeId,
+        }));
         return { requiresTwoFactor: true };
       }
+
+      setTwoFactorChallenges((currentMap) => {
+        if (!(challengeKey in currentMap)) {
+          return currentMap;
+        }
+
+        const { [challengeKey]: _removedChallenge, ...remainingChallenges } = currentMap;
+        return remainingChallenges;
+      });
 
       const authSession = response.data.session;
       if (!authSession?.access_token || !authSession?.refresh_token) {
@@ -620,7 +646,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return { requiresTwoFactor: false };
     } catch (err) {
-      throw new Error(getApiErrorMessage(err, 'Login failed'));
+      const message = getApiErrorMessage(err, 'Login failed');
+      if (message.toLowerCase().includes('two-factor verification session')) {
+        setTwoFactorChallenges((currentMap) => {
+          if (!(challengeKey in currentMap)) {
+            return currentMap;
+          }
+
+          const { [challengeKey]: _removedChallenge, ...remainingChallenges } = currentMap;
+          return remainingChallenges;
+        });
+      }
+
+      throw new Error(message);
     }
   };
 
@@ -659,10 +697,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       setUser(null);
       setSession(null);
+      setTwoFactorChallenges({});
     } catch (error) {
       console.error('Logout error:', error);
       setUser(null);
       setSession(null);
+      setTwoFactorChallenges({});
     }
   };
 

@@ -904,6 +904,115 @@ Open dashboard: ${clientUrl}/dashboard
 };
 
 /**
+ * Send student signup verification email
+ */
+export const sendStudentSignupVerificationEmail = async (
+  email: string,
+  setupLink: string
+): Promise<void> => {
+  const safeLink = escapeHtml(setupLink);
+  const subject = 'Complete Your Student Account Setup - MabiniLMS';
+
+  const html = `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Complete your student account setup</h2>
+    <p style="margin:0 0 12px;">We received your student signup request. Use the secure link below to create your password and activate your account.</p>
+    <p style="margin:16px 0 20px;">
+      <a href="${safeLink}" style="${PRIMARY_BUTTON_STYLE}">Set Password & Activate Account</a>
+    </p>
+    <p style="margin:0 0 8px;"><strong>This link expires soon for your security.</strong></p>
+    <p style="margin:0 0 6px; color:#475569;">If the button does not work, copy and paste this URL:</p>
+    <p style="margin:0; word-break:break-all; color:#1d4ed8;">${safeLink}</p>
+  `;
+
+  const text = `
+Student Account Setup
+
+We received your student signup request.
+Set your password and activate your account using this link:
+${setupLink}
+
+If you did not request this, you can ignore this email.
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
+
+/**
+ * Send teacher application verification email
+ */
+export const sendTeacherApplicationVerificationEmail = async (
+  email: string,
+  teacherName: string,
+  verificationLink: string
+): Promise<void> => {
+  const safeTeacherName = escapeHtml(teacherName);
+  const safeLink = escapeHtml(verificationLink);
+  const subject = 'Verify Your Teacher Application - MabiniLMS';
+
+  const html = `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Verify your teacher application</h2>
+    <p style="margin:0 0 12px;">Hello ${safeTeacherName},</p>
+    <p style="margin:0 0 12px;">Before administrators can review your teacher application, please verify ownership of your email address.</p>
+    <p style="margin:16px 0 20px;">
+      <a href="${safeLink}" style="${PRIMARY_BUTTON_STYLE}">Verify Email Address</a>
+    </p>
+    <p style="margin:0 0 8px;"><strong>After verification, your application enters the admin review queue.</strong></p>
+    <p style="margin:0 0 6px; color:#475569;">If the button does not work, use this link:</p>
+    <p style="margin:0; word-break:break-all; color:#1d4ed8;">${safeLink}</p>
+  `;
+
+  const text = `
+Teacher Application Verification
+
+Hello ${teacherName},
+
+Please verify your email address so administrators can review your teacher application:
+${verificationLink}
+
+After verification, your application will be queued for admin approval.
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
+
+/**
+ * Send teacher onboarding email after admin approval
+ */
+export const sendTeacherOnboardingEmail = async (
+  email: string,
+  teacherName: string,
+  onboardingLink: string
+): Promise<void> => {
+  const safeTeacherName = escapeHtml(teacherName);
+  const safeLink = escapeHtml(onboardingLink);
+  const subject = 'Complete Teacher Onboarding - MabiniLMS';
+
+  const html = `
+    <h2 style="margin:0 0 12px; font-size:22px; color:#0f172a;">Your teacher application was approved</h2>
+    <p style="margin:0 0 12px;">Hello ${safeTeacherName}, your teacher account has been approved by an administrator.</p>
+    <p style="margin:0 0 12px;">Complete onboarding by setting your password using the secure link below.</p>
+    <p style="margin:16px 0 20px;">
+      <a href="${safeLink}" style="${SUCCESS_BUTTON_STYLE}">Set Password & Finish Onboarding</a>
+    </p>
+    <p style="margin:0 0 8px;"><strong>This onboarding link can be used once.</strong></p>
+    <p style="margin:0 0 6px; color:#475569;">If the button does not work, use this URL:</p>
+    <p style="margin:0; word-break:break-all; color:#1d4ed8;">${safeLink}</p>
+  `;
+
+  const text = `
+Teacher Onboarding
+
+Hello ${teacherName},
+
+Your teacher application has been approved.
+Set your password and finish onboarding using this one-time link:
+${onboardingLink}
+  `.trim();
+
+  await sendEmail({ to: email, subject, html, text });
+};
+
+/**
  * Send teacher approval notification email
  */
 export const sendTeacherApprovalEmail = async (

@@ -5,23 +5,27 @@ import { UserRole } from './index.js';
 // Authentication Schemas
 // ============================================
 
-const publicSignupRoleSchema = z.union([
-  z.literal(UserRole.STUDENT),
-  z.literal(UserRole.TEACHER),
-]);
+const publicSignupRoleSchema = z.literal(UserRole.TEACHER);
+
+const accountPasswordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one digit')
+  .regex(/[!@#$%^&*]/, 'Password must contain at least one special character');
 
 export const signupSchema = z.object({
   email: z.string().email('Invalid email format'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
-  role: publicSignupRoleSchema.optional().default(UserRole.STUDENT),
+  role: publicSignupRoleSchema.optional().default(UserRole.TEACHER),
 });
 
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
   twoFactorCode: z.string().optional(), // Optional 2FA code
+  twoFactorChallengeId: z.string().uuid('Invalid two-factor challenge').optional(),
   portal: z.enum(['app', 'admin']).optional().default('app'),
   remember_me: z.boolean().optional().default(true),
 });
@@ -32,6 +36,22 @@ export const forgotPasswordSchema = z.object({
 
 export const studentCredentialSignupSchema = z.object({
   email: z.string().email('Invalid email format'),
+});
+
+export const studentSignupCompleteSchema = z.object({
+  token: z.string().min(1, 'Signup token is required'),
+  password: accountPasswordSchema,
+  first_name: z.string().min(1).max(100).optional(),
+  last_name: z.string().min(1).max(100).optional(),
+});
+
+export const teacherOnboardingCompleteSchema = z.object({
+  token: z.string().min(1, 'Onboarding token is required'),
+  password: accountPasswordSchema,
+});
+
+export const teacherSignupVerificationSchema = z.object({
+  token: z.string().min(1, 'Verification token is required'),
 });
 
 export const resetPasswordSchema = z.object({
@@ -75,6 +95,8 @@ export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type StudentCredentialSignupInput = z.infer<typeof studentCredentialSignupSchema>;
+export type StudentSignupCompleteInput = z.infer<typeof studentSignupCompleteSchema>;
+export type TeacherOnboardingCompleteInput = z.infer<typeof teacherOnboardingCompleteSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
@@ -111,7 +133,7 @@ export interface AuthResponse {
   user: UserProfile;
   session: AuthSession;
   requires2FA?: boolean; // Flag to indicate 2FA is required
-  tempToken?: string; // Temporary token for 2FA verification
+  twoFactorChallengeId?: string;
 }
 
 export interface PaginatedUsers {

@@ -86,8 +86,38 @@ export default function PendingTeachersPage() {
     [pendingTeachers]
   );
 
+  const teacherIds = useMemo(() => new Set(teachers.map((teacher) => teacher.id)), [teachers]);
+
+  const pendingApplicationOnlyTeachers = useMemo<adminService.AdminUser[]>(() => {
+    return pendingTeachers
+      .filter((teacher) => !teacherIds.has(teacher.id))
+      .map((teacher) => ({
+        id: teacher.id,
+        email: teacher.email,
+        first_name: teacher.first_name,
+        last_name: teacher.last_name,
+        role: 'teacher',
+        pending_approval: true,
+        avatar_url: null,
+        created_at: teacher.created_at,
+        updated_at: teacher.created_at,
+      }));
+  }, [pendingTeachers, teacherIds]);
+
+  const mergedTeachers = useMemo(() => {
+    return [...teachers, ...pendingApplicationOnlyTeachers];
+  }, [teachers, pendingApplicationOnlyTeachers]);
+
   const sortedTeachers = useMemo(() => {
-    return [...teachers].sort((a, b) => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const filteredTeachers = normalizedSearch
+      ? mergedTeachers.filter((teacher) => {
+          const fullName = `${teacher.first_name || ''} ${teacher.last_name || ''}`.trim().toLowerCase();
+          return fullName.includes(normalizedSearch) || teacher.email.toLowerCase().includes(normalizedSearch);
+        })
+      : mergedTeachers;
+
+    return [...filteredTeachers].sort((a, b) => {
       const nameA = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email;
       const nameB = `${b.first_name || ''} ${b.last_name || ''}`.trim() || b.email;
 
@@ -116,7 +146,7 @@ export default function PendingTeachersPage() {
 
       return createdB - createdA;
     });
-  }, [teachers, sortBy, pendingTeacherIds]);
+  }, [mergedTeachers, pendingTeacherIds, searchTerm, sortBy]);
 
   // Approve teacher mutation
   const approveMutation = useMutation({
@@ -318,6 +348,7 @@ export default function PendingTeachersPage() {
           <div className="space-y-4">
             {sortedTeachers.map((teacher) => {
               const isPending = pendingTeacherIds.has(teacher.id) || teacher.pending_approval === true;
+              const isApplicationOnly = !teacherIds.has(teacher.id);
               const firstName = teacher.first_name || 'Unknown';
               const lastName = teacher.last_name || '';
               const initials = `${firstName[0] || 'T'}${lastName[0] || ''}`.toUpperCase();
@@ -361,15 +392,17 @@ export default function PendingTeachersPage() {
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-2 justify-end">
-                    <Button
-                      onClick={() => openEditDialog(teacher)}
-                      variant="outline"
-                      className="border-border hover:bg-accent"
-                      disabled={updateTeacherMutation.isPending}
-                    >
-                      <Pencil className="w-4 h-4 mr-2" />
-                      Edit
-                    </Button>
+                    {!isApplicationOnly && (
+                      <Button
+                        onClick={() => openEditDialog(teacher)}
+                        variant="outline"
+                        className="border-border hover:bg-accent"
+                        disabled={updateTeacherMutation.isPending}
+                      >
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
 
                     {isPending ? (
                       <>

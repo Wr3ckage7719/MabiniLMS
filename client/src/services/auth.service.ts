@@ -4,7 +4,7 @@ const STUDENT_SIGNUP_REQUEST_TIMEOUT_MS = 90_000;
 
 export interface SignupData {
   email: string;
-  password: string;
+  password?: string;
   full_name?: string;
   first_name?: string;
   last_name?: string;
@@ -15,6 +15,7 @@ export interface LoginData {
   email: string;
   password: string;
   twoFactorCode?: string;
+  twoFactorChallengeId?: string;
   portal?: 'app' | 'admin';
   rememberMe?: boolean;
 }
@@ -30,7 +31,7 @@ export interface AuthPayload {
   user: any;
   session: AuthSessionPayload;
   requires2FA?: boolean;
-  tempToken?: string;
+  twoFactorChallengeId?: string;
 }
 
 export interface AuthResponse {
@@ -39,17 +40,25 @@ export interface AuthResponse {
   error?: string;
 }
 
+export interface SignupResponse {
+  success: boolean;
+  data?: {
+    message: string;
+  };
+  error?: string;
+}
+
 export interface StudentSignupResponse {
   success: boolean;
   data?: {
     message: string;
-    delivery?: 'credentials_email' | 'password_reset_link';
+    delivery?: 'verification_link' | 'credentials_email' | 'password_reset_link';
   };
   error?: string;
 }
 
 export const authService = {
-  async signup(data: SignupData): Promise<AuthResponse> {
+  async signup(data: SignupData): Promise<SignupResponse> {
     const fullName = (data.full_name || '').trim();
     const [firstToken, ...restTokens] = fullName.split(' ').filter(Boolean);
 
@@ -58,7 +67,6 @@ export const authService = {
 
     return apiClient.post('/auth/signup', {
       email: data.email,
-      password: data.password,
       role: data.role,
       first_name,
       last_name,
@@ -78,9 +86,23 @@ export const authService = {
       email: data.email,
       password: data.password,
       twoFactorCode: data.twoFactorCode,
+      twoFactorChallengeId: data.twoFactorChallengeId,
       portal: data.portal,
       remember_me: data.rememberMe ?? true,
     });
+  },
+
+  async completeStudentSignup(token: string, password: string): Promise<{ success: boolean; data?: { message: string } }> {
+    return apiClient.post('/auth/student-signup/complete', { token, password });
+  },
+
+  async completeTeacherOnboarding(token: string, password: string): Promise<{ success: boolean; data?: { message: string } }> {
+    return apiClient.post('/auth/teacher-onboarding/complete', { token, password });
+  },
+
+  async verifyTeacherSignup(token: string): Promise<{ success: boolean; data?: { message: string } }> {
+    const params = new URLSearchParams({ token });
+    return apiClient.get(`/auth/signup/teacher/verify?${params.toString()}`);
   },
 
   async getCurrentUser() {

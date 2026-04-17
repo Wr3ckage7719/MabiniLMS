@@ -33,6 +33,9 @@ export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token') || '';
+  const flow = (searchParams.get('flow') || '').trim().toLowerCase();
+  const isStudentSignupFlow = flow === 'student-signup';
+  const isTeacherOnboardingFlow = flow === 'teacher-onboarding';
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -81,8 +84,16 @@ export default function ResetPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      await authService.resetPassword(token, password);
-      setSuccessMessage('Password reset successful. You can now sign in with your new password.');
+      if (isStudentSignupFlow) {
+        await authService.completeStudentSignup(token, password);
+        setSuccessMessage('Account setup complete. You can now sign in as a student.');
+      } else if (isTeacherOnboardingFlow) {
+        await authService.completeTeacherOnboarding(token, password);
+        setSuccessMessage('Teacher onboarding complete. You can now sign in.');
+      } else {
+        await authService.resetPassword(token, password);
+        setSuccessMessage('Password reset successful. You can now sign in with your new password.');
+      }
 
       setTimeout(() => {
         navigate('/login');
@@ -103,7 +114,11 @@ export default function ResetPasswordPage() {
           </div>
           <h1 className="text-2xl font-semibold">Reset Your Password</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Enter a new password for your account.
+            {isStudentSignupFlow
+              ? 'Create your password to activate your student account.'
+              : isTeacherOnboardingFlow
+                ? 'Create your password to finish teacher onboarding.'
+                : 'Enter a new password for your account.'}
           </p>
         </div>
 
@@ -111,7 +126,7 @@ export default function ResetPasswordPage() {
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              This reset link is missing a token. Please request a new password reset email.
+              This setup link is missing a token. Please request a new email link.
             </AlertDescription>
           </Alert>
         )}
