@@ -20,7 +20,14 @@ import {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHORT_CLASS_CODE_REGEX = /^[0-9a-f]{8}$/i;
 
-const normalizeDbErrorText = (error: { message?: string; details?: string; hint?: string } | null): string => {
+type DatabaseErrorShape = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
+const normalizeDbErrorText = (error: DatabaseErrorShape | null): string => {
   if (!error) {
     return '';
   }
@@ -32,7 +39,7 @@ const normalizeDbErrorText = (error: { message?: string; details?: string; hint?
 };
 
 const isMissingColumnError = (
-  error: { code?: string; message?: string; details?: string; hint?: string } | null,
+  error: DatabaseErrorShape | null,
   column: string
 ): boolean => {
   if (!error) {
@@ -43,7 +50,7 @@ const isMissingColumnError = (
 };
 
 const isStatusCompatibilityError = (
-  error: { code?: string; message?: string; details?: string; hint?: string } | null
+  error: DatabaseErrorShape | null
 ): boolean => {
   if (!error) {
     return false;
@@ -55,6 +62,40 @@ const isStatusCompatibilityError = (
     ((error.code === '23514' || error.code === '22P02') && text.includes('status')) ||
     (text.includes('invalid input value for enum') && text.includes('status')) ||
     (text.includes('status') && text.includes('check constraint'))
+  );
+};
+
+const isMissingRelationError = (error: DatabaseErrorShape | null): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const text = normalizeDbErrorText(error);
+  return (
+    error.code === '42P01' ||
+    text.includes('could not find the table') ||
+    (text.includes('relation') && text.includes('does not exist'))
+  );
+};
+
+const isPermissionDeniedError = (error: DatabaseErrorShape | null): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const text = normalizeDbErrorText(error);
+  return (
+    error.code === '42501' ||
+    text.includes('permission denied') ||
+    text.includes('row-level security')
+  );
+};
+
+const shouldTryMinimalEnrollmentInsertFallback = (error: DatabaseErrorShape | null): boolean => {
+  return (
+    isStatusCompatibilityError(error) ||
+    isMissingColumnError(error, 'status') ||
+    isMissingColumnError(error, 'enrolled_at')
   );
 };
 
@@ -75,7 +116,7 @@ const buildEnrollmentMutationPayload = (
 const insertEnrollmentWithCompatibility = async (
   courseId: string,
   studentId: string
-): Promise<{ data: Enrollment | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
+): Promise<{ data: Enrollment | null; error: DatabaseErrorShape | null }> => {
   const primaryInsertPayload = {
     course_id: courseId,
     student_id: studentId,
@@ -90,6 +131,10 @@ const insertEnrollmentWithCompatibility = async (
 
   if (!primaryError) {
     return { data: primaryData as Enrollment, error: null };
+  }
+
+  if (isMissingRelationError(primaryError) || isPermissionDeniedError(primaryError)) {
+    return { data: null, error: primaryError };
   }
 
   const fallbackStatus = isStatusCompatibilityError(primaryError)
@@ -126,6 +171,30 @@ const insertEnrollmentWithCompatibility = async (
     return { data: retryData as Enrollment, error: null };
   }
 
+  if (shouldTryMinimalEnrollmentInsertFallback(retryError)) {
+    logger.warn('Retrying enrollment insert with minimal payload fallback', {
+      courseId,
+      studentId,
+      errorCode: retryError.code,
+      errorMessage: retryError.message,
+    });
+
+    const { data: minimalData, error: minimalError } = await supabaseAdmin
+      .from('enrollments')
+      .insert({
+        course_id: courseId,
+        student_id: studentId,
+      })
+      .select()
+      .single();
+
+    if (!minimalError) {
+      return { data: minimalData as Enrollment, error: null };
+    }
+
+    return { data: null, error: minimalError };
+  }
+
   return { data: null, error: retryError };
 };
 
@@ -133,7 +202,7 @@ const reactivateEnrollmentWithCompatibility = async (
   courseId: string,
   studentId: string,
   preferLegacyStatus: boolean
-): Promise<{ data: Enrollment[] | null; error: { code?: string; message?: string; details?: string; hint?: string } | null }> => {
+): Promise<{ data: Enrollment[] | null; error: DatabaseErrorShape | null }> => {
   const primaryStatus = preferLegacyStatus
     ? LEGACY_ACTIVE_ENROLLMENT_STATUS
     : EnrollmentStatus.ACTIVE;
@@ -416,6 +485,33 @@ export const enrollStudent = async (
         studentId,
         error: reactivationError.message,
       });
+
+      if (isMissingRelationError(reactivationError)) {
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Enrollment storage is not available. Run migrations 001_initial_schema, 019_normalize_enrollment_status, and 020_enrollment_integrity_guard.',
+          503,
+          {
+            reason: 'ENROLLMENTS_SCHEMA_OUTDATED',
+            db_code: reactivationError.code,
+            db_message: reactivationError.message,
+          }
+        );
+      }
+
+      if (isPermissionDeniedError(reactivationError)) {
+        throw new ApiError(
+          ErrorCode.INTERNAL_ERROR,
+          'Database permission denied while reactivating enrollment. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+          503,
+          {
+            reason: 'SUPABASE_PERMISSION_DENIED',
+            db_code: reactivationError.code,
+            db_message: reactivationError.message,
+          }
+        );
+      }
+
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to reactivate existing enrollment', 500, {
         reason: 'ENROLLMENT_REACTIVATE_FAILED',
         db_code: reactivationError.code,
@@ -446,6 +542,32 @@ export const enrollStudent = async (
 
   if (error) {
     logger.error('Failed to enroll student', { courseId, studentId, error: error.message });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Enrollment storage is not available. Run migrations 001_initial_schema, 019_normalize_enrollment_status, and 020_enrollment_integrity_guard.',
+        503,
+        {
+          reason: 'ENROLLMENTS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while creating enrollment. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
 
     if (error.code === '23505') {
       throw new ApiError(ErrorCode.CONFLICT, 'Enrollment record already exists for this student', 409, {

@@ -526,7 +526,11 @@ export function TeacherClassStream({
           description: 'Your announcement is now visible to students.',
         });
       } catch (error: any) {
-        const message = error?.response?.data?.message || error?.message || 'Failed to post announcement';
+        const message =
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to post announcement';
         toast({
           title: 'Unable to post announcement',
           description: message,

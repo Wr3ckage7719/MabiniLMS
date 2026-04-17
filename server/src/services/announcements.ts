@@ -69,12 +69,58 @@ type AnnouncementCommentJoinedRow = {
   author: AnnouncementCommentAuthorRow | AnnouncementCommentAuthorRow[] | null;
 };
 
-const isMissingRelationError = (error?: { code?: string; message?: string } | null): boolean => {
-  const message = (error?.message || '').toLowerCase();
+type DatabaseErrorShape = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
+const ANNOUNCEMENT_INSERT_SELECT_COLUMNS = [
+  'id',
+  'course_id',
+  'author_id',
+  'title',
+  'content',
+  'pinned',
+  'created_at',
+  'updated_at',
+];
+
+const ANNOUNCEMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
+  'pinned',
+  'created_at',
+  'updated_at',
+]);
+
+const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
+  return [error?.message, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const isMissingRelationError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
   return (
     error?.code === '42P01' ||
     message.includes('could not find the table') ||
     message.includes('does not exist')
+  );
+};
+
+const extractMissingColumnName = (error?: DatabaseErrorShape | null): string | null => {
+  const message = normalizeDbErrorText(error);
+  const match = message.match(/column\s+"?([a-z0-9_]+)"?\s+does not exist/i);
+  return match?.[1] || null;
+};
+
+const isPermissionDeniedError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42501' ||
+    message.includes('permission denied') ||
+    message.includes('row-level security')
   );
 };
 
@@ -204,6 +250,56 @@ const enrichAnnouncementsWithAuthors = async (
   }));
 };
 
+const insertAnnouncementWithCompatibility = async (
+  payload: Record<string, unknown>
+): Promise<{ data: Partial<AnnouncementRow> | null; error: DatabaseErrorShape | null }> => {
+  const insertPayload: Record<string, unknown> = { ...payload };
+  const selectColumns = [...ANNOUNCEMENT_INSERT_SELECT_COLUMNS];
+  let lastError: DatabaseErrorShape | null = null;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('announcements')
+      .insert(insertPayload)
+      .select(selectColumns.join(', '))
+      .single();
+
+    if (!error) {
+      return {
+        data: data as Partial<AnnouncementRow>,
+        error: null,
+      };
+    }
+
+    lastError = error;
+    const missingColumn = extractMissingColumnName(error);
+
+    if (
+      missingColumn &&
+      ANNOUNCEMENT_COMPAT_OPTIONAL_COLUMNS.has(missingColumn) &&
+      Object.prototype.hasOwnProperty.call(insertPayload, missingColumn)
+    ) {
+      delete insertPayload[missingColumn];
+
+      const selectColumnIndex = selectColumns.indexOf(missingColumn);
+      if (selectColumnIndex >= 0) {
+        selectColumns.splice(selectColumnIndex, 1);
+      }
+
+      logger.warn('Retrying announcement insert without optional column', {
+        missingColumn,
+        attempt: attempt + 1,
+        error: error.message,
+      });
+      continue;
+    }
+
+    return { data: null, error };
+  }
+
+  return { data: null, error: lastError };
+};
+
 /**
  * Create an announcement for a course
  */
@@ -233,24 +329,73 @@ export const createAnnouncement = async (
     );
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('announcements')
-    .insert({
-      course_id: courseId,
-      author_id: authorId,
-      title: input.title,
-      content: input.content,
-      pinned: input.pinned || false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .select(ANNOUNCEMENT_SELECT_BASE)
-    .single();
+  const nowIso = new Date().toISOString();
+  const { data: insertedAnnouncement, error } = await insertAnnouncementWithCompatibility({
+    course_id: courseId,
+    author_id: authorId,
+    title: input.title,
+    content: input.content,
+    pinned: input.pinned || false,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
 
-  if (error) {
-    logger.error('Failed to create announcement', { courseId, error: error.message });
-    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create announcement', 500);
+  if (error || !insertedAnnouncement?.id) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Announcement storage is not available. Run migration 008_announcements and re-apply latest migrations.',
+        503,
+        {
+          reason: 'ANNOUNCEMENTS_SCHEMA_OUTDATED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while creating announcements. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    logger.error('Failed to create announcement', { courseId, error: error?.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create announcement', 500, {
+      reason: 'ANNOUNCEMENT_INSERT_FAILED',
+      db_code: error?.code,
+      db_message: error?.message,
+    });
   }
+
+  const data: AnnouncementRow = {
+    id: String(insertedAnnouncement.id),
+    course_id: String(insertedAnnouncement.course_id || courseId),
+    author_id: String(insertedAnnouncement.author_id || authorId),
+    title: String(insertedAnnouncement.title || input.title),
+    content: String(insertedAnnouncement.content || input.content),
+    pinned:
+      typeof insertedAnnouncement.pinned === 'boolean'
+        ? insertedAnnouncement.pinned
+        : Boolean(input.pinned),
+    created_at:
+      typeof insertedAnnouncement.created_at === 'string'
+        ? insertedAnnouncement.created_at
+        : nowIso,
+    updated_at:
+      typeof insertedAnnouncement.updated_at === 'string'
+        ? insertedAnnouncement.updated_at
+        : typeof insertedAnnouncement.created_at === 'string'
+          ? insertedAnnouncement.created_at
+          : nowIso,
+  };
 
   await notifyAnnouncementCreated(courseId, {
     id: data.id,
