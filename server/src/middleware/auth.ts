@@ -322,6 +322,19 @@ export const authenticate = async (
       const role = resolveUserRole(rawRole);
       const normalizedEmail = normalizeEmail(user.email || '');
 
+      if (role === UserRole.STUDENT && !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
+        logger.warn('Profile bootstrap blocked for non-institutional student email', {
+          userId: user.id,
+          email: normalizedEmail,
+        });
+
+        throw new ApiError(
+          ErrorCode.FORBIDDEN,
+          `Student login requires an institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN}).`,
+          403
+        );
+      }
+
       const fullName = (user.user_metadata?.full_name || user.user_metadata?.name || '').trim();
       const nameParts = fullName ? fullName.split(/\s+/).filter(Boolean) : [];
       const firstName = user.user_metadata?.first_name || nameParts[0] || null;
