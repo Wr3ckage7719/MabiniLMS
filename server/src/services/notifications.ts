@@ -6,6 +6,7 @@
 
 import { supabaseAdmin } from '../lib/supabase.js'
 import webpush from 'web-push'
+import { randomUUID } from 'crypto'
 import { ApiError, ErrorCode } from '../types/index.js'
 import {
   Notification,
@@ -146,8 +147,8 @@ const toPushPayload = (notification: Notification): PushPayload => {
   return {
     title: notification.title,
     body: notification.message,
-    icon: '/icons/icon-192x192.svg',
-    badge: '/icons/icon-192x192.svg',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/notification-badge-96x96.png',
     tag: `notification-${notification.id}`,
     url,
     data: {
@@ -201,6 +202,15 @@ const isDuplicateKeyError = (error: DatabaseErrorShape | null | undefined): bool
   }
 
   return error.code === '23505'
+}
+
+const isMissingUuidGeneratorError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  const normalized = toNormalizedDbErrorMessage(error)
+
+  return (
+    error?.code === '42883' && normalized.includes('gen_random_uuid') ||
+    (normalized.includes('function gen_random_uuid') && normalized.includes('does not exist'))
+  )
 }
 
 const extractMissingColumnName = (error: DatabaseErrorShape | null | undefined): string | null => {
@@ -463,8 +473,20 @@ export const registerWebPushSubscription = async (
     throwPushSubscriptionStorageUnavailable(upsertError)
   }
 
-  if (!isMissingOnConflictConstraintError(upsertError)) {
+  const shouldUseLegacyWritePath =
+    isMissingOnConflictConstraintError(upsertError) ||
+    isMissingUuidGeneratorError(upsertError)
+
+  if (!shouldUseLegacyWritePath) {
     throwPushRegistrationFailure(userId, endpoint, 'upsert', upsertError)
+  }
+
+  if (isMissingUuidGeneratorError(upsertError)) {
+    logger.warn('push_subscriptions default UUID generator is unavailable; using explicit id fallback', {
+      userId,
+      endpoint,
+      code: upsertError.code,
+    })
   }
 
   // Compatibility fallback for deployments where push_subscriptions.endpoint is not unique.
@@ -507,9 +529,14 @@ export const registerWebPushSubscription = async (
     throwPushRegistrationFailure(userId, endpoint, 'legacy-update', updateError)
   }
 
+  const insertPayload = {
+    ...registrationPayload,
+    id: randomUUID(),
+  }
+
   const insertError = await writePushSubscriptionWithColumnFallback(
     (payload) => supabaseAdmin.from('push_subscriptions').insert(payload),
-    registrationPayload
+    insertPayload
   )
 
   if (!insertError) {
