@@ -353,8 +353,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                        profile?.user_metadata?.name ||
                        email.split('@')[0];
 
-      const avatar = profile?.user_metadata?.avatar_url ||
-                     fullName.charAt(0).toUpperCase();
+      const metadataAvatarUrl =
+        profile?.user_metadata?.avatar_url ||
+        profile?.user_metadata?.picture ||
+        null;
+
+      const avatar = metadataAvatarUrl || fullName.charAt(0).toUpperCase();
 
       // Fetch user profile data including role, pending_approval, and avatar_url
       const { data: profileData, error: profileError } = await supabase
@@ -375,7 +379,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatarUrl:
           apiProfileData?.avatar_url ||
           profileData?.avatar_url ||
-          profile?.user_metadata?.avatar_url ||
+          metadataAvatarUrl ||
           null,
         role:
           apiProfileData?.role ||

@@ -1,8 +1,28 @@
 import { Request, Response, NextFunction } from 'express'
 import * as emailVerificationService from '../services/email-verification.js'
 import * as emailService from '../services/email.js'
-import { ApiResponse } from '../types/index.js'
+import * as authService from '../services/auth.js'
+import { ApiError, ApiResponse, ErrorCode } from '../types/index.js'
 import { VerificationResponse } from '../types/email.js'
+
+const isTeacherFlowTokenCandidate = (token: string): boolean => /^[a-f0-9]{64}$/i.test(token.trim())
+
+const shouldFallbackToTeacherVerification = (error: unknown, token: string): boolean => {
+  if (!isTeacherFlowTokenCandidate(token)) {
+    return false
+  }
+
+  if (!(error instanceof ApiError)) {
+    return false
+  }
+
+  if (error.code !== ErrorCode.UNAUTHORIZED && error.code !== ErrorCode.CONFLICT) {
+    return false
+  }
+
+  const normalizedMessage = (error.message || '').toLowerCase()
+  return normalizedMessage.includes('verification token')
+}
 
 /**
  * @swagger
@@ -49,14 +69,42 @@ export const verifyEmail = async (
       return
     }
 
-    const result = await emailVerificationService.verifyEmailToken(token)
+    let result: { userId: string; email: string } | null = null
+    let teacherFallbackMessage: string | null = null
+
+    try {
+      result = await emailVerificationService.verifyEmailToken(token)
+    } catch (error) {
+      if (!shouldFallbackToTeacherVerification(error, token)) {
+        throw error
+      }
+
+      try {
+        const teacherResult = await authService.verifyTeacherSignup(token)
+        teacherFallbackMessage = teacherResult.message
+      } catch {
+        throw error
+      }
+    }
+
+    if (teacherFallbackMessage) {
+      const response: ApiResponse<VerificationResponse> = {
+        success: true,
+        data: {
+          success: true,
+          message: teacherFallbackMessage,
+        },
+      }
+      res.json(response)
+      return
+    }
 
     const response: ApiResponse<VerificationResponse> = {
       success: true,
       data: {
         success: true,
         message: 'Email verified successfully',
-        email: result.email,
+        email: result?.email,
       },
     }
     res.json(response)

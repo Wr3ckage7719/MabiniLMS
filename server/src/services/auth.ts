@@ -172,7 +172,15 @@ const isNotFoundError = (error: { code?: string } | null): boolean => {
 const generateFlowToken = (): string => crypto.randomBytes(32).toString('hex');
 
 const hashFlowToken = (token: string): string => {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  const decodedToken = (() => {
+    try {
+      return decodeURIComponent(token);
+    } catch {
+      return token;
+    }
+  })();
+
+  return crypto.createHash('sha256').update(decodedToken.trim()).digest('hex');
 };
 
 const getNormalizedName = (

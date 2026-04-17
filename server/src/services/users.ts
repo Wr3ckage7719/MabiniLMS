@@ -27,6 +27,16 @@ const isAlreadyExistsBucketError = (message?: string): boolean => {
   return normalized.includes('already exists') || normalized.includes('duplicate');
 };
 
+const isPermissionDeniedStorageError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return (
+    normalized.includes('not authorized') ||
+    normalized.includes('permission denied') ||
+    normalized.includes('forbidden') ||
+    normalized.includes('row-level security')
+  );
+};
+
 const ensureAvatarBucketExists = async (): Promise<void> => {
   const { data: bucket, error: getBucketError } = await supabaseAdmin.storage.getBucket(AVATARS_BUCKET);
 
@@ -46,13 +56,21 @@ const ensureAvatarBucketExists = async (): Promise<void> => {
     fileSizeLimit: '5MB',
   });
 
-  if (createBucketError && !isAlreadyExistsBucketError(createBucketError.message)) {
-    logger.error('Failed to create avatars bucket', { error: createBucketError.message });
-    throw new ApiError(
-      ErrorCode.INTERNAL_ERROR,
-      'Avatar upload storage is not configured. Please contact an administrator.',
-      500
-    );
+  if (createBucketError) {
+    if (isAlreadyExistsBucketError(createBucketError.message)) {
+      return;
+    }
+
+    if (isPermissionDeniedStorageError(createBucketError.message)) {
+      logger.warn('Could not auto-create avatars bucket due permissions. Proceeding with upload attempt.', {
+        error: createBucketError.message,
+      });
+      return;
+    }
+
+    logger.warn('Failed to auto-create avatars bucket. Proceeding with upload attempt.', {
+      error: createBucketError.message,
+    });
   }
 };
 
@@ -336,7 +354,15 @@ export const uploadAvatar = async (
     if (isMissingBucketError(uploadError.message)) {
       throw new ApiError(
         ErrorCode.INTERNAL_ERROR,
-        'Avatar storage bucket is missing. Please contact an administrator.',
+        'Avatar upload storage is not configured. Please contact an administrator.',
+        500
+      );
+    }
+
+    if (isPermissionDeniedStorageError(uploadError.message)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Avatar storage permissions are not configured correctly. Please contact an administrator.',
         500
       );
     }
