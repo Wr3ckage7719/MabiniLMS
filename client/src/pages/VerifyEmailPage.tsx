@@ -56,7 +56,15 @@ export default function VerifyEmailPage() {
         if (isTeacherSignupFlow) {
           await authService.verifyTeacherSignup(token);
         } else {
-          await authService.verifyEmail(token);
+          try {
+            await authService.verifyEmail(token);
+          } catch {
+            // Fallback for teacher verification links opened without flow query on older clients.
+            await authService.verifyTeacherSignup(token);
+            setStatus('success');
+            setMessage('Your email has been verified. Your teacher application is now pending administrator review.');
+            return;
+          }
         }
         setStatus('success');
         setMessage(

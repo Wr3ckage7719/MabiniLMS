@@ -92,8 +92,18 @@ export const authService = {
     });
   },
 
-  async completeStudentSignup(token: string, password: string): Promise<{ success: boolean; data?: { message: string } }> {
-    return apiClient.post('/auth/student-signup/complete', { token, password });
+  async completeStudentSignup(
+    token: string,
+    password: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<{ success: boolean; data?: { message: string } }> {
+    return apiClient.post('/auth/student-signup/complete', {
+      token,
+      password,
+      first_name: firstName,
+      last_name: lastName,
+    });
   },
 
   async completeTeacherOnboarding(token: string, password: string): Promise<{ success: boolean; data?: { message: string } }> {

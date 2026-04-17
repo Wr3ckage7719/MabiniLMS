@@ -88,6 +88,8 @@ export default function ResetPasswordPage() {
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,7 +128,14 @@ export default function ResetPasswordPage() {
     return '';
   }, [allPasswordRequirementsMet, password, passwordsMatch]);
 
-  const canSubmit = Boolean(token) && allPasswordRequirementsMet && passwordsMatch && !isSubmitting;
+  const hasStudentNames = firstName.trim().length > 0 && lastName.trim().length > 0;
+
+  const canSubmit =
+    Boolean(token) &&
+    allPasswordRequirementsMet &&
+    passwordsMatch &&
+    (!isStudentSignupFlow || hasStudentNames) &&
+    !isSubmitting;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -135,6 +144,11 @@ export default function ResetPasswordPage() {
 
     if (!token) {
       setError('Reset token is missing. Please use the latest reset link from your email.');
+      return;
+    }
+
+    if (isStudentSignupFlow && !hasStudentNames) {
+      setError('First name and last name are required to activate your student account.');
       return;
     }
 
@@ -152,7 +166,7 @@ export default function ResetPasswordPage() {
 
     try {
       if (isStudentSignupFlow) {
-        await authService.completeStudentSignup(token, password);
+        await authService.completeStudentSignup(token, password, firstName.trim(), lastName.trim());
         setSuccessMessage('Account setup complete. You can now sign in as a student.');
       } else if (isTeacherOnboardingFlow) {
         await authService.completeTeacherOnboarding(token, password);
@@ -198,6 +212,7 @@ export default function ResetPasswordPage() {
         <div className="mb-4 rounded-xl border border-border/60 bg-secondary/20 p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Instructions</p>
           <ol className="text-xs text-muted-foreground space-y-1 list-decimal pl-4">
+            {isStudentSignupFlow && <li>Enter your first and last name exactly as you want it displayed.</li>}
             <li>Create a password that meets all requirements below.</li>
             <li>Re-enter the same password in Confirm Password.</li>
             <li>Submit to finish account setup and continue to login.</li>
@@ -228,6 +243,36 @@ export default function ResetPasswordPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isStudentSignupFlow && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="student-first-name">First Name</Label>
+                <Input
+                  id="student-first-name"
+                  type="text"
+                  autoComplete="given-name"
+                  placeholder="First name"
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="student-last-name">Last Name</Label>
+                <Input
+                  id="student-last-name"
+                  type="text"
+                  autoComplete="family-name"
+                  placeholder="Last name"
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="new-password">New Password</Label>
             <Input
