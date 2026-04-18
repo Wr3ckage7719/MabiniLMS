@@ -68,6 +68,17 @@ const isMissingRelationError = (
   );
 };
 
+const isPermissionDeniedError = (
+  error?: { code?: string; message?: string } | null
+): boolean => {
+  const message = (error?.message || '').toLowerCase();
+  return (
+    error?.code === '42501' ||
+    message.includes('permission denied') ||
+    message.includes('row-level security')
+  );
+};
+
 const normalizeAuthor = (
   author: DiscussionAuthorRow | DiscussionAuthorRow[] | null
 ): DiscussionAuthorRow | null => {
@@ -375,6 +386,19 @@ export const createDiscussionPost = async (
         ErrorCode.INTERNAL_ERROR,
         'Discussion stream is not available yet. Please run the latest database migrations.',
         503
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while creating discussion posts. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error.code,
+          db_message: error.message,
+        }
       );
     }
 
