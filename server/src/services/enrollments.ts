@@ -203,55 +203,69 @@ const reactivateEnrollmentWithCompatibility = async (
   studentId: string,
   preferLegacyStatus: boolean
 ): Promise<{ data: Enrollment[] | null; error: DatabaseErrorShape | null }> => {
-  const primaryStatus = preferLegacyStatus
-    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
-    : EnrollmentStatus.ACTIVE;
+  const statusCandidates = preferLegacyStatus
+    ? [LEGACY_ACTIVE_ENROLLMENT_STATUS, EnrollmentStatus.ACTIVE]
+    : [EnrollmentStatus.ACTIVE, LEGACY_ACTIVE_ENROLLMENT_STATUS];
 
-  const primaryUpdatePayload = buildEnrollmentMutationPayload(primaryStatus, true);
+  let lastError: DatabaseErrorShape | null = null;
 
-  const { data: primaryData, error: primaryError } = await supabaseAdmin
+  for (const statusCandidate of statusCandidates) {
+    let includeEnrolledAt = true;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const updatePayload = buildEnrollmentMutationPayload(statusCandidate, includeEnrolledAt);
+
+      const { data, error } = await supabaseAdmin
+        .from('enrollments')
+        .update(updatePayload)
+        .eq('course_id', courseId)
+        .eq('student_id', studentId)
+        .select();
+
+      if (!error) {
+        return { data: (data || []) as Enrollment[], error: null };
+      }
+
+      lastError = error;
+
+      if (isMissingRelationError(error) || isPermissionDeniedError(error)) {
+        return { data: null, error };
+      }
+
+      if (includeEnrolledAt && isMissingColumnError(error, 'enrolled_at')) {
+        includeEnrolledAt = false;
+        continue;
+      }
+
+      if (
+        statusCandidate === LEGACY_ACTIVE_ENROLLMENT_STATUS &&
+        isStatusCompatibilityError(error)
+      ) {
+        break;
+      }
+
+      break;
+    }
+  }
+
+  return { data: null, error: lastError };
+};
+
+const recreateEnrollmentFromExistingRows = async (
+  courseId: string,
+  studentId: string
+): Promise<{ data: Enrollment | null; error: DatabaseErrorShape | null }> => {
+  const { error: deleteError } = await supabaseAdmin
     .from('enrollments')
-    .update(primaryUpdatePayload)
+    .delete()
     .eq('course_id', courseId)
-    .eq('student_id', studentId)
-    .select();
+    .eq('student_id', studentId);
 
-  if (!primaryError) {
-    return { data: (primaryData || []) as Enrollment[], error: null };
+  if (deleteError) {
+    return { data: null, error: deleteError };
   }
 
-  const fallbackStatus = isStatusCompatibilityError(primaryError)
-    ? LEGACY_ACTIVE_ENROLLMENT_STATUS
-    : primaryStatus;
-  const includeEnrolledAt = !isMissingColumnError(primaryError, 'enrolled_at');
-
-  if (fallbackStatus === primaryStatus && includeEnrolledAt) {
-    return { data: null, error: primaryError };
-  }
-
-  logger.warn('Retrying enrollment reactivation with compatibility fallback', {
-    courseId,
-    studentId,
-    fallbackStatus,
-    includeEnrolledAt,
-    initialErrorCode: primaryError.code,
-    initialErrorMessage: primaryError.message,
-  });
-
-  const retryUpdatePayload = buildEnrollmentMutationPayload(fallbackStatus, includeEnrolledAt);
-
-  const { data: retryData, error: retryError } = await supabaseAdmin
-    .from('enrollments')
-    .update(retryUpdatePayload)
-    .eq('course_id', courseId)
-    .eq('student_id', studentId)
-    .select();
-
-  if (!retryError) {
-    return { data: (retryData || []) as Enrollment[], error: null };
-  }
-
-  return { data: null, error: retryError };
+  return insertEnrollmentWithCompatibility(courseId, studentId);
 };
 
 const resolveCourseIdFromReference = async (courseReference: string): Promise<string> => {
@@ -480,42 +494,79 @@ export const enrollStudent = async (
     } = await reactivateEnrollmentWithCompatibility(courseId, studentId, preferLegacyStatus);
 
     if (reactivationError) {
+      let finalReactivationError = reactivationError;
+
+      if (!isMissingRelationError(reactivationError)) {
+        logger.warn('Enrollment reactivation failed, attempting stale-row recreation fallback', {
+          courseId,
+          studentId,
+          reactivationErrorCode: reactivationError.code,
+          reactivationErrorMessage: reactivationError.message,
+        });
+
+        const {
+          data: recreatedEnrollment,
+          error: recreateError,
+        } = await recreateEnrollmentFromExistingRows(courseId, studentId);
+
+        if (!recreateError && recreatedEnrollment) {
+          try {
+            await sendEnrollmentNotification(studentId, course.title || 'Course', courseId, enrollmentActor);
+          } catch (notificationError) {
+            logger.warn('Enrollment notification failed after recreated enrollment', {
+              courseId,
+              studentId,
+              error:
+                notificationError instanceof Error
+                  ? notificationError.message
+                  : String(notificationError),
+            });
+          }
+
+          return recreatedEnrollment;
+        }
+
+        if (recreateError) {
+          finalReactivationError = recreateError;
+        }
+      }
+
       logger.error('Failed to reactivate enrollment', {
         courseId,
         studentId,
-        error: reactivationError.message,
+        error: finalReactivationError.message,
       });
 
-      if (isMissingRelationError(reactivationError)) {
+      if (isMissingRelationError(finalReactivationError)) {
         throw new ApiError(
           ErrorCode.INTERNAL_ERROR,
           'Enrollment storage is not available. Run migrations 001_initial_schema, 019_normalize_enrollment_status, and 020_enrollment_integrity_guard.',
           503,
           {
             reason: 'ENROLLMENTS_SCHEMA_OUTDATED',
-            db_code: reactivationError.code,
-            db_message: reactivationError.message,
+            db_code: finalReactivationError.code,
+            db_message: finalReactivationError.message,
           }
         );
       }
 
-      if (isPermissionDeniedError(reactivationError)) {
+      if (isPermissionDeniedError(finalReactivationError)) {
         throw new ApiError(
           ErrorCode.INTERNAL_ERROR,
           'Database permission denied while reactivating enrollment. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
           503,
           {
             reason: 'SUPABASE_PERMISSION_DENIED',
-            db_code: reactivationError.code,
-            db_message: reactivationError.message,
+            db_code: finalReactivationError.code,
+            db_message: finalReactivationError.message,
           }
         );
       }
 
       throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to reactivate existing enrollment', 500, {
         reason: 'ENROLLMENT_REACTIVATE_FAILED',
-        db_code: reactivationError.code,
-        db_message: reactivationError.message,
+        db_code: finalReactivationError.code,
+        db_message: finalReactivationError.message,
       });
     }
 
