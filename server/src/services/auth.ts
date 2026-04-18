@@ -5,6 +5,7 @@ import {
   StudentCredentialSignupInput,
   StudentSignupCompleteInput,
   TeacherOnboardingCompleteInput,
+  CompleteGoogleStudentOnboardingInput,
   LoginInput,
   RefreshTokenInput,
   AuthResponse,
@@ -199,6 +200,96 @@ const getNormalizedName = (
   }
 
   return toStudentNameFromEmail(email);
+};
+
+const normalizePersonName = (value: string): string => value.trim().replace(/\s+/g, ' ');
+
+const hasConfiguredProfileName = (
+  firstName: string | null | undefined,
+  lastName: string | null | undefined
+): boolean => {
+  const normalizedFirstName = normalizePersonName(firstName || '').toLowerCase();
+  const normalizedLastName = normalizePersonName(lastName || '').toLowerCase();
+
+  if (!normalizedFirstName || !normalizedLastName) {
+    return false;
+  }
+
+  const isDefaultTriggerName = normalizedFirstName === 'user' && normalizedLastName === 'name';
+  const isGeneratedStudentFallback = normalizedFirstName === 'student' && normalizedLastName === 'user';
+
+  return !isDefaultTriggerName && !isGeneratedStudentFallback;
+};
+
+type AuthAppMetadata = {
+  provider?: unknown;
+  providers?: unknown;
+};
+
+const hasGoogleProvider = (appMetadata: AuthAppMetadata | undefined): boolean => {
+  const provider = typeof appMetadata?.provider === 'string'
+    ? appMetadata.provider.toLowerCase()
+    : '';
+
+  const providerList = Array.isArray(appMetadata?.providers)
+    ? appMetadata.providers
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.toLowerCase())
+    : [];
+
+  return provider === 'google' || providerList.includes('google');
+};
+
+const getPasswordChangedAt = async (userId: string): Promise<string | null> => {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('password_changed_at')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (!error) {
+    return (data as { password_changed_at?: string | null } | null)?.password_changed_at || null;
+  }
+
+  const normalizedMessage = (error.message || '').toLowerCase();
+  const missingColumn = normalizedMessage.includes('password_changed_at') && normalizedMessage.includes('column');
+
+  if (missingColumn) {
+    return null;
+  }
+
+  logger.warn('Failed to fetch password status for profile', {
+    userId,
+    error: error.message,
+  });
+
+  return null;
+};
+
+const resolveGoogleStudentSetupRequired = async (profile: UserProfile): Promise<boolean> => {
+  if (profile.role !== UserRole.STUDENT) {
+    return false;
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+  if (error || !data?.user) {
+    logger.warn('Unable to resolve Google student setup status from auth user', {
+      userId: profile.id,
+      error: error?.message,
+    });
+    return false;
+  }
+
+  const appMetadata = (data.user.app_metadata || {}) as AuthAppMetadata;
+  if (!hasGoogleProvider(appMetadata)) {
+    return false;
+  }
+
+  const passwordChangedAt = await getPasswordChangedAt(profile.id);
+  const hasPasswordConfigured = Boolean(passwordChangedAt);
+  const hasNameConfigured = hasConfiguredProfileName(profile.first_name, profile.last_name);
+
+  return !hasPasswordConfigured || !hasNameConfigured;
 };
 
 const createTwoFactorLoginChallenge = async (
@@ -988,6 +1079,130 @@ export const completeTeacherOnboarding = async (
   };
 };
 
+export const completeGoogleStudentOnboarding = async (
+  userId: string,
+  input: CompleteGoogleStudentOnboardingInput,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<{ message: string }> => {
+  const profile = await getUserProfile(userId);
+
+  if (profile.role !== UserRole.STUDENT) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only student accounts can complete Google onboarding.',
+      403
+    );
+  }
+
+  assertInstitutionalStudentEmail(profile.email, 'Student Google onboarding');
+
+  const { data: authUserData, error: authUserError } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (authUserError || !authUserData?.user) {
+    logger.error('Failed to fetch auth user for Google onboarding completion', {
+      userId,
+      error: authUserError?.message,
+    });
+
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Unable to validate account for Google onboarding.',
+      401
+    );
+  }
+
+  const appMetadata = (authUserData.user.app_metadata || {}) as AuthAppMetadata;
+  if (!hasGoogleProvider(appMetadata)) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Google onboarding is only available for Google-based student accounts.',
+      403
+    );
+  }
+
+  const requiresSetup = await resolveGoogleStudentSetupRequired(profile);
+  if (!requiresSetup) {
+    throw new ApiError(
+      ErrorCode.CONFLICT,
+      'Google student onboarding has already been completed for this account.',
+      409
+    );
+  }
+
+  const firstName = normalizePersonName(input.first_name);
+  const lastName = normalizePersonName(input.last_name);
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  const userMetadata = {
+    ...(authUserData.user.user_metadata || {}),
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName,
+    name: fullName,
+  };
+
+  const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    password: input.password,
+    user_metadata: userMetadata,
+  });
+
+  if (updateAuthError) {
+    logger.error('Failed to update auth user during Google onboarding completion', {
+      userId,
+      error: updateAuthError.message,
+    });
+
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to finalize Google student setup.',
+      500
+    );
+  }
+
+  const { error: updateProfileError } = await supabaseAdmin
+    .from('profiles')
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+
+  if (updateProfileError) {
+    logger.error('Failed to update student profile during Google onboarding completion', {
+      userId,
+      error: updateProfileError.message,
+    });
+
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to finalize student profile setup.',
+      500
+    );
+  }
+
+  await updatePasswordChangedAt(userId);
+  await clearTemporaryPasswordRequirement(userId);
+
+  await auditService.logProfileUpdate(
+    userId,
+    ['first_name', 'last_name'],
+    ipAddress,
+    userAgent
+  );
+
+  await auditService.logPasswordEvent(
+    userId,
+    AuditEventType.PASSWORD_CHANGED,
+    ipAddress,
+    userAgent
+  );
+
+  return {
+    message: 'Student account setup complete. You can now use both Google sign-in and email/password.',
+  };
+};
+
 /**
  * Login user with email and password
  */
@@ -1565,5 +1780,11 @@ export const getUserProfile = async (userId: string): Promise<UserProfile> => {
  * Get current user's profile (for authenticated requests)
  */
 export const getCurrentUserProfile = async (userId: string): Promise<UserProfile> => {
-  return getUserProfile(userId);
+  const profile = await getUserProfile(userId);
+  const requiresGoogleStudentSetup = await resolveGoogleStudentSetupRequired(profile);
+
+  return {
+    ...profile,
+    requires_google_student_setup: requiresGoogleStudentSetup,
+  };
 };

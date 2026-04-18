@@ -91,6 +91,10 @@ export default function AppLayout() {
     return <Navigate to="/teacher" replace />;
   }
 
+  if (user?.requiresGoogleStudentSetup) {
+    return <Navigate to="/auth/google-student-setup" replace />;
+  }
+
   return (
     <RoleProvider>
       <ClassesProvider>

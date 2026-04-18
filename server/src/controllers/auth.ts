@@ -5,6 +5,7 @@ import {
   StudentCredentialSignupInput,
   StudentSignupCompleteInput,
   TeacherOnboardingCompleteInput,
+  CompleteGoogleStudentOnboardingInput,
   LoginInput,
   RefreshTokenInput,
   ForgotPasswordInput,
@@ -185,6 +186,37 @@ export const completeTeacherOnboarding = async (
     const userAgent = req.get('User-Agent');
 
     const result = await authService.completeTeacherOnboarding(input, ipAddress, userAgent);
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: result.message,
+      },
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeGoogleStudentOnboarding = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = req.user!.id;
+    const input: CompleteGoogleStudentOnboardingInput = req.body;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.get('User-Agent');
+
+    const result = await authService.completeGoogleStudentOnboarding(
+      userId,
+      input,
+      ipAddress,
+      userAgent
+    );
 
     const response: ApiResponse = {
       success: true,
