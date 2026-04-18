@@ -84,7 +84,15 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [newComment, setNewComment] = useState('');
 
   const isExamAssignment = assignment?.rawType === 'exam';
+  const submissionsClosed = assignment?.submissionsOpen === false;
   const Icon = assignment ? TYPE_ICONS[assignment.type] || FileText : FileText;
+
+  const formatOptionalDateTime = (value?: string | null): string | null => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.getTime())) return null;
+    return parsed.toLocaleString();
+  };
 
   const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
     const firstName = comment.author?.first_name?.trim() || '';
@@ -371,23 +379,36 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </div>
               ) : (
                 <>
+                  {submissionsClosed && (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 sm:p-4">
+                      <p className="text-xs sm:text-sm text-destructive">
+                        Submissions are currently closed for this assignment.
+                        {assignment?.submissionCloseAt
+                          ? ` Closed on ${formatOptionalDateTime(assignment.submissionCloseAt)}.`
+                          : ''}
+                      </p>
+                    </div>
+                  )}
                   <Input
                     value={driveReference}
                     onChange={(e) => setDriveReference(e.target.value)}
                     placeholder="Paste Google Drive file ID or link"
                     className="rounded-xl border-0 bg-secondary/50 text-sm"
+                    disabled={submissionsClosed || submitting}
                   />
                   <Input
                     value={driveFileName}
                     onChange={(e) => setDriveFileName(e.target.value)}
                     placeholder="Optional file name"
                     className="rounded-xl border-0 bg-secondary/50 text-sm"
+                    disabled={submissionsClosed || submitting}
                   />
                   <Textarea
                     value={submissionText}
                     onChange={(e) => setSubmissionText(e.target.value)}
                     placeholder="Optional notes or submission details..."
                     className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
+                    disabled={submissionsClosed || submitting}
                   />
                   <p className="text-[11px] text-muted-foreground">
                     Submissions require a Google Drive file so teachers can review and grade directly.
@@ -396,12 +417,12 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     <Button
                       size="sm"
                       className="rounded-xl text-xs sm:text-sm"
-                      disabled={!driveReference.trim() || submitting}
+                      disabled={submissionsClosed || !driveReference.trim() || submitting}
                       onClick={() => {
                         void handleSubmit();
                       }}
                     >
-                      <Send className="h-4 w-4 mr-1" /> Submit
+                      <Send className="h-4 w-4 mr-1" /> {submissionsClosed ? 'Closed' : 'Submit'}
                     </Button>
                   </div>
                 </>

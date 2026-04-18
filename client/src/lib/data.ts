@@ -24,6 +24,9 @@ export interface Assignment {
   status: 'assigned' | 'submitted' | 'graded' | 'late';
   type: 'assignment' | 'quiz' | 'project' | 'discussion';
   rawType?: 'exam' | 'quiz' | 'activity' | string;
+  submissionsOpen?: boolean;
+  submissionOpenAt?: string | null;
+  submissionCloseAt?: string | null;
   attachments?: number;
 }
 

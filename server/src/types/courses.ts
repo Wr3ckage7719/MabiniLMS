@@ -75,6 +75,16 @@ export const courseMaterialsParamSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
 });
 
+export const updateMaterialProgressSchema = z
+  .object({
+    progress_percent: z.number().min(0).max(100).optional(),
+    completed: z.boolean().optional(),
+    last_viewed_at: z.string().datetime().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one progress field is required',
+  });
+
 // ============================================
 // Type Exports
 // ============================================
@@ -85,6 +95,7 @@ export type UpdateCourseStatusInput = z.infer<typeof updateCourseStatusSchema>;
 export type ListCoursesQuery = z.infer<typeof listCoursesQuerySchema>;
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>;
+export type UpdateMaterialProgressInput = z.infer<typeof updateMaterialProgressSchema>;
 
 // ============================================
 // Response Types
@@ -121,6 +132,28 @@ export interface CourseMaterial {
   type: MaterialType;
   file_url: string | null;
   uploaded_at: string;
+}
+
+export interface MaterialProgress {
+  id: string;
+  material_id: string;
+  course_id: string;
+  user_id: string;
+  progress_percent: number;
+  completed: boolean;
+  last_viewed_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialProgressWithStudent extends MaterialProgress {
+  student: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
 }
 
 export interface PaginatedCourses {

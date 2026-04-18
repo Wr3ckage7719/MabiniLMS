@@ -44,6 +44,9 @@ type DatabaseErrorShape = {
 const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'assignment_type',
   'created_at',
+  'submissions_open',
+  'submission_open_at',
+  'submission_close_at',
   'is_proctored',
   'exam_duration_minutes',
   'proctoring_policy',
@@ -568,6 +571,9 @@ export const createAssignment = async (
     description: input.description || null,
     due_date: input.due_date || null,
     max_points: input.max_points || 100,
+    submissions_open: input.submissions_open ?? true,
+    submission_open_at: input.submission_open_at || null,
+    submission_close_at: input.submission_close_at || null,
     created_at: new Date().toISOString(),
   };
 
@@ -903,19 +909,52 @@ export const updateAssignment = async (
     delete updatePayload.assignment_type;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('assignments')
-    .update(updatePayload)
-    .eq('id', assignmentId)
-    .select()
-    .single();
+  if (Object.keys(updatePayload).length === 0) {
+    return normalizeAssignmentRecord(assignment) as Assignment;
+  }
 
-  if (error) {
+  let mutableUpdatePayload: Record<string, unknown> = { ...updatePayload };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('assignments')
+      .update(mutableUpdatePayload)
+      .eq('id', assignmentId)
+      .select()
+      .single();
+
+    if (!error) {
+      return normalizeAssignmentRecord(data) as Assignment;
+    }
+
+    const missingColumn = extractMissingColumnName(error);
+    if (
+      missingColumn
+      && ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS.has(missingColumn)
+      && Object.prototype.hasOwnProperty.call(mutableUpdatePayload, missingColumn)
+    ) {
+      delete mutableUpdatePayload[missingColumn];
+
+      logger.warn('Retrying assignment update without optional column', {
+        assignmentId,
+        userId,
+        missingColumn,
+        attempt: attempt + 1,
+        error: error.message,
+      });
+
+      if (Object.keys(mutableUpdatePayload).length === 0) {
+        return normalizeAssignmentRecord(assignment) as Assignment;
+      }
+
+      continue;
+    }
+
     logger.error('Failed to update assignment', { assignmentId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update assignment', 500);
   }
 
-  return normalizeAssignmentRecord(data) as Assignment;
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update assignment', 500);
 };
 
 /**
@@ -989,6 +1028,41 @@ export const submitAssignment = async (
     );
   }
 
+  const now = new Date();
+  const submissionsOpen = (assignment as AssignmentWithCourse).submissions_open;
+  const submissionOpenAtRaw = (assignment as AssignmentWithCourse).submission_open_at;
+  const submissionCloseAtRaw = (assignment as AssignmentWithCourse).submission_close_at;
+
+  if (typeof submissionsOpen === 'boolean' && !submissionsOpen) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Submissions are currently closed for this assignment',
+      403
+    );
+  }
+
+  if (typeof submissionOpenAtRaw === 'string') {
+    const submissionOpenAt = new Date(submissionOpenAtRaw);
+    if (Number.isFinite(submissionOpenAt.getTime()) && now < submissionOpenAt) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Submissions are not open yet for this assignment',
+        403
+      );
+    }
+  }
+
+  if (typeof submissionCloseAtRaw === 'string') {
+    const submissionCloseAt = new Date(submissionCloseAtRaw);
+    if (Number.isFinite(submissionCloseAt.getTime()) && now > submissionCloseAt) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Submission window has closed for this assignment',
+        403
+      );
+    }
+  }
+
   if (input.sync_key) {
     const existingSyncedSubmission = await getSubmissionBySyncKey(input.sync_key, userId);
     if (existingSyncedSubmission) {
@@ -1019,7 +1093,6 @@ export const submitAssignment = async (
   );
 
   // Determine if late
-  const now = new Date();
   const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
   const isLate = dueDate && now > dueDate;
 

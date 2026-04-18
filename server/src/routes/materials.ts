@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
 import {
   materialIdParamSchema,
+  updateMaterialProgressSchema,
   updateMaterialSchema,
 } from '../types/courses.js';
 
@@ -20,6 +21,33 @@ router.get(
   authenticate,
   validate({ params: materialIdParamSchema }),
   courseController.getMaterial
+);
+
+// Get current student's progress for a material
+router.get(
+  '/:id/progress/me',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema }),
+  courseController.getMyMaterialProgress
+);
+
+// Update current student's progress for a material
+router.put(
+  '/:id/progress/me',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema, body: updateMaterialProgressSchema }),
+  courseController.updateMyMaterialProgress
+);
+
+// List student progress for a material (teacher/admin)
+router.get(
+  '/:id/progress',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: materialIdParamSchema }),
+  courseController.listMaterialProgress
 );
 
 // Update material
