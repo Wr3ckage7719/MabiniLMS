@@ -185,6 +185,7 @@ interface User {
   avatarUrl?: string | null;
   role?: string;
   pending_approval?: boolean;
+  requiresGoogleStudentSetup?: boolean;
 }
 
 interface AuthContextType {
@@ -368,6 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role?: string;
         pending_approval?: boolean | null;
         avatar_url?: string | null;
+        requires_google_student_setup?: boolean;
       } | null = null;
 
       try {
@@ -435,6 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           typeof apiProfileData?.pending_approval === 'boolean'
             ? apiProfileData.pending_approval
             : (profileData?.pending_approval || false),
+        requiresGoogleStudentSetup: apiProfileData?.requires_google_student_setup === true,
       };
     } catch (error) {
       console.error('Failed to load user data:', error);
@@ -446,6 +449,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         avatarUrl: null,
         role: 'student',
         pending_approval: false,
+        requiresGoogleStudentSetup: false,
       };
     }
   }, []);

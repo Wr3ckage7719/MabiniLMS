@@ -41,6 +41,17 @@ export interface AuthResponse {
   error?: string;
 }
 
+export interface CurrentUserPayload {
+  id: string;
+  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  role?: string;
+  pending_approval?: boolean | null;
+  avatar_url?: string | null;
+  requires_google_student_setup?: boolean;
+}
+
 export interface SignupResponse {
   success: boolean;
   data?: {
@@ -117,8 +128,20 @@ export const authService = {
     return apiClient.get(`/auth/signup/teacher/verify?${params.toString()}`);
   },
 
-  async getCurrentUser() {
+  async getCurrentUser(): Promise<{ success: boolean; data?: CurrentUserPayload; error?: string }> {
     return apiClient.get('/auth/me');
+  },
+
+  async completeGoogleStudentOnboarding(
+    firstName: string,
+    lastName: string,
+    password: string
+  ): Promise<{ success: boolean; data?: { message: string }; error?: string }> {
+    return apiClient.post('/auth/google-student-onboarding/complete', {
+      first_name: firstName,
+      last_name: lastName,
+      password,
+    });
   },
 
   async logout(): Promise<void> {

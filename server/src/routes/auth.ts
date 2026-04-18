@@ -16,6 +16,7 @@ import {
   studentCredentialSignupSchema,
   studentSignupCompleteSchema,
   teacherOnboardingCompleteSchema,
+  completeGoogleStudentOnboardingSchema,
   teacherSignupVerificationSchema,
   loginSchema,
   refreshTokenSchema,
@@ -125,6 +126,14 @@ router.post(
   authenticate,
   loginLimiter,
   authController.changePassword
+);
+
+router.post(
+  '/google-student-onboarding/complete',
+  authenticate,
+  loginLimiter,
+  validate({ body: completeGoogleStudentOnboardingSchema }),
+  authController.completeGoogleStudentOnboarding
 );
 
 // Email verification routes

@@ -7,7 +7,7 @@ import { UserRole } from './index.js';
 
 const publicSignupRoleSchema = z.literal(UserRole.TEACHER);
 
-const accountPasswordSchema = z
+export const accountPasswordSchema = z
   .string()
   .min(8, 'Password must be at least 8 characters')
   .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
@@ -48,6 +48,12 @@ export const studentSignupCompleteSchema = z.object({
 
 export const teacherOnboardingCompleteSchema = z.object({
   token: z.string().min(1, 'Onboarding token is required'),
+  password: accountPasswordSchema,
+});
+
+export const completeGoogleStudentOnboardingSchema = z.object({
+  first_name: z.string().min(1, 'First name is required').max(100),
+  last_name: z.string().min(1, 'Last name is required').max(100),
   password: accountPasswordSchema,
 });
 
@@ -98,6 +104,7 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type StudentCredentialSignupInput = z.infer<typeof studentCredentialSignupSchema>;
 export type StudentSignupCompleteInput = z.infer<typeof studentSignupCompleteSchema>;
 export type TeacherOnboardingCompleteInput = z.infer<typeof teacherOnboardingCompleteSchema>;
+export type CompleteGoogleStudentOnboardingInput = z.infer<typeof completeGoogleStudentOnboardingSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
@@ -126,6 +133,7 @@ export interface UserProfile {
   email_verified: boolean;
   email_verified_at: string | null;
   pending_approval?: boolean | null;
+  requires_google_student_setup?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -15,6 +15,7 @@ import UpcomingPage from "./pages/UpcomingPage";
 import GradesPage from "./pages/GradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import GoogleStudentSetupPage from "./pages/GoogleStudentSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
@@ -32,7 +33,7 @@ import SubmissionQueueSync from "./components/SubmissionQueueSync";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 2 * 60 * 1000,
       gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
       retry: (failureCount, error) => {
         const status = (error as { response?: { status?: number } })?.response?.status;
@@ -41,8 +42,9 @@ const queryClient = new QueryClient({
         }
         return failureCount < 1;
       },
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
       refetchOnReconnect: true,
+      refetchOnMount: true,
     },
     mutations: {
       retry: 0,
@@ -54,6 +56,14 @@ const AppRoutes = () => (
   <Routes>
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<LoginPage />} />
+    <Route
+      path="/auth/google-student-setup"
+      element={(
+        <ProtectedRoute role="student">
+          <GoogleStudentSetupPage />
+        </ProtectedRoute>
+      )}
+    />
     <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
     <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
