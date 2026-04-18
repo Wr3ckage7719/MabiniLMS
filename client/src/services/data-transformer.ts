@@ -35,6 +35,9 @@ interface BackendAssignment {
   due_date: string;
   max_points: number;
   assignment_type?: string;
+  submissions_open?: boolean;
+  submission_open_at?: string | null;
+  submission_close_at?: string | null;
   status?: string;
   submission_status?: string;
   attachments_count?: number;
@@ -207,6 +210,9 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     status: statusMap[assignment.submission_status || 'pending'] || 'assigned',
     type: typeMap[assignment.assignment_type || 'homework'] || 'assignment',
     rawType: assignment.assignment_type || 'activity',
+    submissionsOpen: assignment.submissions_open ?? true,
+    submissionOpenAt: assignment.submission_open_at ?? null,
+    submissionCloseAt: assignment.submission_close_at ?? null,
     attachments: assignment.attachments_count,
   };
 }

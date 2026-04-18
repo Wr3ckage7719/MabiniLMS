@@ -64,6 +64,7 @@ import {
 import { teacherService } from '@/services/teacher.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateClassData } from '@/lib/query-invalidation';
 import { Announcement as ClassAnnouncement } from '@/lib/data';
 
 interface TeacherClassStreamProps {
@@ -90,6 +91,9 @@ interface ClassworkAssignment {
   type: 'activity' | 'material';
   rawType?: string;
   topic?: string;
+  acceptingSubmissions: boolean;
+  submissionOpenAt?: string | null;
+  submissionCloseAt?: string | null;
   createdAt: Date;
 }
 
@@ -295,6 +299,9 @@ export function TeacherClassStream({
       status: assignment.status === 'graded' ? 'completed' : 'active',
       type: assignment.type === 'discussion' ? 'material' : 'activity',
       rawType: assignment.rawType,
+      acceptingSubmissions: assignment.submissionsOpen ?? true,
+      submissionOpenAt: assignment.submissionOpenAt ?? null,
+      submissionCloseAt: assignment.submissionCloseAt ?? null,
       createdAt: new Date(assignment.dueDate),
     }));
 
@@ -467,10 +474,7 @@ export function TeacherClassStream({
         syllabus: serializeCourseMetadata(metadata) || null,
       });
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['classes'] }),
-        queryClient.invalidateQueries({ queryKey: ['class', classId] }),
-      ]);
+      await invalidateClassData(queryClient, { classId });
 
       toast({
         title: 'Appearance updated',
@@ -1533,7 +1537,7 @@ export function TeacherClassStream({
           {/* Classwork Tab Content */}
           {activeTab === 'classwork' && (
             <div className="space-y-4">
-              {/* Create Assignment Dialog */}
+              {/* Create Task Dialog */}
               <CreateAssignmentDialog
                 open={showCreateAssignment}
                 onOpenChange={setShowCreateAssignment}
@@ -1546,7 +1550,7 @@ export function TeacherClassStream({
                   onClick={() => setShowCreateAssignment(true)}
                   className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300">
                   <Plus className="h-4 w-4 mr-2" />
-                  Create assignment
+                  Create task
                 </Button>
               </div>
 
@@ -1792,7 +1796,9 @@ export function TeacherClassStream({
             type: selectedAssignment.type,
             rawType: selectedAssignment.rawType,
             topics: selectedAssignment.topic ? [{ id: '1', name: selectedAssignment.topic }] : [],
-            acceptingSubmissions: selectedAssignment.status === 'active',
+            acceptingSubmissions: selectedAssignment.acceptingSubmissions,
+            submissionOpenAt: selectedAssignment.submissionOpenAt,
+            submissionCloseAt: selectedAssignment.submissionCloseAt,
           } : null}
           open={showAssignmentDetail}
           onOpenChange={(open) => {

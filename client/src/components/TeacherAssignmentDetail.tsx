@@ -131,6 +131,8 @@ interface TeacherAssignmentDetailProps {
     rawType?: string;
     topics: Topic[];
     acceptingSubmissions: boolean;
+    submissionOpenAt?: string | null;
+    submissionCloseAt?: string | null;
   } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -144,6 +146,17 @@ const parseNumericGrade = (value: string): number | null => {
   const numericPart = trimmed.includes('/') ? trimmed.split('/')[0] : trimmed;
   const parsed = Number.parseFloat(numericPart);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const formatOptionalTimestamp = (value?: string | null): string | null => {
+  if (!value) return null;
+
+  const timestamp = new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) {
+    return null;
+  }
+
+  return timestamp.toLocaleString();
 };
 
 export function TeacherAssignmentDetail({
@@ -178,6 +191,9 @@ export function TeacherAssignmentDetail({
   const [acceptingSubmissions, setAcceptingSubmissions] = useState(
     assignment?.acceptingSubmissions ?? true
   );
+  const [submissionClosedAt, setSubmissionClosedAt] = useState<string | null>(
+    assignment?.submissionCloseAt ?? null
+  );
   const [comments, setComments] = useState<AssignmentComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsError, setCommentsError] = useState<string | null>(null);
@@ -193,6 +209,7 @@ export function TeacherAssignmentDetail({
   const [activeTab, setActiveTab] = useState('details');
   const [savingGrade, setSavingGrade] = useState(false);
   const [savingAssignment, setSavingAssignment] = useState(false);
+  const [updatingSubmissionSettings, setUpdatingSubmissionSettings] = useState(false);
   const [deletingAssignment, setDeletingAssignment] = useState(false);
   const [submissionTimeline, setSubmissionTimeline] = useState<SubmissionStatusTimelineEntry[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -300,6 +317,7 @@ export function TeacherAssignmentDetail({
     setEditedPoints(String(assignment.points ?? 0));
     setEditedTopics(assignment.topics ?? []);
     setAcceptingSubmissions(assignment.acceptingSubmissions ?? true);
+    setSubmissionClosedAt(assignment.submissionCloseAt ?? null);
     setComments([]);
     setCommentsError(null);
     setSelectedSubmission(null);
@@ -435,6 +453,50 @@ export function TeacherAssignmentDetail({
       });
     } finally {
       setDeletingAssignment(false);
+    }
+  };
+
+  const handleToggleAcceptingSubmissions = async () => {
+    if (!assignment?.id) return;
+
+    const nextValue = !acceptingSubmissions;
+    const nowIso = new Date().toISOString();
+    const payload: Record<string, unknown> = {
+      submissions_open: nextValue,
+      submission_close_at: nextValue ? null : nowIso,
+    };
+
+    if (nextValue) {
+      payload.submission_open_at = nowIso;
+    }
+
+    setUpdatingSubmissionSettings(true);
+    try {
+      await assignmentsService.updateAssignment(classId, assignment.id, payload);
+      setAcceptingSubmissions(nextValue);
+      setSubmissionClosedAt(nextValue ? null : nowIso);
+      onAssignmentChanged?.();
+
+      toast({
+        title: nextValue ? 'Submissions opened' : 'Submissions closed',
+        description: nextValue
+          ? 'Students can submit work for this assignment.'
+          : 'Students can no longer submit work for this assignment.',
+      });
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update submission settings';
+
+      toast({
+        title: 'Update failed',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingSubmissionSettings(false);
     }
   };
 
@@ -1074,16 +1136,26 @@ export function TeacherAssignmentDetail({
                               ? 'Students can submit work'
                               : 'Submissions are closed'}
                           </p>
+                          {!acceptingSubmissions && submissionClosedAt && (
+                            <p className="text-xs text-muted-foreground">
+                              Closed {formatOptionalTimestamp(submissionClosedAt)}
+                            </p>
+                          )}
                         </div>
                         <Button
                           size="sm"
                           variant={acceptingSubmissions ? 'default' : 'outline'}
-                          onClick={() =>
-                            setAcceptingSubmissions(!acceptingSubmissions)
-                          }
+                          onClick={() => {
+                            void handleToggleAcceptingSubmissions();
+                          }}
+                          disabled={savingAssignment || updatingSubmissionSettings}
                           className="rounded-lg"
                         >
-                          {acceptingSubmissions ? 'Turn Off' : 'Turn On'}
+                          {updatingSubmissionSettings
+                            ? 'Updating...'
+                            : acceptingSubmissions
+                              ? 'Turn Off'
+                              : 'Turn On'}
                         </Button>
                       </div>
                     </CardContent>

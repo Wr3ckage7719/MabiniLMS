@@ -89,6 +89,38 @@ describe('Assignment Schemas', () => {
       }
     })
 
+    it('should default submissions_open to true', () => {
+      const result = createAssignmentSchema.safeParse({
+        title: 'Windowed Assignment',
+      })
+
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.submissions_open).toBe(true)
+      }
+    })
+
+    it('should accept valid submission window fields', () => {
+      const result = createAssignmentSchema.safeParse({
+        title: 'Timed Assignment',
+        submissions_open: false,
+        submission_open_at: '2026-05-01T08:00:00.000Z',
+        submission_close_at: '2026-05-01T18:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject submission windows where close precedes open', () => {
+      const result = createAssignmentSchema.safeParse({
+        title: 'Invalid Window',
+        submission_open_at: '2026-05-01T18:00:00.000Z',
+        submission_close_at: '2026-05-01T08:00:00.000Z',
+      })
+
+      expect(result.success).toBe(false)
+    })
+
       it('should default assignment_type to activity', () => {
         const result = createAssignmentSchema.safeParse({
           title: 'Test Assignment',
@@ -169,6 +201,24 @@ describe('Assignment Schemas', () => {
       })
 
       expect(result.success).toBe(true)
+    })
+
+    it('should accept partial submission window updates', () => {
+      const result = updateAssignmentSchema.safeParse({
+        submissions_open: false,
+        submission_close_at: '2026-06-01T23:59:59.000Z',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject invalid submission window updates', () => {
+      const result = updateAssignmentSchema.safeParse({
+        submission_open_at: '2026-06-02T09:00:00.000Z',
+        submission_close_at: '2026-06-01T09:00:00.000Z',
+      })
+
+      expect(result.success).toBe(false)
     })
   })
 

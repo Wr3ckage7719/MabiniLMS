@@ -9,13 +9,23 @@ import {
   UpdateCourseStatusInput,
   ListCoursesQuery,
   CourseMaterial,
+  MaterialProgress,
+  MaterialProgressWithStudent,
   CreateMaterialInput,
   UpdateMaterialInput,
+  UpdateMaterialProgressInput,
   PaginatedCourses,
   CourseStatus,
 } from '../types/courses.js';
 import logger from '../utils/logger.js';
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
+
+type DatabaseErrorShape = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
 
 // ============================================
 // Helpers
@@ -23,6 +33,31 @@ import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 
 const COURSE_BASE_SELECT =
   'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
+
+const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
+  return [error?.message, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const isMissingRelationError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42P01'
+    || message.includes('could not find the table')
+    || message.includes('does not exist')
+  );
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fixMaterialProgressStudentJoin = (row: any): MaterialProgressWithStudent => {
+  const student = Array.isArray(row.student) ? row.student[0] || null : row.student;
+  return {
+    ...row,
+    student,
+  } as MaterialProgressWithStudent;
+};
 
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
   if (!courses.length) {
@@ -664,7 +699,11 @@ export const listMaterials = async (
 /**
  * Get material by ID
  */
-export const getMaterialById = async (materialId: string): Promise<CourseMaterial> => {
+export const getMaterialById = async (
+  materialId: string,
+  requesterId?: string,
+  requesterRole?: UserRole
+): Promise<CourseMaterial> => {
   const { data, error } = await supabaseAdmin
     .from('course_materials')
     .select('*')
@@ -687,7 +726,13 @@ export const getMaterialById = async (materialId: string): Promise<CourseMateria
     );
   }
 
-  return data as CourseMaterial;
+  const material = data as CourseMaterial;
+
+  if (requesterId && requesterRole) {
+    await getCourseById(material.course_id, false, requesterId, requesterRole);
+  }
+
+  return material;
 };
 
 /**
@@ -770,6 +815,240 @@ export const deleteMaterial = async (
       500
     );
   }
+};
+
+/**
+ * Get the current student's progress for a material.
+ */
+export const getMyMaterialProgress = async (
+  materialId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  if (userRole !== UserRole.STUDENT) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only students can view personal material progress',
+      403
+    );
+  }
+
+  const material = await getMaterialById(materialId, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('material_progress')
+    .select('*')
+    .eq('material_id', materialId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    logger.error('Failed to fetch material progress', {
+      materialId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to fetch material progress', 500);
+  }
+
+  if (data) {
+    return data as MaterialProgress;
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: createdRow, error: createError } = await supabaseAdmin
+    .from('material_progress')
+    .insert({
+      material_id: materialId,
+      course_id: material.course_id,
+      user_id: userId,
+      progress_percent: 0,
+      completed: false,
+      last_viewed_at: nowIso,
+      completed_at: null,
+      updated_at: nowIso,
+    })
+    .select('*')
+    .single();
+
+  if (createError) {
+    if (isMissingRelationError(createError)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: createError.code,
+          db_message: createError.message,
+        }
+      );
+    }
+
+    if (createError.code === '23505') {
+      const { data: reloaded, error: reloadError } = await supabaseAdmin
+        .from('material_progress')
+        .select('*')
+        .eq('material_id', materialId)
+        .eq('user_id', userId)
+        .single();
+
+      if (!reloadError && reloaded) {
+        return reloaded as MaterialProgress;
+      }
+    }
+
+    logger.error('Failed to initialize material progress', {
+      materialId,
+      userId,
+      error: createError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to initialize material progress', 500);
+  }
+
+  return createdRow as MaterialProgress;
+};
+
+/**
+ * Update the current student's progress for a material.
+ */
+export const updateMyMaterialProgress = async (
+  materialId: string,
+  input: UpdateMaterialProgressInput,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  if (userRole !== UserRole.STUDENT) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only students can update material progress',
+      403
+    );
+  }
+
+  const current = await getMyMaterialProgress(materialId, userId, userRole);
+
+  let resolvedProgressPercent = input.progress_percent ?? current.progress_percent;
+  const completedFromInput = typeof input.completed === 'boolean' ? input.completed : undefined;
+  const resolvedCompleted = completedFromInput ?? resolvedProgressPercent >= 100;
+
+  if (resolvedCompleted && resolvedProgressPercent < 100) {
+    resolvedProgressPercent = 100;
+  }
+
+  const nowIso = new Date().toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('material_progress')
+    .update({
+      progress_percent: resolvedProgressPercent,
+      completed: resolvedCompleted,
+      last_viewed_at: input.last_viewed_at || nowIso,
+      completed_at: resolvedCompleted ? current.completed_at || nowIso : null,
+      updated_at: nowIso,
+    })
+    .eq('id', current.id)
+    .select('*')
+    .single();
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    logger.error('Failed to update material progress', {
+      materialId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update material progress', 500);
+  }
+
+  return data as MaterialProgress;
+};
+
+/**
+ * List student progress rows for a material (teacher/admin view).
+ */
+export const listMaterialProgress = async (
+  materialId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgressWithStudent[]> => {
+  if (userRole !== UserRole.ADMIN && userRole !== UserRole.TEACHER) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only teachers and admins can view student material progress',
+      403
+    );
+  }
+
+  const material = await getMaterialById(materialId, userId, userRole);
+  await getCourseById(material.course_id, false, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('material_progress')
+    .select(`
+      id,
+      material_id,
+      course_id,
+      user_id,
+      progress_percent,
+      completed,
+      last_viewed_at,
+      completed_at,
+      created_at,
+      updated_at,
+      student:profiles!material_progress_user_id_fkey(id, email, first_name, last_name)
+    `)
+    .eq('material_id', materialId)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    logger.error('Failed to list material progress', {
+      materialId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list material progress', 500);
+  }
+
+  return (data || []).map(fixMaterialProgressStudentJoin);
 };
 
 // ============================================

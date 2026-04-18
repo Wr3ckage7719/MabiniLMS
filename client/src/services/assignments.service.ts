@@ -10,6 +10,9 @@ export interface AssignmentData {
   due_date: string;
   max_points: number;
   assignment_type?: 'exam' | 'quiz' | 'activity';
+  submissions_open?: boolean;
+  submission_open_at?: string | null;
+  submission_close_at?: string | null;
   instructions?: string;
 }
 

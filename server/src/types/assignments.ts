@@ -33,9 +33,25 @@ export const createAssignmentSchema = z.object({
   assignment_type: assignmentCategorySchema.default('activity'),
   due_date: z.string().datetime().optional(),
   max_points: z.number().int().min(0).max(1000).default(100),
+  submissions_open: z.boolean().optional().default(true),
+  submission_open_at: z.string().datetime().nullable().optional(),
+  submission_close_at: z.string().datetime().nullable().optional(),
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).optional(),
   proctoring_policy: proctoringPolicySchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.submission_open_at && value.submission_close_at) {
+    const openAt = new Date(value.submission_open_at).getTime();
+    const closeAt = new Date(value.submission_close_at).getTime();
+
+    if (closeAt < openAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['submission_close_at'],
+        message: 'Submission close time must be after submission open time',
+      });
+    }
+  }
 });
 
 export const updateAssignmentSchema = z.object({
@@ -44,9 +60,25 @@ export const updateAssignmentSchema = z.object({
   assignment_type: assignmentCategorySchema.optional(),
   due_date: z.string().datetime().nullable().optional(),
   max_points: z.number().int().min(0).max(1000).optional(),
+  submissions_open: z.boolean().optional(),
+  submission_open_at: z.string().datetime().nullable().optional(),
+  submission_close_at: z.string().datetime().nullable().optional(),
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).nullable().optional(),
   proctoring_policy: proctoringPolicySchema.nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (value.submission_open_at && value.submission_close_at) {
+    const openAt = new Date(value.submission_open_at).getTime();
+    const closeAt = new Date(value.submission_close_at).getTime();
+
+    if (closeAt < openAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['submission_close_at'],
+        message: 'Submission close time must be after submission open time',
+      });
+    }
+  }
 });
 
 export const assignmentIdParamSchema = z.object({
@@ -132,6 +164,9 @@ export interface Assignment {
   assignment_type: AssignmentCategory;
   due_date: string | null;
   max_points: number;
+  submissions_open?: boolean;
+  submission_open_at?: string | null;
+  submission_close_at?: string | null;
   is_proctored?: boolean;
   exam_duration_minutes?: number | null;
   proctoring_policy?: Record<string, unknown>;

@@ -5,12 +5,15 @@ import {
   CourseWithStats,
   PaginatedCourses,
   CourseMaterial,
+  MaterialProgress,
+  MaterialProgressWithStudent,
   CreateCourseInput,
   UpdateCourseInput,
   UpdateCourseStatusInput,
   ListCoursesQuery,
   CreateMaterialInput,
   UpdateMaterialInput,
+  UpdateMaterialProgressInput,
 } from '../types/courses.js';
 import * as courseService from '../services/courses.js';
 
@@ -527,7 +530,9 @@ export const getMaterial = async (
 ) => {
   try {
     const { id } = req.params;
-    const material = await courseService.getMaterialById(id);
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+    const material = await courseService.getMaterialById(id, userId, userRole);
 
     const response: ApiResponse<CourseMaterial> = {
       success: true,
@@ -650,6 +655,87 @@ export const deleteMaterial = async (
     const response: ApiResponse = {
       success: true,
       data: { message: 'Material deleted successfully' },
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get the current student's reading progress for a material.
+ */
+export const getMyMaterialProgress = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.getMyMaterialProgress(id, userId, userRole);
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update the current student's reading progress for a material.
+ */
+export const updateMyMaterialProgress = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const input: UpdateMaterialProgressInput = req.body;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.updateMyMaterialProgress(
+      id,
+      input,
+      userId,
+      userRole
+    );
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * List student progress rows for a material (teacher/admin).
+ */
+export const listMaterialProgress = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.listMaterialProgress(id, userId, userRole);
+
+    const response: ApiResponse<MaterialProgressWithStudent[]> = {
+      success: true,
+      data: progress,
     };
     res.json(response);
   } catch (error) {

@@ -30,6 +30,7 @@ import {
   FileText,
   Activity,
   BookOpen,
+  ClipboardCheck,
   Calendar as CalendarIcon,
   Paperclip,
   X,
@@ -40,7 +41,7 @@ import {
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { assignmentsService } from '@/services/assignments.service';
-import { materialsService } from '@/services/materials.service';
+import { materialsService, type MaterialType } from '@/services/materials.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -63,6 +64,22 @@ interface Topic {
   name: string;
 }
 
+type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam';
+
+const TASK_LABELS: Record<TaskType, string> = {
+  reading_material: 'Reading Material',
+  activity: 'Activity',
+  quiz: 'Quiz',
+  exam: 'Exam',
+};
+
+const TASK_HELP_TEXT: Record<TaskType, string> = {
+  reading_material: 'Reference resource with reading progress tracking planned in the next phase.',
+  activity: 'Drive-based submissions with teacher review controls.',
+  quiz: 'Question builder, sequencing, and randomization are scaffolded in this phase.',
+  exam: 'Strict integrity controls are scaffolded while preserving current proctored flow.',
+};
+
 export function CreateAssignmentDialog({
   open,
   onOpenChange,
@@ -71,12 +88,14 @@ export function CreateAssignmentDialog({
 }: CreateAssignmentDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [assignmentType, setAssignmentType] = useState<'activity' | 'material'>(
-    'activity'
-  );
-  const [gradingCategory, setGradingCategory] = useState<'exam' | 'quiz' | 'activity'>('activity');
+  const [taskType, setTaskType] = useState<TaskType>('activity');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [points, setPoints] = useState('100');
+  const [materialType, setMaterialType] = useState<MaterialType>('document');
+  const [materialFileUrl, setMaterialFileUrl] = useState('');
+  const [quizQuestionOrder, setQuizQuestionOrder] = useState<'sequence' | 'random'>('sequence');
+  const [examQuestionSelection, setExamQuestionSelection] = useState<'sequence' | 'random'>('random');
+  const [examIntegrityProfile, setExamIntegrityProfile] = useState<'standard' | 'strict'>('strict');
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [newTopic, setNewTopic] = useState('');
@@ -85,14 +104,34 @@ export function CreateAssignmentDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const clearFieldError = (field: string) => {
+    setErrors((prev) => {
+      if (!prev[field]) {
+        return prev;
+      }
+
+      const nextErrors = { ...prev };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
     if (!title.trim()) {
       newErrors.title = 'Title is required';
     }
-    if (assignmentType === 'activity' && !dueDate) {
-      newErrors.dueDate = 'Due date is required for activities';
+
+    if (taskType !== 'reading_material' && !dueDate) {
+      newErrors.dueDate = 'Due date is required for activity, quiz, and exam tasks';
+    }
+
+    if (taskType !== 'reading_material') {
+      const parsedPoints = Number(points);
+      if (!Number.isFinite(parsedPoints) || parsedPoints < 0) {
+        newErrors.points = 'Points must be a non-negative number';
+      }
     }
 
     setErrors(newErrors);
@@ -139,31 +178,45 @@ export function CreateAssignmentDialog({
     setTopics((prev) => prev.filter((t) => t.id !== topicId));
   };
 
+  const handleTaskTypeChange = (nextType: TaskType) => {
+    setTaskType(nextType);
+    clearFieldError('dueDate');
+    clearFieldError('points');
+  };
+
   const handleCreate = async () => {
     if (!validateForm()) return;
 
     if (!classId) {
       toast({
         title: 'Missing class context',
-        description: 'Open this dialog from a class page to create classwork.',
+        description: 'Open this dialog from a class page to create tasks.',
         variant: 'destructive',
       });
       return;
     }
 
     try {
-      if (assignmentType === 'activity') {
+      if (taskType === 'reading_material') {
+        await materialsService.create(classId, {
+          title: title.trim(),
+          type: materialType,
+          file_url: materialFileUrl.trim() || undefined,
+        });
+      } else {
+        const assignmentType =
+          taskType === 'quiz'
+            ? 'quiz'
+            : taskType === 'exam'
+              ? 'exam'
+              : 'activity';
+
         await assignmentsService.createAssignment(classId, {
           title: title.trim(),
           description: description.trim() || undefined,
-          assignment_type: gradingCategory,
+          assignment_type: assignmentType,
           due_date: dueDate ? dueDate.toISOString() : new Date().toISOString(),
           max_points: Number(points) || 100,
-        });
-      } else {
-        await materialsService.create(classId, {
-          title: title.trim(),
-          type: 'document',
         });
       }
 
@@ -174,7 +227,10 @@ export function CreateAssignmentDialog({
 
       toast({
         title: 'Created successfully',
-        description: assignmentType === 'activity' ? 'Assignment created.' : 'Material created.',
+        description:
+          taskType === 'reading_material'
+            ? 'Reading material created.'
+            : `${TASK_LABELS[taskType]} task created.`,
       });
 
       resetForm();
@@ -185,7 +241,7 @@ export function CreateAssignmentDialog({
         error?.response?.data?.error?.message ||
         error?.response?.data?.message ||
         error?.message ||
-        'Failed to create classwork';
+        'Failed to create task';
       toast({
         title: 'Creation failed',
         description: message,
@@ -197,10 +253,14 @@ export function CreateAssignmentDialog({
   const resetForm = () => {
     setTitle('');
     setDescription('');
-    setAssignmentType('activity');
-    setGradingCategory('activity');
+    setTaskType('activity');
     setDueDate(undefined);
     setPoints('100');
+    setMaterialType('document');
+    setMaterialFileUrl('');
+    setQuizQuestionOrder('sequence');
+    setExamQuestionSelection('random');
+    setExamIntegrityProfile('strict');
     setFiles([]);
     setTopics([]);
     setNewTopic('');
@@ -215,13 +275,49 @@ export function CreateAssignmentDialog({
     onOpenChange(newOpen);
   };
 
+  const taskOptions = [
+    {
+      id: 'reading_material' as const,
+      label: 'Reading Material',
+      description: 'Reference content and links',
+      icon: BookOpen,
+    },
+    {
+      id: 'activity' as const,
+      label: 'Activity',
+      description: 'Drive submission task',
+      icon: Activity,
+    },
+    {
+      id: 'quiz' as const,
+      label: 'Quiz',
+      description: 'Assessment with item builder',
+      icon: FileText,
+    },
+    {
+      id: 'exam' as const,
+      label: 'Exam',
+      description: 'Proctored assessment flow',
+      icon: ClipboardCheck,
+    },
+  ];
+
+  const createTaskButtonLabel =
+    taskType === 'reading_material'
+      ? 'Create Reading Material'
+      : taskType === 'activity'
+        ? 'Create Activity Task'
+        : taskType === 'quiz'
+          ? 'Create Quiz Task'
+          : 'Create Exam Task';
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-dvw sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl">
         <DialogHeader>
-          <DialogTitle className="text-xl">Create Assignment</DialogTitle>
+          <DialogTitle className="text-xl">Create Task</DialogTitle>
           <DialogDescription>
-            Create a new assignment or material for your class.
+            Create a reading material, activity, quiz, or exam for your class.
           </DialogDescription>
         </DialogHeader>
 
@@ -240,83 +336,62 @@ export function CreateAssignmentDialog({
 
           {/* Details Tab */}
           <TabsContent value="details" className="space-y-5 mt-6">
-            {/* Assignment Type Selector */}
+            {/* Task Type Selector */}
             <div>
               <label className="text-sm font-semibold mb-3 block">
-                Assignment Type
+                Task Type
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAssignmentType('activity')}
-                  className={cn(
-                    'flex items-center gap-3 p-4 rounded-lg border-2 transition-all cursor-pointer',
-                    assignmentType === 'activity'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50 bg-card'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'p-2 rounded-lg',
-                      assignmentType === 'activity'
-                        ? 'bg-primary/20'
-                        : 'bg-muted'
-                    )}
-                  >
-                    <Activity
-                      className={cn(
-                        'h-5 w-5',
-                        assignmentType === 'activity'
-                          ? 'text-primary'
-                          : 'text-muted-foreground'
-                      )}
-                    />
-                  </div>
-                  <div className="text-left">
-                    <p className="font-medium text-sm">Activity</p>
-                    <p className="text-xs text-muted-foreground">
-                      With due date & grading
-                    </p>
-                  </div>
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {taskOptions.map((option) => {
+                  const Icon = option.icon;
+                  const selected = taskType === option.id;
 
-                <button
-                  type="button"
-                  onClick={() => setAssignmentType('material')}
-                  className={cn(
-                    'flex items-center gap-3 p-4 rounded-lg border-2 transition-all cursor-pointer',
-                    assignmentType === 'material'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50 bg-card'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'p-2 rounded-lg',
-                      assignmentType === 'material'
-                        ? 'bg-primary/20'
-                        : 'bg-muted'
-                    )}
-                  >
-                    <BookOpen
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handleTaskTypeChange(option.id)}
                       className={cn(
-                        'h-5 w-5',
-                        assignmentType === 'material'
-                          ? 'text-primary'
-                          : 'text-muted-foreground'
+                        'flex items-center gap-3 p-4 rounded-lg border-2 transition-all cursor-pointer text-left',
+                        selected
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50 bg-card'
                       )}
-                    />
-                  </div>
-                  <div className="text-left">
-                    <p className="font-medium text-sm">Material</p>
-                    <p className="text-xs text-muted-foreground">
-                      Reference content
-                    </p>
-                  </div>
-                </button>
+                    >
+                      <div
+                        className={cn(
+                          'p-2 rounded-lg',
+                          selected ? 'bg-primary/20' : 'bg-muted'
+                        )}
+                      >
+                        <Icon
+                          className={cn(
+                            'h-5 w-5',
+                            selected ? 'text-primary' : 'text-muted-foreground'
+                          )}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm">{option.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {option.description}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
+
+            <Card className="border-0 bg-muted/30">
+              <CardContent className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-medium">Selected: {TASK_LABELS[taskType]}</div>
+                <Badge variant="secondary" className="rounded-full w-fit">
+                  Phase 1 skeleton
+                </Badge>
+                <p className="text-xs text-muted-foreground sm:ml-2">{TASK_HELP_TEXT[taskType]}</p>
+              </CardContent>
+            </Card>
 
             {/* Title */}
             <div>
@@ -324,17 +399,19 @@ export function CreateAssignmentDialog({
                 Title <span className="text-destructive">*</span>
               </label>
               <Input
-                placeholder="e.g., Chapter 3 Quiz, Math Homework, Project Proposal"
+                placeholder={
+                  taskType === 'reading_material'
+                    ? 'e.g., Chapter 4 Reading Pack'
+                    : taskType === 'activity'
+                      ? 'e.g., Lab Activity 2'
+                      : taskType === 'quiz'
+                        ? 'e.g., Chapter 3 Quiz'
+                        : 'e.g., Midterm Proctored Exam'
+                }
                 value={title}
                 onChange={(e) => {
                   setTitle(e.target.value);
-                  if (errors.title) {
-                    setErrors((prev) => {
-                      const newErrors = { ...prev };
-                      delete newErrors.title;
-                      return newErrors;
-                    });
-                  }
+                  clearFieldError('title');
                 }}
                 className={cn(
                   'mt-2 rounded-lg',
@@ -353,7 +430,11 @@ export function CreateAssignmentDialog({
             <div>
               <label className="text-sm font-semibold">Description</label>
               <Textarea
-                placeholder="Provide instructions, context, or details about the assignment..."
+                placeholder={
+                  taskType === 'reading_material'
+                    ? 'Optional summary, chapter notes, or reading guidance...'
+                    : 'Provide instructions, context, or details about the task...'
+                }
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="mt-2 rounded-lg resize-none min-h-24"
@@ -363,9 +444,47 @@ export function CreateAssignmentDialog({
               </p>
             </div>
 
-            {/* Activity-specific fields */}
-            {assignmentType === 'activity' && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
+            {taskType === 'reading_material' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
+                <div>
+                  <label className="text-sm font-semibold">Material Type</label>
+                  <Select
+                    value={materialType}
+                    onValueChange={(value) => setMaterialType(value as MaterialType)}
+                  >
+                    <SelectTrigger className="mt-2 rounded-lg">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pdf">PDF</SelectItem>
+                      <SelectItem value="video">Video</SelectItem>
+                      <SelectItem value="document">Document</SelectItem>
+                      <SelectItem value="link">Link</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold">Resource URL (optional)</label>
+                  <Input
+                    type="url"
+                    placeholder="https://..."
+                    value={materialFileUrl}
+                    onChange={(e) => setMaterialFileUrl(e.target.value)}
+                    className="mt-2 rounded-lg"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <p className="text-xs text-muted-foreground">
+                    Reading open/progress tracking and file-type enforcement are scaffolded for the next phase.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {taskType !== 'reading_material' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
                 {/* Due Date */}
                 <div>
                   <label className="text-sm font-semibold">
@@ -391,13 +510,7 @@ export function CreateAssignmentDialog({
                         selected={dueDate}
                         onSelect={(date) => {
                           setDueDate(date);
-                          if (errors.dueDate) {
-                            setErrors((prev) => {
-                              const newErrors = { ...prev };
-                              delete newErrors.dueDate;
-                              return newErrors;
-                            });
-                          }
+                          clearFieldError('dueDate');
                         }}
                         disabled={(date) =>
                           date < new Date(new Date().setHours(0, 0, 0, 0))
@@ -421,26 +534,113 @@ export function CreateAssignmentDialog({
                     type="number"
                     min="0"
                     value={points}
-                    onChange={(e) => setPoints(e.target.value)}
-                    className="mt-2 rounded-lg"
+                    onChange={(e) => {
+                      setPoints(e.target.value);
+                      clearFieldError('points');
+                    }}
+                    className={cn(
+                      'mt-2 rounded-lg',
+                      errors.points && 'border-destructive'
+                    )}
                   />
-                </div>
-
-                {/* Grading Category */}
-                <div>
-                  <label className="text-sm font-semibold">Category</label>
-                  <Select value={gradingCategory} onValueChange={(value) => setGradingCategory(value as 'exam' | 'quiz' | 'activity')}>
-                    <SelectTrigger className="mt-2 rounded-lg">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="exam">Exam (40%)</SelectItem>
-                      <SelectItem value="quiz">Quiz (30%)</SelectItem>
-                      <SelectItem value="activity">Activity (30%)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {errors.points && (
+                    <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {errors.points}
+                    </p>
+                  )}
                 </div>
               </div>
+            )}
+
+            {taskType === 'activity' && (
+              <Card className="border-0 bg-muted/30">
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm font-semibold">Activity Setup</p>
+                  <p className="text-xs text-muted-foreground">
+                    This task will use the current Drive-based submission flow and teacher review process.
+                  </p>
+                  <Badge variant="outline" className="rounded-full text-xs">
+                    Current API mapping: assignment_type = activity
+                  </Badge>
+                </CardContent>
+              </Card>
+            )}
+
+            {taskType === 'quiz' && (
+              <Card className="border-0 bg-muted/30">
+                <CardContent className="p-4 space-y-4">
+                  <div>
+                    <label className="text-sm font-semibold">Question Order Mode</label>
+                    <Select
+                      value={quizQuestionOrder}
+                      onValueChange={(value) => setQuizQuestionOrder(value as 'sequence' | 'random')}
+                    >
+                      <SelectTrigger className="mt-2 rounded-lg">
+                        <SelectValue placeholder="Select order mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sequence">Sequential</SelectItem>
+                        <SelectItem value="random">Randomized</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Multi-item question builder is scaffolded in this phase and will be connected to backend support next.
+                  </p>
+                  <Badge variant="outline" className="rounded-full text-xs">
+                    Current API mapping: assignment_type = quiz
+                  </Badge>
+                </CardContent>
+              </Card>
+            )}
+
+            {taskType === 'exam' && (
+              <Card className="border-0 bg-muted/30">
+                <CardContent className="p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-semibold">Question Selection</label>
+                      <Select
+                        value={examQuestionSelection}
+                        onValueChange={(value) => setExamQuestionSelection(value as 'sequence' | 'random')}
+                      >
+                        <SelectTrigger className="mt-2 rounded-lg">
+                          <SelectValue placeholder="Select strategy" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="random">Randomized</SelectItem>
+                          <SelectItem value="sequence">Sequential</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold">Integrity Profile</label>
+                      <Select
+                        value={examIntegrityProfile}
+                        onValueChange={(value) => setExamIntegrityProfile(value as 'standard' | 'strict')}
+                      >
+                        <SelectTrigger className="mt-2 rounded-lg">
+                          <SelectValue placeholder="Select integrity profile" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="strict">Strict</SelectItem>
+                          <SelectItem value="standard">Standard</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Agreement gate, chapter pools, and auto-submit policy controls are scaffolded in this phase while
+                    preserving the current proctored exam backend behavior.
+                  </p>
+                  <Badge variant="outline" className="rounded-full text-xs">
+                    Current API mapping: assignment_type = exam
+                  </Badge>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
@@ -448,7 +648,7 @@ export function CreateAssignmentDialog({
           <TabsContent value="topics" className="space-y-4 mt-6">
             <div>
               <p className="text-sm text-muted-foreground mb-4">
-                Organize your assignment by adding topics. Students can filter
+                Organize your task by adding topics. Students can filter
                 by topics to find relevant content.
               </p>
 
@@ -536,8 +736,7 @@ export function CreateAssignmentDialog({
           <TabsContent value="files" className="space-y-4 mt-6">
             <div>
               <p className="text-sm text-muted-foreground mb-4">
-                Attach supporting files such as PDFs, documents, images, or
-                presentations.
+                Attach supporting files such as PDFs, documents, images, or presentations.
               </p>
 
               {/* File Upload Area */}
@@ -626,7 +825,7 @@ export function CreateAssignmentDialog({
           </Button>
           <Button className="rounded-lg gap-2" onClick={handleCreate}>
             <FileText className="h-4 w-4" />
-            Create Assignment
+            {createTaskButtonLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
