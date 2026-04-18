@@ -283,7 +283,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="w-full bg-background text-foreground overflow-hidden">
+    <div className="w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.03] text-foreground dark:to-background">
       {/* Navigation */}
       <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${isScrolled ? "bg-background/80 backdrop-blur-xl border-b border-border/40" : "bg-transparent"}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -328,19 +328,19 @@ export default function LandingPage() {
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-xl">
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-primary" />
                   Class content and modules
                 </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
                   <ClipboardCheck className="h-4 w-4 text-primary" />
                   Assignments and quizzes
                 </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-primary" />
                   Grade and performance tracking
                 </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-slate-200/95 flex items-center gap-2">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
                   <Bell className="h-4 w-4 text-primary" />
                   Announcements and updates
                 </div>
@@ -366,46 +366,46 @@ export default function LandingPage() {
               <div className="relative space-y-4">
                 <div className="flex items-center justify-between rounded-xl border border-border/40 bg-card/80 p-3.5">
                   <div>
-                    <p className="text-sm font-semibold text-white">Today in your LMS</p>
-                    <p className="text-xs text-slate-300/90">Classes, tasks, grades, and updates in one dashboard</p>
+                    <p className="text-sm font-semibold text-foreground dark:text-white">Today in your LMS</p>
+                    <p className="text-xs text-muted-foreground dark:text-slate-300/90">Classes, tasks, grades, and updates in one dashboard</p>
                   </div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[11px] text-emerald-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[11px] text-emerald-700 dark:text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-300 animate-pulse"></span>
                     Live
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-slate-200">
+                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
                       <GraduationCap className="h-4 w-4 text-primary" />
                       <span className="text-sm font-medium">Classes and Sections</span>
                     </div>
-                    <p className="text-xs text-slate-300/90 leading-relaxed">Organize subjects, sections, and schedules for every learner.</p>
+                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Organize subjects, sections, and schedules for every learner.</p>
                   </div>
 
                   <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-slate-200">
+                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
                       <ClipboardCheck className="h-4 w-4 text-primary" />
                       <span className="text-sm font-medium">Assignments and Quizzes</span>
                     </div>
-                    <p className="text-xs text-slate-300/90 leading-relaxed">Create tasks, set deadlines, and monitor submissions easily.</p>
+                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Create tasks, set deadlines, and monitor submissions easily.</p>
                   </div>
 
                   <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-slate-200">
+                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
                       <BarChart3 className="h-4 w-4 text-primary" />
                       <span className="text-sm font-medium">Gradebook and Progress</span>
                     </div>
-                    <p className="text-xs text-slate-300/90 leading-relaxed">Track performance with clear grading and progress visibility.</p>
+                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Track performance with clear grading and progress visibility.</p>
                   </div>
 
                   <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-slate-200">
+                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
                       <Bell className="h-4 w-4 text-primary" />
                       <span className="text-sm font-medium">Announcements and Alerts</span>
                     </div>
-                    <p className="text-xs text-slate-300/90 leading-relaxed">Keep classes aligned with instant notices and reminders.</p>
+                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Keep classes aligned with instant notices and reminders.</p>
                   </div>
                 </div>
               </div>
@@ -418,7 +418,7 @@ export default function LandingPage() {
       <section className="relative px-4 sm:px-6 lg:px-8 pb-20">
         <div className="absolute inset-x-0 -top-20 h-40 bg-gradient-to-b from-primary/10 to-transparent blur-2xl pointer-events-none"></div>
 
-        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-10 items-center rounded-3xl border border-primary/20 bg-gradient-to-br from-slate-950/80 via-slate-900/70 to-sky-950/60 p-6 sm:p-8 lg:p-10 overflow-hidden">
+        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-10 items-center rounded-3xl border border-primary/20 bg-gradient-to-br from-sky-50 via-white to-blue-100 dark:from-slate-950/80 dark:via-slate-900/70 dark:to-sky-950/60 p-6 sm:p-8 lg:p-10 overflow-hidden">
           <div className="absolute -right-16 -bottom-16 h-48 w-48 rounded-full bg-primary/20 blur-3xl pointer-events-none"></div>
           <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-accent/20 blur-2xl pointer-events-none"></div>
 
@@ -433,13 +433,13 @@ export default function LandingPage() {
               <span className="block bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">on any school-approved device</span>
             </h2>
 
-            <p className="text-sm sm:text-base text-slate-200/85 max-w-xl">
+            <p className="text-sm sm:text-base text-muted-foreground dark:text-slate-200/85 max-w-xl">
               Install the Mabini Classroom progressive web application (PWA) to access the LMS
               from your home screen with reliable performance. Students can review lessons,
               teachers can post coursework, and administrators can monitor activity in one secure platform.
             </p>
 
-            <div className="space-y-2 text-sm text-slate-200/90">
+            <div className="space-y-2 text-sm text-foreground/85 dark:text-slate-200/90">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
                 <span>Open directly from your home screen with a reliable app-like experience.</span>
@@ -462,7 +462,7 @@ export default function LandingPage() {
                 <Download className="h-4 w-4" />
                 {isInstalled ? "Application Installed" : isInstallable ? "Install Mabini Classroom App" : "Install option unavailable"}
               </Button>
-              <p className="text-xs text-slate-300/90">
+              <p className="text-xs text-muted-foreground dark:text-slate-300/90">
                 {!isInstallable && !isInstalled
                   ? "Installation tip: open this page in Chrome or Edge, then select Install from your browser menu."
                   : "Installation is completed in only a few seconds."}
@@ -478,7 +478,7 @@ export default function LandingPage() {
               onFocusCapture={() => setIsCarouselPaused(true)}
               onBlurCapture={() => setIsCarouselPaused(false)}
             >
-              <div className="relative h-[340px] sm:h-[380px] overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-white/20 bg-slate-950/80 p-2.5 sm:p-3 shadow-2xl shadow-primary/20">
+              <div className="relative h-[340px] sm:h-[380px] overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-slate-200/80 bg-white/80 dark:border-white/20 dark:bg-slate-950/80 p-2.5 sm:p-3 shadow-2xl shadow-primary/20">
                 <div className="absolute inset-x-8 top-0 h-20 bg-primary/20 blur-2xl pointer-events-none"></div>
 
                 {deviceShowcaseSlides.map((slide, index) => {
@@ -496,16 +496,16 @@ export default function LandingPage() {
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/25 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-100">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/70 bg-white/70 dark:border-white/15 dark:bg-black/25 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-100">
                           <DeviceIcon className="h-3.5 w-3.5" />
                           {slide.label}
                         </div>
-                        <span className="text-[11px] text-slate-200/85">{index + 1} / {deviceShowcaseSlides.length}</span>
+                        <span className="text-[11px] text-slate-600 dark:text-slate-200/85">{index + 1} / {deviceShowcaseSlides.length}</span>
                       </div>
 
-                      <p className="mt-2.5 text-[11px] sm:text-xs text-slate-200/90 leading-relaxed">{slide.description}</p>
+                      <p className="mt-2.5 text-[11px] sm:text-xs text-slate-700 dark:text-slate-200/90 leading-relaxed">{slide.description}</p>
 
-                      <div className="mt-3 sm:mt-4 h-[205px] sm:h-[245px] rounded-2xl border border-white/15 bg-slate-900/80 p-2.5 sm:p-4 flex items-center justify-center overflow-hidden">
+                      <div className="mt-3 sm:mt-4 h-[205px] sm:h-[245px] rounded-2xl border border-slate-300/70 bg-slate-100/90 dark:border-white/15 dark:bg-slate-900/80 p-2.5 sm:p-4 flex items-center justify-center overflow-hidden">
                         <div className="origin-center scale-[0.86] sm:scale-100 transition-transform duration-500">
                           {renderDevicePreview(slide.id)}
                         </div>
@@ -515,7 +515,7 @@ export default function LandingPage() {
                 })}
 
                 <div className="absolute inset-x-3 sm:inset-x-4 bottom-3 sm:bottom-4 z-20 flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 backdrop-blur-sm">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 dark:bg-black/35 px-2 py-1 backdrop-blur-sm">
                     {deviceShowcaseSlides.map((slide, index) => (
                       <button
                         key={slide.id}
@@ -524,19 +524,19 @@ export default function LandingPage() {
                         onClick={() => goToSlide(index)}
                         className={`h-2.5 rounded-full transition-all duration-300 ${
                           index === activeDeviceSlide
-                            ? "w-6 bg-white"
-                            : "w-2.5 bg-white/40 hover:bg-white/70"
+                            ? "w-6 bg-slate-900 dark:bg-white"
+                            : "w-2.5 bg-slate-500/50 hover:bg-slate-700/70 dark:bg-white/40 dark:hover:bg-white/70"
                         }`}
                       />
                     ))}
                   </div>
 
-                  <div className="inline-flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-black/35 p-1 backdrop-blur-sm">
                     <button
                       type="button"
                       onClick={goToPreviousSlide}
                       aria-label="Previous device view"
-                      className="h-8 w-8 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                      className="h-8 w-8 rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-200/60 dark:text-white/90 dark:hover:text-white dark:hover:bg-white/10 transition-colors"
                     >
                       <ChevronLeft className="h-4 w-4 mx-auto" />
                     </button>
@@ -544,7 +544,7 @@ export default function LandingPage() {
                       type="button"
                       onClick={goToNextSlide}
                       aria-label="Next device view"
-                      className="h-8 w-8 rounded-full text-white/90 hover:text-white hover:bg-white/10 transition-colors"
+                      className="h-8 w-8 rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-200/60 dark:text-white/90 dark:hover:text-white dark:hover:bg-white/10 transition-colors"
                     >
                       <ChevronRight className="h-4 w-4 mx-auto" />
                     </button>
@@ -564,8 +564,8 @@ export default function LandingPage() {
             alt=""
             className="h-full w-full object-cover object-center sm:object-[center_35%]"
           />
-          <div className="absolute inset-0 bg-slate-950/72"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/70 to-emerald-950/60"></div>
+          <div className="absolute inset-0 bg-slate-900/65 dark:bg-slate-950/72"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900/75 via-slate-900/60 to-emerald-900/45 dark:from-slate-950/85 dark:via-slate-950/70 dark:to-emerald-950/60"></div>
         </div>
 
         <div className="relative max-w-6xl mx-auto">

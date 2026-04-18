@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { resolveNotificationLink } from '@/lib/notification-links';
+import { invalidateClassData } from '@/lib/query-invalidation';
 import { pushNotificationsService } from '@/services/push-notifications.service';
 
 // Socket event types (must match server)
@@ -59,6 +60,51 @@ interface AnnouncementEventPayload {
 }
 
 const NOTIFICATIONS_REFRESH_EVENT = 'mabini:notifications-refresh';
+const REALTIME_NOTIFICATION_DEDUP_TTL_MS = 15_000;
+const realtimeNotificationSeenAt = new Map<string, number>();
+
+const buildRealtimeNotificationKey = (notification: NotificationPayload): string => {
+  if (notification.id) {
+    return `id:${notification.id}`;
+  }
+
+  const metadataCourseId =
+    typeof notification.data?.course_id === 'string'
+      ? notification.data.course_id
+      : typeof notification.data?.courseId === 'string'
+      ? notification.data.courseId
+      : '';
+
+  return [
+    notification.type || 'unknown',
+    notification.title || '',
+    notification.message || '',
+    metadataCourseId,
+  ]
+    .join('|')
+    .toLowerCase();
+};
+
+const shouldSuppressDuplicateRealtimeNotification = (
+  notification: NotificationPayload
+): boolean => {
+  const key = buildRealtimeNotificationKey(notification);
+  const now = Date.now();
+
+  realtimeNotificationSeenAt.forEach((seenAt, seenKey) => {
+    if (now - seenAt > REALTIME_NOTIFICATION_DEDUP_TTL_MS) {
+      realtimeNotificationSeenAt.delete(seenKey);
+    }
+  });
+
+  const previousSeenAt = realtimeNotificationSeenAt.get(key);
+  if (typeof previousSeenAt === 'number') {
+    return true;
+  }
+
+  realtimeNotificationSeenAt.set(key, now);
+  return false;
+};
 
 const getAssignmentLabel = (assignmentType?: string): string => {
   switch ((assignmentType || '').toLowerCase()) {
@@ -232,14 +278,7 @@ export function useRealtimeNotifications() {
 
   const refreshCourseRealtimeData = useCallback(
     (courseId?: string) => {
-      if (!courseId) {
-        return;
-      }
-
-      void queryClient.invalidateQueries({ queryKey: ['class', courseId] });
-      void queryClient.invalidateQueries({ queryKey: ['assignments', courseId] });
-      void queryClient.invalidateQueries({ queryKey: ['announcements', courseId] });
-      void queryClient.invalidateQueries({ queryKey: ['classes'] });
+      void invalidateClassData(queryClient, { classId: courseId });
     },
     [queryClient]
   );
@@ -375,6 +414,10 @@ export function useRealtimeNotifications() {
     const unsubNotification = subscribe<NotificationPayload>(
       SocketEvent.NOTIFICATION,
       (notification) => {
+        if (shouldSuppressDuplicateRealtimeNotification(notification)) {
+          return;
+        }
+
         toast({
           title: notification.title,
           description: notification.message,

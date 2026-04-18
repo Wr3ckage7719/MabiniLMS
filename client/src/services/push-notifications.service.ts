@@ -287,6 +287,40 @@ const requestPermission = async (): Promise<NotificationPermission> => {
   return Notification.requestPermission();
 };
 
+const LOCAL_NOTIFICATION_DEDUP_TTL_MS = 20_000;
+const localNotificationSeenAt = new Map<string, number>();
+
+const buildLocalNotificationDedupeKey = (
+  title: string,
+  body: string,
+  tag: string,
+  notificationId?: string
+): string => {
+  if (notificationId) {
+    return `id:${notificationId}`;
+  }
+
+  return `${tag}|${title}|${body}`.toLowerCase();
+};
+
+const isRecentLocalNotification = (dedupeKey: string): boolean => {
+  const now = Date.now();
+
+  localNotificationSeenAt.forEach((seenAt, key) => {
+    if (now - seenAt > LOCAL_NOTIFICATION_DEDUP_TTL_MS) {
+      localNotificationSeenAt.delete(key);
+    }
+  });
+
+  const seenAt = localNotificationSeenAt.get(dedupeKey);
+  if (typeof seenAt === 'number') {
+    return true;
+  }
+
+  localNotificationSeenAt.set(dedupeKey, now);
+  return false;
+};
+
 export const pushNotificationsService = {
   isSupported(): boolean {
     if (!isBrowser()) {
@@ -425,6 +459,19 @@ export const pushNotificationsService = {
     }
 
     const registration = await this.registerServiceWorker();
+    const notificationTag =
+      options?.tag ||
+      (options?.notificationId ? `notification-${options.notificationId}` : 'mabini-notification');
+    const dedupeKey = buildLocalNotificationDedupeKey(
+      title,
+      body,
+      notificationTag,
+      options?.notificationId
+    );
+
+    if (isRecentLocalNotification(dedupeKey)) {
+      return;
+    }
 
     const notificationData = {
       url: options?.url || '/dashboard',
@@ -432,12 +479,28 @@ export const pushNotificationsService = {
     };
 
     if (registration && typeof registration.showNotification === 'function') {
+      if (typeof registration.getNotifications === 'function') {
+        const existingNotifications = await registration.getNotifications({ tag: notificationTag });
+        const isDuplicate = existingNotifications.some((notification) => {
+          if (options?.notificationId) {
+            return notification.data?.notificationId === options.notificationId;
+          }
+
+          return notification.title === title && notification.body === body;
+        });
+
+        if (isDuplicate) {
+          return;
+        }
+      }
+
       await registration.showNotification(title, {
         body,
         icon: '/icons/icon-192x192.png',
         badge: '/icons/notification-badge-96x96.png',
-        tag: options?.tag || 'mabini-notification',
+        tag: notificationTag,
         data: notificationData,
+        renotify: false,
       });
       return;
     }
@@ -446,8 +509,9 @@ export const pushNotificationsService = {
       body,
       icon: '/icons/icon-192x192.png',
       badge: '/icons/notification-badge-96x96.png',
-      tag: options?.tag || 'mabini-notification',
+      tag: notificationTag,
       data: notificationData,
+      renotify: false,
     });
 
     notification.onclick = () => {

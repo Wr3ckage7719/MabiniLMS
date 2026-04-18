@@ -121,13 +121,13 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
   return (
     <>
       <header className="sticky top-0 z-50 border-b bg-background md:glass">
-        <div className="flex items-center justify-between h-14 md:h-16 px-3 md:px-6">
+        <div className="flex items-center justify-between h-16 md:h-16 px-3.5 md:px-6">
           <div className="flex items-center gap-1.5 md:gap-3">
-            <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="h-8 w-8 rounded-full md:hidden">
+            <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="h-10 w-10 rounded-full md:hidden">
               <Menu className="h-5 w-5" />
             </Button>
             <button onClick={handleHomeClick} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-              <AppLogo className="h-7 w-7 md:h-9 md:w-9" />
+              <AppLogo className="h-8 w-8 md:h-9 md:w-9" />
               <span className="text-lg font-bold hidden sm:block">Mabini Classroom</span>
             </button>
           </div>
@@ -144,19 +144,19 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
             </div>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-2">
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
+          <div className="flex items-center gap-2.5 md:gap-2">
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
               <Search className="h-5 w-5" />
             </Button>
 
             <Button
               variant="default"
               size="icon"
-              className="h-9 w-9 rounded-full md:hidden"
+              className="h-10 w-10 rounded-full md:hidden"
               onClick={onJoinClass}
               aria-label="Join class"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-5 w-5" />
             </Button>
 
             <Button
@@ -169,7 +169,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
               <span className="hidden sm:inline">Join Class</span>
             </Button>
 
-            <NotificationsPopover role="student" buttonClassName="h-9 w-9 rounded-full md:h-10 md:w-10 md:rounded-xl" />
+            <NotificationsPopover role="student" buttonClassName="h-10 w-10 rounded-full md:h-10 md:w-10 md:rounded-xl" />
 
             {/* Install App Button - only shown when installable */}
             {isInstallable && (
@@ -190,8 +190,8 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 p-1 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors">
-                  <Avatar className="h-7 w-7 md:h-8 md:w-8">
+                <button className="flex items-center gap-2 p-1.5 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors">
+                  <Avatar className="h-8 w-8 md:h-8 md:w-8">
                     {currentUserAvatarUrl && (
                       <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />
                     )}

@@ -104,6 +104,35 @@ const resolveNotificationBadge = (value) => {
   return value;
 };
 
+const PUSH_NOTIFICATION_DEDUP_TTL_MS = 30000;
+const recentPushNotificationKeys = new Map();
+
+const buildPushNotificationDedupeKey = ({ notificationId, tag, title, body }) => {
+  if (notificationId) {
+    return `id:${notificationId}`;
+  }
+
+  return `${tag}|${title}|${body}`.toLowerCase();
+};
+
+const isRecentPushNotification = (dedupeKey) => {
+  const now = Date.now();
+
+  recentPushNotificationKeys.forEach((seenAt, key) => {
+    if (now - seenAt > PUSH_NOTIFICATION_DEDUP_TTL_MS) {
+      recentPushNotificationKeys.delete(key);
+    }
+  });
+
+  const previousSeenAt = recentPushNotificationKeys.get(dedupeKey);
+  if (typeof previousSeenAt === 'number') {
+    return true;
+  }
+
+  recentPushNotificationKeys.set(dedupeKey, now);
+  return false;
+};
+
 self.addEventListener('push', (event) => {
   let payload = {};
 
@@ -121,19 +150,48 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Mabini Classroom';
   const body = payload.body || 'You have a new update.';
   const url = payload.url || payload.data?.url || '/dashboard';
+  const notificationId = payload.data?.notificationId || null;
+  const tag = payload.tag || (notificationId ? `notification-${notificationId}` : 'mabini-notification');
+  const dedupeKey = buildPushNotificationDedupeKey({
+    notificationId,
+    tag,
+    title,
+    body,
+  });
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: resolveNotificationIcon(payload.icon),
-      badge: resolveNotificationBadge(payload.badge),
-      tag: payload.tag || 'mabini-notification',
-      data: {
-        url,
-        notificationId: payload.data?.notificationId || null,
-      },
-      renotify: true,
-    })
+    (async () => {
+      if (isRecentPushNotification(dedupeKey)) {
+        return;
+      }
+
+      if (typeof self.registration.getNotifications === 'function') {
+        const existingNotifications = await self.registration.getNotifications({ tag });
+        const isDuplicate = existingNotifications.some((notification) => {
+          if (notificationId) {
+            return notification.data?.notificationId === notificationId;
+          }
+
+          return notification.title === title && notification.body === body;
+        });
+
+        if (isDuplicate) {
+          return;
+        }
+      }
+
+      await self.registration.showNotification(title, {
+        body,
+        icon: resolveNotificationIcon(payload.icon),
+        badge: resolveNotificationBadge(payload.badge),
+        tag,
+        data: {
+          url,
+          notificationId,
+        },
+        renotify: false,
+      });
+    })()
   );
 });
 
