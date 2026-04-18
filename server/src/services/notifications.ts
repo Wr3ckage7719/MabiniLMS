@@ -354,12 +354,30 @@ const dispatchWebPushNotifications = async (
   }
 
   const subscriptionsByUserId = new Map<string, PushSubscriptionRecord[]>()
+  const duplicateSubscriptionIds = new Set<string>()
 
   subscriptionRows.forEach((subscription) => {
     const existing = subscriptionsByUserId.get(subscription.user_id) || []
+
+    const hasMatchingEndpoint = existing.some(
+      (candidate) => candidate.endpoint === subscription.endpoint
+    )
+
+    if (hasMatchingEndpoint) {
+      duplicateSubscriptionIds.add(subscription.id)
+      return
+    }
+
     existing.push(subscription)
     subscriptionsByUserId.set(subscription.user_id, existing)
   })
+
+  if (duplicateSubscriptionIds.size > 0) {
+    logger.info('Deactivating duplicate push subscriptions', {
+      duplicateCount: duplicateSubscriptionIds.size,
+    })
+    await deactivateStalePushSubscriptions(Array.from(duplicateSubscriptionIds))
+  }
 
   const staleSubscriptionIds = new Set<string>()
 

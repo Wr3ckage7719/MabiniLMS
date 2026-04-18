@@ -28,12 +28,12 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
       )}
       <aside
         className={cn(
-          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-[62vw] max-w-[240px] bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-transform duration-300',
+          'fixed md:sticky top-0 left-0 z-50 md:z-0 h-screen w-[78vw] max-w-[320px] bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-transform duration-300',
           open ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
           'md:w-60'
         )}
       >
-        <div className="flex items-center justify-between p-3 md:hidden">
+        <div className="flex items-center justify-between p-4 md:hidden">
           <span className="font-semibold text-sm">Menu</span>
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onClose}>
             <ChevronLeft className="h-5 w-5" />
@@ -49,7 +49,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
                 end={item.path === '/'}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] md:text-sm font-medium transition-all',
+                    'flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] md:text-sm font-medium transition-all',
                     item.mobileOnly ? 'md:hidden' : '',
                     isActive
                       ? 'bg-primary/10 text-primary'
