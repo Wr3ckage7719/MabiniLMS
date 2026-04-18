@@ -18,6 +18,7 @@ export interface LoginData {
   twoFactorChallengeId?: string;
   portal?: 'app' | 'admin';
   rememberMe?: boolean;
+  roleIntent?: 'student' | 'teacher';
 }
 
 export interface AuthSessionPayload {
@@ -89,6 +90,7 @@ export const authService = {
       twoFactorChallengeId: data.twoFactorChallengeId,
       portal: data.portal,
       remember_me: data.rememberMe ?? true,
+      roleIntent: data.roleIntent,
     });
   },
 
