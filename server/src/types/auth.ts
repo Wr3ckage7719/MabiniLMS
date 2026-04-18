@@ -28,6 +28,7 @@ export const loginSchema = z.object({
   twoFactorChallengeId: z.string().uuid('Invalid two-factor challenge').optional(),
   portal: z.enum(['app', 'admin']).optional().default('app'),
   remember_me: z.boolean().optional().default(true),
+  roleIntent: z.enum(['student', 'teacher']).optional(),
 });
 
 export const forgotPasswordSchema = z.object({

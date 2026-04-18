@@ -1003,6 +1003,7 @@ export const login = async (
     twoFactorChallengeId,
     portal = 'app',
     remember_me = true,
+    roleIntent,
   } = input;
   const normalizedEmail = normalizeEmail(email);
   const authClient = createIsolatedAuthClient();
@@ -1090,6 +1091,60 @@ export const login = async (
     throw new ApiError(
       ErrorCode.FORBIDDEN,
       'Administrator accounts must sign in through the admin portal.',
+      403
+    );
+  }
+
+  if (
+    portal === 'app' &&
+    roleIntent === UserRole.TEACHER &&
+    profile.role !== UserRole.TEACHER
+  ) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      {
+        reason: 'teacher_portal_requires_teacher_role',
+        role: profile.role,
+        role_intent: roleIntent,
+        email: profile.email,
+      }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Teacher login requires a teacher account.',
+      403
+    );
+  }
+
+  if (
+    portal === 'app' &&
+    roleIntent === UserRole.STUDENT &&
+    profile.role !== UserRole.STUDENT
+  ) {
+    await auditService.logAuthEvent(
+      data.user.id,
+      AuditEventType.LOGIN_FAILED,
+      ipAddress,
+      userAgent,
+      {
+        reason: 'student_portal_requires_student_role',
+        role: profile.role,
+        role_intent: roleIntent,
+        email: profile.email,
+      }
+    );
+
+    await supabaseAdmin.auth.admin.signOut(data.user.id);
+
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Student login requires a student account.',
       403
     );
   }
@@ -1219,6 +1274,7 @@ export const login = async (
       ...createSessionProofDeviceInfo(data.session.access_token),
       remember_me,
       portal,
+      role_intent: roleIntent || null,
     }
   );
 

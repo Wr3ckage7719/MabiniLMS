@@ -199,6 +199,7 @@ interface AuthContextType {
     twoFactorCode?: string,
     portal?: 'app' | 'admin',
     rememberMe?: boolean,
+    roleIntent?: 'student' | 'teacher',
   ) => Promise<LoginResult>;
   register: (email: string, password: string, fullName: string, role?: 'student' | 'teacher') => Promise<void>;
   requestStudentSignup: (email: string) => Promise<string>;
@@ -604,6 +605,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     twoFactorCode?: string,
     portal: 'app' | 'admin' = 'app',
     rememberMe: boolean = true,
+    roleIntent?: 'student' | 'teacher',
   ): Promise<LoginResult> => {
     if (!email || !password) {
       throw new Error('Email and password are required');
@@ -628,6 +630,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           twoFactorChallengeId: challengeId,
           portal,
           rememberMe,
+          roleIntent,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
         'Login timed out. Please try again.'
