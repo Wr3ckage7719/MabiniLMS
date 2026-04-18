@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../lib/supabase.js';
+import { createIsolatedAuthClient, supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
 import {
   SignupInput,
@@ -1005,8 +1005,9 @@ export const login = async (
     remember_me = true,
   } = input;
   const normalizedEmail = normalizeEmail(email);
+  const authClient = createIsolatedAuthClient();
 
-  const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+  const { data, error } = await authClient.auth.signInWithPassword({
     email: normalizedEmail,
     password,
   });
@@ -1277,8 +1278,9 @@ export const logout = async (
  */
 export const refreshToken = async (input: RefreshTokenInput): Promise<AuthSession> => {
   const { refresh_token } = input;
+  const authClient = createIsolatedAuthClient();
 
-  const { data, error } = await supabaseAdmin.auth.refreshSession({
+  const { data, error } = await authClient.auth.refreshSession({
     refresh_token,
   });
 
@@ -1389,7 +1391,8 @@ export const changePassword = async (
   }
 
   // Verify current password
-  const { error: verifyError } = await supabaseAdmin.auth.signInWithPassword({
+  const authClient = createIsolatedAuthClient();
+  const { error: verifyError } = await authClient.auth.signInWithPassword({
     email: profile.email,
     password: currentPassword,
   });
@@ -1400,6 +1403,14 @@ export const changePassword = async (
       'Current password is incorrect',
       401
     );
+  }
+
+  const { error: verificationSignOutError } = await authClient.auth.signOut();
+  if (verificationSignOutError) {
+    logger.warn('Failed to clear password verification auth session', {
+      userId,
+      error: verificationSignOutError.message,
+    });
   }
 
   // Update password

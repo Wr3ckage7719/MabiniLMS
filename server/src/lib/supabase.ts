@@ -139,6 +139,16 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   },
 });
 
+// Use a request-scoped auth client for sign-in/refresh flows so sessions never
+// mutate the shared service-role client state.
+export const createIsolatedAuthClient = () =>
+  createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
 // Client with anon key (respects RLS)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
