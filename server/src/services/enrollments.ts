@@ -502,7 +502,7 @@ export const enrollStudent = async (
       if (isPermissionDeniedError(reactivationError)) {
         throw new ApiError(
           ErrorCode.INTERNAL_ERROR,
-          'Database permission denied while reactivating enrollment. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+          'Database permission denied while reactivating enrollment. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
           503,
           {
             reason: 'SUPABASE_PERMISSION_DENIED',
@@ -559,7 +559,7 @@ export const enrollStudent = async (
     if (isPermissionDeniedError(error)) {
       throw new ApiError(
         ErrorCode.INTERNAL_ERROR,
-        'Database permission denied while creating enrollment. Verify SUPABASE_SERVICE_KEY uses the service role key.',
+        'Database permission denied while creating enrollment. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
         503,
         {
           reason: 'SUPABASE_PERMISSION_DENIED',

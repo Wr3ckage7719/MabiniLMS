@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { supabase } from './lib/supabase.js';
+import { supabase, verifySupabaseAdminCapabilities } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -285,11 +285,31 @@ if (shouldExposeDbTestEndpoint) {
         throw error;
       }
 
+      let adminWriteReady = true;
+      let adminWriteMessage = 'Supabase admin key verified';
+
+      try {
+        await verifySupabaseAdminCapabilities();
+      } catch (adminError) {
+        adminWriteReady = false;
+        adminWriteMessage = adminError instanceof Error
+          ? adminError.message
+          : 'Supabase admin capability validation failed';
+      }
+
+      if (!adminWriteReady) {
+        throw new Error(adminWriteMessage);
+      }
+
       res.json({ 
         success: true,
         data: {
           status: 'ok', 
           message: 'Supabase connected successfully',
+          checks: {
+            public_read: true,
+            admin_write_ready: true,
+          },
           timestamp: new Date().toISOString()
         }
       });
@@ -345,24 +365,40 @@ app.use(errorHandler);
 // SERVER STARTUP & GRACEFUL SHUTDOWN
 // =============================================================================
 
-const server = httpServer.listen(PORT, () => {
-  logger.info(`🚀 Server is running on port ${PORT}`);
-  if (shouldExposeApiDocs) {
-    logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
-  } else {
-    logger.info('📚 API Documentation: disabled');
+let server: ReturnType<typeof httpServer.listen> | null = null;
+
+const startServer = async (): Promise<void> => {
+  if (process.env.NODE_ENV !== 'test') {
+    await verifySupabaseAdminCapabilities();
+    logger.info('✅ Supabase admin capability verified');
   }
-  logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`);
-  logger.info(`🔌 WebSocket: Enabled for real-time notifications`);
-  logger.info(`🔒 Security: Helmet enabled, CORS configured, rate limiting active`);
-  console.log(`🚀 Server is running on port ${PORT}`);
-  if (shouldExposeApiDocs) {
-    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
-  } else {
-    console.log('📚 API Documentation: disabled');
-  }
-  console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+
+  server = httpServer.listen(PORT, () => {
+    logger.info(`🚀 Server is running on port ${PORT}`);
+    if (shouldExposeApiDocs) {
+      logger.info(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+    } else {
+      logger.info('📚 API Documentation: disabled');
+    }
+    logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`);
+    logger.info(`🔌 WebSocket: Enabled for real-time notifications`);
+    logger.info(`🔒 Security: Helmet enabled, CORS configured, rate limiting active`);
+    console.log(`🚀 Server is running on port ${PORT}`);
+    if (shouldExposeApiDocs) {
+      console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+    } else {
+      console.log('📚 API Documentation: disabled');
+    }
+    console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+  });
+};
+
+void startServer().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error('Server startup failed', { error: message });
+  console.error(`❌ Server startup failed: ${message}`);
+  process.exit(1);
 });
 
 // Graceful shutdown handling
@@ -377,6 +413,12 @@ const gracefulShutdown = (signal: string) => {
   isShuttingDown = true;
   logger.info(`Received ${signal}. Starting graceful shutdown...`);
   console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+
+  if (!server) {
+    logger.warn('Shutdown requested before HTTP server initialization completed', { signal });
+    process.exit(signal === 'SIGTERM' || signal === 'SIGINT' ? 0 : 1);
+    return;
+  }
 
   // Stop accepting new connections
   server.close((err) => {
