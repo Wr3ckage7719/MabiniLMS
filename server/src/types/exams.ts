@@ -166,6 +166,9 @@ export type ListViolationsQuery = z.infer<typeof listViolationsQuerySchema>
 export interface ProctoringPolicy {
   max_violations: number
   terminate_on_fullscreen_exit: boolean
+  auto_submit_on_tab_switch: boolean
+  auto_submit_on_fullscreen_exit: boolean
+  require_agreement_before_start: boolean
   block_clipboard: boolean
   block_context_menu: boolean
   block_print_shortcut: boolean
@@ -250,4 +253,12 @@ export interface ExamSubmissionResult {
   answered_count: number
   total_questions: number
   violation_count: number
+}
+
+export interface ReportExamViolationResult {
+  attempt_status: ExamAttempt['status']
+  violation_count: number
+  terminated: boolean
+  auto_submitted?: boolean
+  submission_result?: ExamSubmissionResult
 }

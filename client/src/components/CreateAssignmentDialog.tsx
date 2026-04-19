@@ -500,6 +500,10 @@ export function CreateAssignmentDialog({
   const [examQuestionOrder, setExamQuestionOrder] = useState<'sequence' | 'random'>('random');
   const [examQuestionSelection, setExamQuestionSelection] = useState<'sequence' | 'random'>('random');
   const [examIntegrityProfile, setExamIntegrityProfile] = useState<'standard' | 'strict'>('strict');
+  const [examRequireAgreementBeforeStart, setExamRequireAgreementBeforeStart] = useState(true);
+  const [examAutoSubmitOnTabSwitch, setExamAutoSubmitOnTabSwitch] = useState(false);
+  const [examAutoSubmitOnFullscreenExit, setExamAutoSubmitOnFullscreenExit] = useState(true);
+  const [examMaxViolations, setExamMaxViolations] = useState('3');
   const [examImportedQuestions, setExamImportedQuestions] = useState<ImportedQuestionDraft[]>([]);
   const [examImportFileName, setExamImportFileName] = useState<string | null>(null);
   const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
@@ -519,6 +523,21 @@ export function CreateAssignmentDialog({
       setTaskType(initialTaskType);
     }
   }, [initialTaskType]);
+
+  useEffect(() => {
+    if (examIntegrityProfile === 'strict') {
+      setExamRequireAgreementBeforeStart(true);
+      setExamAutoSubmitOnFullscreenExit(true);
+      setExamAutoSubmitOnTabSwitch(false);
+      setExamMaxViolations('3');
+      return;
+    }
+
+    setExamRequireAgreementBeforeStart(true);
+    setExamAutoSubmitOnFullscreenExit(false);
+    setExamAutoSubmitOnTabSwitch(false);
+    setExamMaxViolations('5');
+  }, [examIntegrityProfile]);
 
   const isTaskTypeLocked = isPage && Boolean(initialTaskType);
 
@@ -960,6 +979,12 @@ export function CreateAssignmentDialog({
           selection_mode: examQuestionSelection,
           import_source: examImportFileName || null,
           imported_questions_count: examImportedQuestions.length,
+          policy: {
+            require_agreement_before_start: examRequireAgreementBeforeStart,
+            auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch,
+            auto_submit_on_fullscreen_exit: examAutoSubmitOnFullscreenExit,
+            max_violations: Number(examMaxViolations) || 3,
+          },
         },
         null,
         2
@@ -1020,6 +1045,14 @@ export function CreateAssignmentDialog({
             : {}),
         }));
         const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
+        const parsedExamMaxViolations = Number(examMaxViolations);
+        const effectiveExamMaxViolations =
+          Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0
+            ? Math.floor(parsedExamMaxViolations)
+            : examIntegrityProfile === 'strict'
+              ? 3
+              : 5;
+        const strictProctoring = examIntegrityProfile === 'strict';
         const submissionCloseAt = autoCloseSubmissionsOnDueDate
           ? dueDate
             ? dueDate.toISOString()
@@ -1065,7 +1098,21 @@ export function CreateAssignmentDialog({
                     : {}),
                 }
               : undefined,
-          is_proctored: taskType === 'exam' ? examIntegrityProfile === 'strict' : undefined,
+          is_proctored: taskType === 'exam' ? true : undefined,
+          proctoring_policy:
+            taskType === 'exam'
+              ? {
+                  max_violations: effectiveExamMaxViolations,
+                  require_agreement_before_start: examRequireAgreementBeforeStart,
+                  auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch,
+                  auto_submit_on_fullscreen_exit: examAutoSubmitOnFullscreenExit,
+                  // Keep legacy field for backward compatibility with older exam services.
+                  terminate_on_fullscreen_exit: examAutoSubmitOnFullscreenExit,
+                  block_clipboard: strictProctoring,
+                  block_context_menu: strictProctoring,
+                  block_print_shortcut: strictProctoring,
+                }
+              : undefined,
         });
 
         const createdAssignmentId = String(
@@ -1146,6 +1193,10 @@ export function CreateAssignmentDialog({
     setExamQuestionOrder('random');
     setExamQuestionSelection('random');
     setExamIntegrityProfile('strict');
+    setExamRequireAgreementBeforeStart(true);
+    setExamAutoSubmitOnTabSwitch(false);
+    setExamAutoSubmitOnFullscreenExit(true);
+    setExamMaxViolations('3');
     setExamImportedQuestions([]);
     setExamImportFileName(null);
     setExamChapterPoolEnabled(false);
@@ -1841,6 +1892,62 @@ export function CreateAssignmentDialog({
                     <SelectItem value="standard">Standard</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold">Exam Integrity Policies</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Configure required agreement and hard-trigger auto-submit behavior for proctored attempts.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                  <div>
+                    <p className="text-sm font-medium">Require Pre-Exam Agreement</p>
+                    <p className="text-xs text-muted-foreground">Students must acknowledge rules before begin.</p>
+                  </div>
+                  <Switch
+                    checked={examRequireAgreementBeforeStart}
+                    onCheckedChange={setExamRequireAgreementBeforeStart}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                  <div>
+                    <p className="text-sm font-medium">Auto-Submit on Fullscreen Exit</p>
+                    <p className="text-xs text-muted-foreground">Finalize attempt immediately on fullscreen break.</p>
+                  </div>
+                  <Switch
+                    checked={examAutoSubmitOnFullscreenExit}
+                    onCheckedChange={setExamAutoSubmitOnFullscreenExit}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border/60 p-3 md:col-span-2">
+                  <div>
+                    <p className="text-sm font-medium">Auto-Submit on Tab Switch</p>
+                    <p className="text-xs text-muted-foreground">Finalize attempt when focus leaves the exam tab.</p>
+                  </div>
+                  <Switch
+                    checked={examAutoSubmitOnTabSwitch}
+                    onCheckedChange={setExamAutoSubmitOnTabSwitch}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold">Max Violations Before Terminate</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={examMaxViolations}
+                    onChange={(event) => setExamMaxViolations(event.target.value)}
+                    className="mt-2 rounded-lg"
+                  />
+                </div>
               </div>
             </div>
 

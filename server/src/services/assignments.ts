@@ -55,6 +55,138 @@ const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'proctoring_policy',
 ]);
 
+const DEFAULT_PROCTORING_POLICY: Record<string, unknown> = {
+  max_violations: 3,
+  terminate_on_fullscreen_exit: false,
+  auto_submit_on_tab_switch: false,
+  auto_submit_on_fullscreen_exit: false,
+  require_agreement_before_start: true,
+  block_clipboard: true,
+  block_context_menu: true,
+  block_print_shortcut: true,
+};
+
+type AssignmentInputWithAliases = Partial<CreateAssignmentInput & UpdateAssignmentInput> & Record<string, unknown>;
+
+const resolveModeValue = (value: unknown): 'sequence' | 'random' | undefined => {
+  if (value === 'sequence' || value === 'random') {
+    return value;
+  }
+
+  return undefined;
+};
+
+const resolveQuestionOrderMode = (input: AssignmentInputWithAliases): 'sequence' | 'random' | undefined => {
+  return (
+    resolveModeValue(input.question_order_mode)
+    || resolveModeValue(input.question_order)
+    || resolveModeValue(input.order_mode)
+  );
+};
+
+const resolveExamSelectionMode = (input: AssignmentInputWithAliases): 'sequence' | 'random' | undefined => {
+  return (
+    resolveModeValue(input.exam_question_selection_mode)
+    || resolveModeValue(input.exam_selection_mode)
+  );
+};
+
+const resolveExamChapterPool = (
+  input: AssignmentInputWithAliases
+): CreateAssignmentInput['exam_chapter_pool'] | undefined => {
+  if (input.exam_chapter_pool && typeof input.exam_chapter_pool === 'object') {
+    return input.exam_chapter_pool;
+  }
+
+  if (input.chapter_pool && typeof input.chapter_pool === 'object') {
+    return input.chapter_pool as CreateAssignmentInput['exam_chapter_pool'];
+  }
+
+  return undefined;
+};
+
+const toBoolean = (value: unknown): boolean | undefined => {
+  return typeof value === 'boolean' ? value : undefined;
+};
+
+const toPositiveInt = (value: unknown): number | undefined => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return undefined;
+  }
+
+  const normalized = Math.floor(numeric);
+  if (normalized <= 0) {
+    return undefined;
+  }
+
+  return Math.min(20, normalized);
+};
+
+const normalizeProctoringPolicyInput = (
+  rawPolicy: unknown,
+  options: { withDefaults: boolean }
+): Record<string, unknown> | null | undefined => {
+  if (rawPolicy === undefined) {
+    return undefined;
+  }
+
+  if (rawPolicy === null) {
+    return null;
+  }
+
+  if (!rawPolicy || typeof rawPolicy !== 'object' || Array.isArray(rawPolicy)) {
+    return options.withDefaults ? { ...DEFAULT_PROCTORING_POLICY } : undefined;
+  }
+
+  const policy = rawPolicy as Record<string, unknown>;
+
+  const terminateOnFullscreenExit =
+    toBoolean(policy.terminate_on_fullscreen_exit)
+    ?? toBoolean(policy.terminateOnFullscreenExit);
+
+  const normalizedPolicy: Record<string, unknown> = options.withDefaults
+    ? { ...DEFAULT_PROCTORING_POLICY }
+    : {};
+
+  const maxViolations = toPositiveInt(policy.max_violations ?? policy.maxViolations);
+  const autoSubmitOnTabSwitch = toBoolean(policy.auto_submit_on_tab_switch ?? policy.autoSubmitOnTabSwitch);
+  const autoSubmitOnFullscreenExit =
+    toBoolean(policy.auto_submit_on_fullscreen_exit ?? policy.autoSubmitOnFullscreenExit)
+    ?? terminateOnFullscreenExit;
+  const requireAgreementBeforeStart =
+    toBoolean(policy.require_agreement_before_start ?? policy.requireAgreementBeforeStart);
+  const blockClipboard = toBoolean(policy.block_clipboard ?? policy.blockClipboard);
+  const blockContextMenu = toBoolean(policy.block_context_menu ?? policy.blockContextMenu);
+  const blockPrintShortcut = toBoolean(policy.block_print_shortcut ?? policy.blockPrintShortcut);
+
+  if (maxViolations !== undefined) normalizedPolicy.max_violations = maxViolations;
+  if (terminateOnFullscreenExit !== undefined) {
+    normalizedPolicy.terminate_on_fullscreen_exit = terminateOnFullscreenExit;
+  }
+  if (autoSubmitOnTabSwitch !== undefined) {
+    normalizedPolicy.auto_submit_on_tab_switch = autoSubmitOnTabSwitch;
+  }
+  if (autoSubmitOnFullscreenExit !== undefined) {
+    normalizedPolicy.auto_submit_on_fullscreen_exit = autoSubmitOnFullscreenExit;
+    if (terminateOnFullscreenExit === undefined) {
+      normalizedPolicy.terminate_on_fullscreen_exit = autoSubmitOnFullscreenExit;
+    }
+  }
+  if (requireAgreementBeforeStart !== undefined) {
+    normalizedPolicy.require_agreement_before_start = requireAgreementBeforeStart;
+  }
+  if (blockClipboard !== undefined) normalizedPolicy.block_clipboard = blockClipboard;
+  if (blockContextMenu !== undefined) normalizedPolicy.block_context_menu = blockContextMenu;
+  if (blockPrintShortcut !== undefined) normalizedPolicy.block_print_shortcut = blockPrintShortcut;
+
+  if (!options.withDefaults && Object.keys(normalizedPolicy).length === 0) {
+    return {};
+  }
+
+  return normalizedPolicy;
+};
+
 const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
   return [error?.message, error?.details, error?.hint]
     .filter(Boolean)
@@ -564,9 +696,13 @@ export const createAssignment = async (
     );
   }
 
+  const normalizedInput = input as AssignmentInputWithAliases;
   const assignmentType = input.assignment_type || 'activity';
   const isExamAssignment = assignmentType === 'exam';
   const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
+  const questionOrderMode = resolveQuestionOrderMode(normalizedInput);
+  const examSelectionMode = resolveExamSelectionMode(normalizedInput);
+  const examChapterPool = resolveExamChapterPool(normalizedInput);
 
   const insertPayload: Record<string, unknown> = {
     course_id: courseId,
@@ -584,29 +720,29 @@ export const createAssignment = async (
     insertPayload.assignment_type = assignmentType;
   }
 
-  if (input.question_order_mode) {
-    insertPayload.question_order_mode = input.question_order_mode;
+  if (questionOrderMode) {
+    insertPayload.question_order_mode = questionOrderMode;
   }
 
-  if (input.exam_question_selection_mode) {
-    insertPayload.exam_question_selection_mode = input.exam_question_selection_mode;
+  if (examSelectionMode) {
+    insertPayload.exam_question_selection_mode = examSelectionMode;
   }
 
-  if (input.exam_chapter_pool) {
-    insertPayload.exam_chapter_pool = input.exam_chapter_pool;
+  if (examChapterPool) {
+    insertPayload.exam_chapter_pool = examChapterPool;
   }
 
   if (isExamAssignment || typeof input.is_proctored === 'boolean') {
+    const normalizedProctoringPolicy = normalizeProctoringPolicyInput(input.proctoring_policy, {
+      withDefaults: true,
+    });
+
     insertPayload.is_proctored = input.is_proctored ?? isExamAssignment;
     insertPayload.exam_duration_minutes =
       input.exam_duration_minutes
       ?? (isExamAssignment ? 60 : null);
-    insertPayload.proctoring_policy = input.proctoring_policy || {
-      max_violations: 3,
-      terminate_on_fullscreen_exit: false,
-      block_clipboard: true,
-      block_context_menu: true,
-      block_print_shortcut: true,
+    insertPayload.proctoring_policy = normalizedProctoringPolicy || {
+      ...DEFAULT_PROCTORING_POLICY,
     };
   }
 
@@ -906,6 +1042,7 @@ export const updateAssignment = async (
   userRole: UserRole
 ): Promise<Assignment> => {
   const assignment = await getAssignmentById(assignmentId);
+  const normalizedInput = input as AssignmentInputWithAliases;
 
   if (userRole !== UserRole.ADMIN && assignment.course.teacher.id !== userId) {
     throw new ApiError(
@@ -916,8 +1053,53 @@ export const updateAssignment = async (
   }
 
   const updatePayload: Record<string, unknown> = {
-    ...input,
+    ...normalizedInput,
   };
+
+  const questionOrderModeProvided =
+    Object.prototype.hasOwnProperty.call(normalizedInput, 'question_order_mode')
+    || Object.prototype.hasOwnProperty.call(normalizedInput, 'question_order')
+    || Object.prototype.hasOwnProperty.call(normalizedInput, 'order_mode');
+  if (questionOrderModeProvided) {
+    const questionOrderMode = resolveQuestionOrderMode(normalizedInput);
+    if (questionOrderMode) {
+      updatePayload.question_order_mode = questionOrderMode;
+    }
+  }
+
+  const examSelectionModeProvided =
+    Object.prototype.hasOwnProperty.call(normalizedInput, 'exam_question_selection_mode')
+    || Object.prototype.hasOwnProperty.call(normalizedInput, 'exam_selection_mode');
+  if (examSelectionModeProvided) {
+    const examSelectionMode = resolveExamSelectionMode(normalizedInput);
+    if (examSelectionMode) {
+      updatePayload.exam_question_selection_mode = examSelectionMode;
+    }
+  }
+
+  const chapterPoolProvided =
+    Object.prototype.hasOwnProperty.call(normalizedInput, 'exam_chapter_pool')
+    || Object.prototype.hasOwnProperty.call(normalizedInput, 'chapter_pool');
+  if (chapterPoolProvided) {
+    const examChapterPool = resolveExamChapterPool(normalizedInput);
+    if (examChapterPool) {
+      updatePayload.exam_chapter_pool = examChapterPool;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalizedInput, 'proctoring_policy')) {
+    updatePayload.proctoring_policy = normalizeProctoringPolicyInput(normalizedInput.proctoring_policy, {
+      withDefaults: false,
+    });
+    if (updatePayload.proctoring_policy === undefined) {
+      delete updatePayload.proctoring_policy;
+    }
+  }
+
+  delete updatePayload.question_order;
+  delete updatePayload.order_mode;
+  delete updatePayload.exam_selection_mode;
+  delete updatePayload.chapter_pool;
 
   const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
   if (!hasAssignmentTypeColumn) {

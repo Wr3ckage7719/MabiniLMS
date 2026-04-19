@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { examsService, ExamAttemptSession, ExamSubmissionResult, ProctorViolationType } from '@/services/exams.service'
@@ -51,6 +52,7 @@ export function ProctoredExamDialog({
   const [violationCount, setViolationCount] = useState(0)
   const [terminated, setTerminated] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
+  const [agreementChecked, setAgreementChecked] = useState(false)
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
   const lastViolationAtRef = useRef<Record<string, number>>({})
@@ -68,6 +70,7 @@ export function ProctoredExamDialog({
     setViolationCount(0)
     setTerminated(false)
     setSecondsLeft(null)
+    setAgreementChecked(false)
     lastViolationAtRef.current = {}
     timeoutSubmitInFlightRef.current = false
   }, [])
@@ -149,6 +152,23 @@ export function ProctoredExamDialog({
 
         setViolationCount(response.violation_count)
 
+        if (response.auto_submitted && response.submission_result) {
+          setResult(response.submission_result)
+          setStarted(false)
+          setTerminated(false)
+          if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => {
+              // Ignore fullscreen exit failures
+            })
+          }
+          toast({
+            title: 'Attempt auto-submitted',
+            description: 'Hard policy trigger finalized your attempt automatically.',
+            variant: 'destructive',
+          })
+          return
+        }
+
         if (response.terminated) {
           setTerminated(true)
           setStarted(false)
@@ -170,12 +190,22 @@ export function ProctoredExamDialog({
       return
     }
 
+    const agreementRequired = Boolean(session.policy.require_agreement_before_start)
+    if (agreementRequired && !agreementChecked) {
+      toast({
+        title: 'Agreement required',
+        description: 'Please confirm the pre-exam agreement before starting.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     if (session.assignment.is_proctored) {
       await enterFullscreen()
     }
 
     setStarted(true)
-  }, [enterFullscreen, session])
+  }, [agreementChecked, enterFullscreen, session, toast])
 
   const handleSelectAnswer = useCallback(
     async (questionId: string, selectedChoiceIndex: number) => {
@@ -457,7 +487,25 @@ export function ProctoredExamDialog({
                   <p className="text-sm text-muted-foreground">
                     When you begin, keep the exam in focus and remain in fullscreen mode to avoid violation events.
                   </p>
-                  <Button onClick={() => void handleBeginExam()} disabled={terminated}>
+                  {Boolean(session.policy.require_agreement_before_start) && (
+                    <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+                      <Checkbox
+                        id="proctored-exam-agreement"
+                        checked={agreementChecked}
+                        onCheckedChange={(checked) => setAgreementChecked(Boolean(checked))}
+                      />
+                      <label htmlFor="proctored-exam-agreement" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
+                        I agree to stay in this exam tab, keep fullscreen active, and follow proctoring rules.
+                      </label>
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => void handleBeginExam()}
+                    disabled={
+                      terminated
+                      || (Boolean(session.policy.require_agreement_before_start) && !agreementChecked)
+                    }
+                  >
                     Begin Exam
                   </Button>
                 </CardContent>
