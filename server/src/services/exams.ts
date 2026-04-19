@@ -5,6 +5,7 @@ import {
   CreateExamQuestionInput,
   ExamAttempt,
   ExamAttemptSession,
+  ExamQuestionItemType,
   ExamQuestion,
   ExamQuestionForAttempt,
   ExamSubmissionResult,
@@ -24,6 +25,13 @@ type AssignmentContext = {
   id: string
   title: string
   assignment_type: string
+  question_order_mode: 'sequence' | 'random'
+  exam_question_selection_mode: 'sequence' | 'random'
+  exam_chapter_pool: {
+    enabled: boolean
+    chapters: Array<{ tag: string; take?: number }>
+    total_questions?: number
+  }
   max_points: number
   due_date: string | null
   course_id: string
@@ -101,11 +109,76 @@ const toChoiceArray = (value: unknown): string[] => {
     .filter((item) => item.length > 0)
 }
 
+const normalizeExamQuestionItemType = (value: unknown): ExamQuestionItemType => {
+  if (value === 'multiple_choice' || value === 'true_false' || value === 'short_answer') {
+    return value
+  }
+
+  return 'multiple_choice'
+}
+
+const toRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as Record<string, unknown>
+}
+
+const normalizeMode = (value: unknown, fallback: 'sequence' | 'random'): 'sequence' | 'random' => {
+  if (value === 'sequence' || value === 'random') {
+    return value
+  }
+
+  return fallback
+}
+
+const toChapterPool = (
+  raw: unknown
+): { enabled: boolean; chapters: Array<{ tag: string; take?: number }>; total_questions?: number } => {
+  const source = toRecord(raw)
+  const chapters = Array.isArray(source.chapters)
+    ? source.chapters
+        .map((entry) => {
+          const chapterEntry = toRecord(entry)
+          const tag = typeof chapterEntry.tag === 'string' ? chapterEntry.tag.trim() : ''
+          const take = Number.isInteger(chapterEntry.take) && Number(chapterEntry.take) > 0
+            ? Number(chapterEntry.take)
+            : undefined
+
+          if (!tag) {
+            return null
+          }
+
+          return {
+            tag,
+            ...(take ? { take } : {}),
+          }
+        })
+        .filter((entry): entry is { tag: string; take?: number } => Boolean(entry))
+    : []
+
+  const totalQuestions = Number.isInteger(source.total_questions) && Number(source.total_questions) > 0
+    ? Number(source.total_questions)
+    : undefined
+
+  return {
+    enabled: Boolean(source.enabled),
+    chapters,
+    ...(totalQuestions ? { total_questions: totalQuestions } : {}),
+  }
+}
+
 const parseExamQuestion = (row: Record<string, unknown>): ExamQuestion => {
+  const itemType = normalizeExamQuestionItemType(row.item_type)
+
   return {
     id: String(row.id),
     assignment_id: String(row.assignment_id),
     prompt: String(row.prompt || ''),
+    item_type: itemType,
+    answer_payload: toRecord(row.answer_payload),
+    chapter_tag: row.chapter_tag ? String(row.chapter_tag) : null,
     choices: toChoiceArray(row.choices),
     correct_choice_index: toNumber(row.correct_choice_index, 0),
     points: roundToTwo(toNumber(row.points, 1)),
@@ -168,7 +241,8 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
     ? supabaseAdmin
         .from('assignments')
         .select(`
-          id, title, assignment_type, max_points, due_date, course_id,
+          id, title, assignment_type, question_order_mode, exam_question_selection_mode,
+          exam_chapter_pool, max_points, due_date, course_id,
           is_proctored, exam_duration_minutes, proctoring_policy,
           course:courses(id, teacher_id)
         `)
@@ -177,7 +251,8 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
     : supabaseAdmin
         .from('assignments')
         .select(`
-          id, title, max_points, due_date, course_id,
+          id, title, question_order_mode, exam_question_selection_mode,
+          exam_chapter_pool, max_points, due_date, course_id,
           is_proctored, exam_duration_minutes, proctoring_policy,
           course:courses(id, teacher_id)
         `)
@@ -199,6 +274,9 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
     id: String(assignment.id),
     title: String(assignment.title || 'Exam'),
     assignment_type: normalizeAssignmentType(assignment.assignment_type),
+    question_order_mode: normalizeMode(assignment.question_order_mode, 'sequence'),
+    exam_question_selection_mode: normalizeMode(assignment.exam_question_selection_mode, 'random'),
+    exam_chapter_pool: toChapterPool(assignment.exam_chapter_pool),
     max_points: toNumber(assignment.max_points, 100),
     due_date: assignment.due_date ? String(assignment.due_date) : null,
     course_id: String(assignment.course_id),
@@ -322,6 +400,8 @@ const buildRenderedQuestions = (
     renderedQuestions.push({
       id: question.id,
       prompt: question.prompt,
+      item_type: question.item_type,
+      answer_payload: question.answer_payload,
       points: question.points,
       explanation: question.explanation,
       choices: validChoiceOrder.map((choiceIndex, renderedIndex) => ({
@@ -446,6 +526,139 @@ const assertAttemptAccess = (
   throw new ApiError(ErrorCode.FORBIDDEN, 'You are not allowed to access this exam attempt', 403)
 }
 
+const normalizeExamQuestionWritePayload = (
+  input: Partial<CreateExamQuestionInput>,
+  existingQuestion?: ExamQuestion
+): {
+  item_type: ExamQuestionItemType
+  choices: string[]
+  correct_choice_index: number
+  answer_payload: Record<string, unknown>
+  chapter_tag: string | null
+} => {
+  const itemType = normalizeExamQuestionItemType(input.item_type ?? existingQuestion?.item_type)
+  const chapterTagInput = input.chapter_tag
+  const chapterTag = chapterTagInput === undefined
+    ? (existingQuestion?.chapter_tag ?? null)
+    : (chapterTagInput || null)
+
+  let choices = input.choices !== undefined
+    ? toChoiceArray(input.choices)
+    : (existingQuestion?.choices || [])
+  let correctChoiceIndex = input.correct_choice_index !== undefined
+    ? Math.floor(input.correct_choice_index)
+    : (existingQuestion?.correct_choice_index ?? 0)
+
+  let answerPayload = input.answer_payload !== undefined
+    ? toRecord(input.answer_payload)
+    : (existingQuestion?.answer_payload || {})
+
+  if (itemType === 'short_answer') {
+    choices = []
+    correctChoiceIndex = 0
+  }
+
+  if (itemType === 'true_false') {
+    if (choices.length !== 2) {
+      choices = ['True', 'False']
+    }
+
+    if (correctChoiceIndex < 0 || correctChoiceIndex >= choices.length) {
+      correctChoiceIndex = 0
+    }
+  }
+
+  return {
+    item_type: itemType,
+    choices,
+    correct_choice_index: correctChoiceIndex,
+    answer_payload: answerPayload,
+    chapter_tag: chapterTag,
+  }
+}
+
+const selectQuestionSubset = (
+  source: ExamQuestion[],
+  requestedCount: number,
+  mode: 'sequence' | 'random',
+  random: () => number
+): ExamQuestion[] => {
+  if (requestedCount >= source.length) {
+    return [...source]
+  }
+
+  if (mode === 'random') {
+    const indexes = fisherYatesOrder(source.length, random).slice(0, requestedCount)
+    return indexes.map((index) => source[index])
+  }
+
+  return source.slice(0, requestedCount)
+}
+
+const resolveQuestionsForAttempt = (
+  questions: ExamQuestion[],
+  assignment: AssignmentContext,
+  random: () => number
+): ExamQuestion[] => {
+  const chapterPool = assignment.exam_chapter_pool
+
+  if (!chapterPool.enabled || chapterPool.chapters.length === 0) {
+    return questions
+  }
+
+  const selectedQuestions: ExamQuestion[] = []
+  const selectedQuestionIds = new Set<string>()
+
+  for (const chapterRule of chapterPool.chapters) {
+    const wantedTag = chapterRule.tag.trim().toLowerCase()
+    if (!wantedTag) {
+      continue
+    }
+
+    const chapterQuestions = questions.filter(
+      (question) => (question.chapter_tag || '').trim().toLowerCase() === wantedTag
+    )
+
+    if (chapterQuestions.length === 0) {
+      continue
+    }
+
+    const takeCount = Math.min(chapterRule.take || chapterQuestions.length, chapterQuestions.length)
+    const picked = selectQuestionSubset(
+      chapterQuestions,
+      takeCount,
+      assignment.exam_question_selection_mode,
+      random
+    )
+
+    for (const question of picked) {
+      if (selectedQuestionIds.has(question.id)) {
+        continue
+      }
+
+      selectedQuestionIds.add(question.id)
+      selectedQuestions.push(question)
+    }
+  }
+
+  const pooledQuestions = selectedQuestions.length > 0 ? selectedQuestions : questions
+
+  if (
+    chapterPool.total_questions
+    && chapterPool.total_questions > 0
+    && pooledQuestions.length > chapterPool.total_questions
+  ) {
+    return selectQuestionSubset(
+      pooledQuestions,
+      chapterPool.total_questions,
+      assignment.exam_question_selection_mode,
+      random
+    )
+  }
+
+  return pooledQuestions
+}
+
 export const listExamQuestions = async (
   assignmentId: string,
   userId: string,
@@ -467,13 +680,18 @@ export const createExamQuestion = async (
   assertExamAssignment(assignment)
   assertTeacherOrAdminAccess(assignment, userId, userRole)
 
+  const normalizedInput = normalizeExamQuestionWritePayload(input)
+
   const { data, error } = await supabaseAdmin
     .from('exam_questions')
     .insert({
       assignment_id: assignmentId,
       prompt: input.prompt,
-      choices: input.choices,
-      correct_choice_index: input.correct_choice_index,
+      item_type: normalizedInput.item_type,
+      answer_payload: normalizedInput.answer_payload,
+      chapter_tag: normalizedInput.chapter_tag,
+      choices: normalizedInput.choices,
+      correct_choice_index: normalizedInput.correct_choice_index,
       points: input.points,
       explanation: input.explanation || null,
       order_index: input.order_index || 0,
@@ -506,13 +724,34 @@ export const updateExamQuestion = async (
   assertExamAssignment(assignment)
   assertTeacherOrAdminAccess(assignment, userId, userRole)
 
+  const { data: existingQuestionData, error: existingQuestionError } = await supabaseAdmin
+    .from('exam_questions')
+    .select('*')
+    .eq('id', questionId)
+    .eq('assignment_id', assignmentId)
+    .single()
+
+  if (existingQuestionError || !existingQuestionData) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Exam question not found', 404)
+  }
+
+  const existingQuestion = parseExamQuestion(existingQuestionData as Record<string, unknown>)
+  const normalizedInput = normalizeExamQuestionWritePayload(input, existingQuestion)
+
   const updatePayload: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   }
 
   if (input.prompt !== undefined) updatePayload.prompt = input.prompt
-  if (input.choices !== undefined) updatePayload.choices = input.choices
-  if (input.correct_choice_index !== undefined) updatePayload.correct_choice_index = input.correct_choice_index
+  if (input.item_type !== undefined) updatePayload.item_type = normalizedInput.item_type
+  if (input.choices !== undefined || input.item_type !== undefined) updatePayload.choices = normalizedInput.choices
+  if (input.correct_choice_index !== undefined || input.item_type !== undefined) {
+    updatePayload.correct_choice_index = normalizedInput.correct_choice_index
+  }
+  if (input.answer_payload !== undefined || input.item_type !== undefined) {
+    updatePayload.answer_payload = normalizedInput.answer_payload
+  }
+  if (input.chapter_tag !== undefined) updatePayload.chapter_tag = normalizedInput.chapter_tag
   if (input.points !== undefined) updatePayload.points = input.points
   if (input.explanation !== undefined) updatePayload.explanation = input.explanation || null
   if (input.order_index !== undefined) updatePayload.order_index = input.order_index
@@ -599,11 +838,31 @@ export const startExamAttempt = async (
   const seed = crypto.randomInt(1, 2_147_483_646)
   const random = mulberry32(seed)
 
-  const questionOrderIndexes = fisherYatesOrder(questions.length, random)
-  const questionOrder = questionOrderIndexes.map((index) => questions[index].id)
+  const selectedQuestions = resolveQuestionsForAttempt(questions, assignment, random)
+  if (selectedQuestions.length === 0) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'No questions matched the configured exam chapter pool.',
+      400
+    )
+  }
+
+  const unsupportedQuestion = selectedQuestions.find((question) => question.item_type === 'short_answer')
+  if (unsupportedQuestion) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'This exam includes short-answer items that are not supported in the current live attempt player yet.',
+      400
+    )
+  }
+
+  const questionOrderIndexes = assignment.question_order_mode === 'random'
+    ? fisherYatesOrder(selectedQuestions.length, random)
+    : Array.from({ length: selectedQuestions.length }, (_value, index) => index)
+  const questionOrder = questionOrderIndexes.map((index) => selectedQuestions[index].id)
 
   const renderedChoiceOrders: Record<string, number[]> = {}
-  for (const question of questions) {
+  for (const question of selectedQuestions) {
     renderedChoiceOrders[question.id] = fisherYatesOrder(question.choices.length, random)
   }
 

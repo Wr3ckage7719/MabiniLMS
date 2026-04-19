@@ -11,6 +11,8 @@ export function useStudents(courseId: string): UseQueryResult<Student[], Error> 
       return transformUsers(response.data || []);
     },
     enabled: !!courseId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }

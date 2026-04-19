@@ -25,21 +25,64 @@ export const examQuestionParamSchema = z.object({
   questionId: z.string().uuid('Invalid exam question ID'),
 })
 
+export const examQuestionItemTypeValues = [
+  'multiple_choice',
+  'true_false',
+  'short_answer',
+] as const
+
+export const examQuestionItemTypeSchema = z.enum(examQuestionItemTypeValues)
+
+const shortAnswerPayloadSchema = z.object({
+  accepted_answers: z
+    .array(z.string().trim().min(1, 'Accepted answer is required').max(1000))
+    .min(1, 'At least one accepted answer is required')
+    .max(50, 'At most 50 accepted answers are allowed'),
+  case_sensitive: z.boolean().optional(),
+})
+
 const questionChoicesSchema = z
   .array(z.string().trim().min(1, 'Choice text is required').max(1000))
   .min(2, 'At least 2 choices are required')
   .max(10, 'At most 10 choices are allowed')
 
+const genericAnswerPayloadSchema = z.record(z.unknown())
+
 export const createExamQuestionSchema = z
   .object({
     prompt: z.string().trim().min(1, 'Question prompt is required').max(5000),
-    choices: questionChoicesSchema,
-    correct_choice_index: z.number().int().min(0),
+    item_type: examQuestionItemTypeSchema.default('multiple_choice'),
+    choices: questionChoicesSchema.optional(),
+    correct_choice_index: z.number().int().min(0).optional(),
+    answer_payload: genericAnswerPayloadSchema.optional(),
     points: z.number().positive().max(1000).default(1),
     explanation: z.string().trim().max(5000).optional(),
     order_index: z.number().int().min(0).optional(),
+    chapter_tag: z.string().trim().min(1).max(120).optional().nullable(),
   })
   .superRefine((value, ctx) => {
+    if (value.item_type === 'short_answer') {
+      const shortAnswerPayload = shortAnswerPayloadSchema.safeParse(value.answer_payload || {})
+      if (!shortAnswerPayload.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['answer_payload'],
+          message: 'Short answer questions must include accepted_answers in answer_payload',
+        })
+      }
+
+      return
+    }
+
+    if (!value.choices || value.correct_choice_index === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['choices'],
+        message: 'Objective question types require choices and correct_choice_index',
+      })
+      return
+    }
+
     if (value.correct_choice_index >= value.choices.length) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -52,13 +95,27 @@ export const createExamQuestionSchema = z
 export const updateExamQuestionSchema = z
   .object({
     prompt: z.string().trim().min(1).max(5000).optional(),
+    item_type: examQuestionItemTypeSchema.optional(),
     choices: questionChoicesSchema.optional(),
     correct_choice_index: z.number().int().min(0).optional(),
+    answer_payload: genericAnswerPayloadSchema.optional(),
     points: z.number().positive().max(1000).optional(),
     explanation: z.string().trim().max(5000).nullable().optional(),
     order_index: z.number().int().min(0).optional(),
+    chapter_tag: z.string().trim().min(1).max(120).nullable().optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.item_type === 'short_answer' && value.answer_payload !== undefined) {
+      const shortAnswerPayload = shortAnswerPayloadSchema.safeParse(value.answer_payload)
+      if (!shortAnswerPayload.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['answer_payload'],
+          message: 'Short answer questions must include accepted_answers in answer_payload',
+        })
+      }
+    }
+
     if (
       value.choices
       && value.correct_choice_index !== undefined
@@ -96,6 +153,7 @@ export const listViolationsQuerySchema = z.object({
 })
 
 export type ProctorViolationType = z.infer<typeof proctorViolationTypeSchema>
+export type ExamQuestionItemType = z.infer<typeof examQuestionItemTypeSchema>
 
 export type CreateExamQuestionInput = z.infer<typeof createExamQuestionSchema>
 export type UpdateExamQuestionInput = z.infer<typeof updateExamQuestionSchema>
@@ -117,6 +175,9 @@ export interface ExamQuestion {
   id: string
   assignment_id: string
   prompt: string
+  item_type: ExamQuestionItemType
+  answer_payload: Record<string, unknown>
+  chapter_tag: string | null
   choices: string[]
   correct_choice_index: number
   points: number
@@ -135,6 +196,8 @@ export interface ExamRenderedChoice {
 export interface ExamQuestionForAttempt {
   id: string
   prompt: string
+  item_type: ExamQuestionItemType
+  answer_payload?: Record<string, unknown>
   points: number
   explanation?: string | null
   choices: ExamRenderedChoice[]

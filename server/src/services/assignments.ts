@@ -43,6 +43,9 @@ type DatabaseErrorShape = {
 
 const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'assignment_type',
+  'question_order_mode',
+  'exam_question_selection_mode',
+  'exam_chapter_pool',
   'created_at',
   'submissions_open',
   'submission_open_at',
@@ -579,6 +582,18 @@ export const createAssignment = async (
 
   if (hasAssignmentTypeColumn) {
     insertPayload.assignment_type = assignmentType;
+  }
+
+  if (input.question_order_mode) {
+    insertPayload.question_order_mode = input.question_order_mode;
+  }
+
+  if (input.exam_question_selection_mode) {
+    insertPayload.exam_question_selection_mode = input.exam_question_selection_mode;
+  }
+
+  if (input.exam_chapter_pool) {
+    insertPayload.exam_chapter_pool = input.exam_chapter_pool;
   }
 
   if (isExamAssignment || typeof input.is_proctored === 'boolean') {

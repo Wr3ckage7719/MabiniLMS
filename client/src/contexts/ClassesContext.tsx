@@ -7,6 +7,8 @@ import {
   ClassInvitation,
 } from '@/services/invitations.service';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 export interface StudentInvitation {
   id: string;
@@ -40,10 +42,15 @@ const ClassesContext = createContext<ClassesContextType | undefined>(undefined);
 
 export function ClassesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [archivedClasses, setArchivedClasses] = useState<string[]>([]);
   const [unenrolledClasses, setUnenrolledClasses] = useState<string[]>([]);
   const [invitations, setInvitations] = useState<StudentInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
+
+  const refreshClassQueries = useCallback(async (classId?: string) => {
+    await invalidateClassData(queryClient, { classId });
+  }, [queryClient]);
 
   const mapInvitation = useCallback((invitation: ClassInvitation): StudentInvitation => {
     const fallbackClassName = invitation.course_id
@@ -121,17 +128,18 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
     setInvitations([]);
   }, [loadMyInvitations, user]);
 
-  const handleArchive = async (classId: string) => {
+  const handleArchive = useCallback(async (classId: string) => {
     try {
       await coursesService.archiveCourse(classId);
       setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
+      await refreshClassQueries(classId);
     } catch (error) {
       console.error('Failed to archive class', error);
       throw error;
     }
-  };
+  }, [refreshClassQueries]);
 
-  const handleUnenroll = async (classId: string) => {
+  const handleUnenroll = useCallback(async (classId: string) => {
     try {
       const statusResponse = await enrollmentsService.getEnrollmentStatus(classId);
       const enrollmentId = statusResponse?.data?.enrollment_id;
@@ -141,21 +149,23 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
       }
 
       setUnenrolledClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
+      await refreshClassQueries(classId);
     } catch (error) {
       console.error('Failed to unenroll from class', error);
       throw error;
     }
-  };
+  }, [refreshClassQueries]);
 
-  const handleRestore = async (classId: string) => {
+  const handleRestore = useCallback(async (classId: string) => {
     try {
       await coursesService.unarchiveCourse(classId);
       setArchivedClasses((prev) => prev.filter((id) => id !== classId));
+      await refreshClassQueries(classId);
     } catch (error) {
       console.error('Failed to restore class', error);
       throw error;
     }
-  };
+  }, [refreshClassQueries]);
 
   const directEnrollStudentsByEmail = useCallback(
     async (classId: string, studentEmails: string[]): Promise<BulkDirectEnrollmentResult> => {
@@ -178,20 +188,25 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
 
       const response = await invitationsService.bulkDirectEnrollByEmail(classId, uniqueEmails);
       await loadCourseInvitations(classId);
+      await refreshClassQueries(classId);
       return (response as any).data as BulkDirectEnrollmentResult;
     },
-    [loadCourseInvitations]
+    [loadCourseInvitations, refreshClassQueries]
   );
 
   const acceptInvitation = useCallback(async (invitationId: string) => {
+    const invitation = invitations.find((item) => item.id === invitationId);
     await invitationsService.acceptInvitation(invitationId);
     await loadMyInvitations();
-  }, [loadMyInvitations]);
+    await refreshClassQueries(invitation?.classId);
+  }, [invitations, loadMyInvitations, refreshClassQueries]);
 
   const declineInvitation = useCallback(async (invitationId: string) => {
+    const invitation = invitations.find((item) => item.id === invitationId);
     await invitationsService.declineInvitation(invitationId);
     await loadMyInvitations();
-  }, [loadMyInvitations]);
+    await refreshClassQueries(invitation?.classId);
+  }, [invitations, loadMyInvitations, refreshClassQueries]);
 
   const getStudentInvitations = useCallback((studentEmail: string) => {
     const normalizedEmail = studentEmail.trim().toLowerCase();

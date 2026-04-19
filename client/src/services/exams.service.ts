@@ -18,10 +18,15 @@ export interface ProctoringPolicy {
   block_print_shortcut: boolean
 }
 
+export type ExamQuestionItemType = 'multiple_choice' | 'true_false' | 'short_answer'
+
 export interface ExamQuestion {
   id: string
   assignment_id: string
   prompt: string
+  item_type: ExamQuestionItemType
+  answer_payload: Record<string, unknown>
+  chapter_tag: string | null
   choices: string[]
   correct_choice_index: number
   points: number
@@ -33,20 +38,26 @@ export interface ExamQuestion {
 
 export interface CreateExamQuestionPayload {
   prompt: string
-  choices: string[]
-  correct_choice_index: number
+  item_type?: ExamQuestionItemType
+  choices?: string[]
+  correct_choice_index?: number
+  answer_payload?: Record<string, unknown>
   points?: number
   explanation?: string
   order_index?: number
+  chapter_tag?: string | null
 }
 
 export interface UpdateExamQuestionPayload {
   prompt?: string
+  item_type?: ExamQuestionItemType
   choices?: string[]
   correct_choice_index?: number
+  answer_payload?: Record<string, unknown>
   points?: number
   explanation?: string | null
   order_index?: number
+  chapter_tag?: string | null
 }
 
 export interface ExamRenderedChoice {

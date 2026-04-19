@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useClasses } from '@/contexts/ClassesContext';
 import type { DirectEnrollmentResult } from '@/services/invitations.service';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 interface InviteStudentDialogProps {
   open: boolean;
@@ -140,9 +141,7 @@ export function InviteStudentDialog({
       const response = await directEnrollStudentsByEmail(classId, parsedEmails);
       setResults(response.results);
 
-      if (response.enrolled > 0) {
-        await queryClient.invalidateQueries({ queryKey: ['students', classId] });
-      }
+      await invalidateClassData(queryClient, { classId });
 
       const summary = `${response.enrolled} enrolled, ${response.already_enrolled} already enrolled, ${response.failed} failed.`;
 

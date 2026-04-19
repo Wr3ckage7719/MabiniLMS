@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { enrollmentsService } from '@/services/enrollments.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 interface JoinClassDialogProps {
   open: boolean;
@@ -35,7 +36,7 @@ export function JoinClassDialog({ open, onOpenChange, onSuccess }: JoinClassDial
         title: 'Success!',
         description: 'You have successfully joined the class.',
       });
-      await queryClient.invalidateQueries({ queryKey: ['classes'] });
+      await invalidateClassData(queryClient);
       setCourseId('');
       onOpenChange(false);
       onSuccess?.();
