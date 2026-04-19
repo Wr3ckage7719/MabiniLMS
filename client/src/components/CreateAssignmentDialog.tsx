@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -50,6 +50,8 @@ interface CreateAssignmentDialogProps {
   onOpenChange: (open: boolean) => void;
   classId?: string;
   onCreated?: () => void;
+  initialTaskType?: TaskType;
+  isPage?: boolean;
 }
 
 interface AttachedFile {
@@ -64,7 +66,7 @@ interface Topic {
   name: string;
 }
 
-type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam';
+export type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam';
 
 const TASK_LABELS: Record<TaskType, string> = {
   reading_material: 'Reading Material',
@@ -76,8 +78,8 @@ const TASK_LABELS: Record<TaskType, string> = {
 const TASK_HELP_TEXT: Record<TaskType, string> = {
   reading_material: 'Reference resource with reading progress tracking planned in the next phase.',
   activity: 'Drive-based submissions with teacher review controls.',
-  quiz: 'Question builder, sequencing, and randomization are scaffolded in this phase.',
-  exam: 'Strict integrity controls are scaffolded while preserving current proctored flow.',
+  quiz: 'Configure sequence/random order while preparing quiz question builders.',
+  exam: 'Configure order mode, chapter pools, and integrity defaults for exam delivery.',
 };
 
 export function CreateAssignmentDialog({
@@ -85,17 +87,24 @@ export function CreateAssignmentDialog({
   onOpenChange,
   classId,
   onCreated,
+  initialTaskType,
+  isPage = false,
 }: CreateAssignmentDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [taskType, setTaskType] = useState<TaskType>('activity');
+  const [taskType, setTaskType] = useState<TaskType>(initialTaskType ?? 'activity');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [points, setPoints] = useState('100');
   const [materialType, setMaterialType] = useState<MaterialType>('document');
   const [materialFileUrl, setMaterialFileUrl] = useState('');
   const [quizQuestionOrder, setQuizQuestionOrder] = useState<'sequence' | 'random'>('sequence');
+  const [examQuestionOrder, setExamQuestionOrder] = useState<'sequence' | 'random'>('random');
   const [examQuestionSelection, setExamQuestionSelection] = useState<'sequence' | 'random'>('random');
   const [examIntegrityProfile, setExamIntegrityProfile] = useState<'standard' | 'strict'>('strict');
+  const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
+  const [examChapterTags, setExamChapterTags] = useState('');
+  const [examQuestionsPerChapter, setExamQuestionsPerChapter] = useState('5');
+  const [examTotalQuestions, setExamTotalQuestions] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [newTopic, setNewTopic] = useState('');
@@ -103,6 +112,12 @@ export function CreateAssignmentDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (initialTaskType) {
+      setTaskType(initialTaskType);
+    }
+  }, [initialTaskType]);
 
   const clearFieldError = (field: string) => {
     setErrors((prev) => {
@@ -131,6 +146,21 @@ export function CreateAssignmentDialog({
       const parsedPoints = Number(points);
       if (!Number.isFinite(parsedPoints) || parsedPoints < 0) {
         newErrors.points = 'Points must be a non-negative number';
+      }
+    }
+
+    if (taskType === 'exam' && examChapterPoolEnabled) {
+      const parsedTags = examChapterTags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      if (parsedTags.length === 0) {
+        newErrors.examChapterTags = 'Add at least one chapter tag when chapter pools are enabled';
+      }
+
+      const perChapterCount = Number(examQuestionsPerChapter);
+      if (!Number.isFinite(perChapterCount) || perChapterCount <= 0) {
+        newErrors.examQuestionsPerChapter = 'Questions per chapter must be a positive number';
       }
     }
 
@@ -182,6 +212,8 @@ export function CreateAssignmentDialog({
     setTaskType(nextType);
     clearFieldError('dueDate');
     clearFieldError('points');
+    clearFieldError('examChapterTags');
+    clearFieldError('examQuestionsPerChapter');
   };
 
   const handleCreate = async () => {
@@ -211,12 +243,45 @@ export function CreateAssignmentDialog({
               ? 'exam'
               : 'activity';
 
+        const chapterTags = examChapterTags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+        const perChapterCount = Number(examQuestionsPerChapter);
+        const totalQuestionsCount = Number(examTotalQuestions);
+        const chapterPoolRules = chapterTags.map((tag) => ({
+          tag,
+          ...(Number.isFinite(perChapterCount) && perChapterCount > 0
+            ? { take: Math.floor(perChapterCount) }
+            : {}),
+        }));
+        const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
+
         await assignmentsService.createAssignment(classId, {
           title: title.trim(),
           description: description.trim() || undefined,
           assignment_type: assignmentType,
           due_date: dueDate ? dueDate.toISOString() : new Date().toISOString(),
           max_points: Number(points) || 100,
+          question_order_mode:
+            taskType === 'quiz'
+              ? quizQuestionOrder
+              : taskType === 'exam'
+                ? examQuestionOrder
+                : undefined,
+          exam_question_selection_mode:
+            taskType === 'exam' ? examQuestionSelection : undefined,
+          exam_chapter_pool:
+            taskType === 'exam'
+              ? {
+                  enabled: chapterPoolEnabled,
+                  chapters: chapterPoolEnabled ? chapterPoolRules : [],
+                  ...(Number.isFinite(totalQuestionsCount) && totalQuestionsCount > 0
+                    ? { total_questions: Math.floor(totalQuestionsCount) }
+                    : {}),
+                }
+              : undefined,
+          is_proctored: taskType === 'exam' ? examIntegrityProfile === 'strict' : undefined,
         });
       }
 
@@ -253,14 +318,19 @@ export function CreateAssignmentDialog({
   const resetForm = () => {
     setTitle('');
     setDescription('');
-    setTaskType('activity');
+    setTaskType(initialTaskType ?? 'activity');
     setDueDate(undefined);
     setPoints('100');
     setMaterialType('document');
     setMaterialFileUrl('');
     setQuizQuestionOrder('sequence');
+    setExamQuestionOrder('random');
     setExamQuestionSelection('random');
     setExamIntegrityProfile('strict');
+    setExamChapterPoolEnabled(false);
+    setExamChapterTags('');
+    setExamQuestionsPerChapter('5');
+    setExamTotalQuestions('');
     setFiles([]);
     setTopics([]);
     setNewTopic('');
@@ -311,6 +381,627 @@ export function CreateAssignmentDialog({
           ? 'Create Quiz Task'
           : 'Create Exam Task';
 
+  const actionButtons = (
+    <>
+      <Button
+        variant="outline"
+        className="rounded-lg"
+        onClick={() => handleOpenChange(false)}
+      >
+        Cancel
+      </Button>
+      <Button className="rounded-lg gap-2" onClick={handleCreate}>
+        <FileText className="h-4 w-4" />
+        {createTaskButtonLabel}
+      </Button>
+    </>
+  );
+
+  const formTabs = (
+    <Tabs defaultValue="details" className="w-full">
+      <TabsList className="grid w-full grid-cols-3 rounded-lg">
+        <TabsTrigger value="details" className="rounded-md">
+          Details
+        </TabsTrigger>
+        <TabsTrigger value="topics" className="rounded-md">
+          Topics
+        </TabsTrigger>
+        <TabsTrigger value="files" className="rounded-md">
+          Attachments
+        </TabsTrigger>
+      </TabsList>
+
+      {/* Details Tab */}
+      <TabsContent value="details" className="space-y-5 mt-6">
+        {/* Task Type Selector */}
+        <div>
+          <label className="text-sm font-semibold mb-3 block">
+            Task Type
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {taskOptions.map((option) => {
+              const Icon = option.icon;
+              const selected = taskType === option.id;
+
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => handleTaskTypeChange(option.id)}
+                  className={cn(
+                    'flex items-center gap-3 p-4 rounded-lg border-2 transition-all cursor-pointer text-left',
+                    selected
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50 bg-card'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'p-2 rounded-lg',
+                      selected ? 'bg-primary/20' : 'bg-muted'
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'h-5 w-5',
+                        selected ? 'text-primary' : 'text-muted-foreground'
+                      )}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm">{option.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {option.description}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <Card className="border-0 bg-muted/30">
+          <CardContent className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-medium">Selected: {TASK_LABELS[taskType]}</div>
+            <Badge variant="secondary" className="rounded-full w-fit">
+              Phase 1 skeleton
+            </Badge>
+            <p className="text-xs text-muted-foreground sm:ml-2">{TASK_HELP_TEXT[taskType]}</p>
+          </CardContent>
+        </Card>
+
+        {/* Title */}
+        <div>
+          <label className="text-sm font-semibold">
+            Title <span className="text-destructive">*</span>
+          </label>
+          <Input
+            placeholder={
+              taskType === 'reading_material'
+                ? 'e.g., Chapter 4 Reading Pack'
+                : taskType === 'activity'
+                  ? 'e.g., Lab Activity 2'
+                  : taskType === 'quiz'
+                    ? 'e.g., Chapter 3 Quiz'
+                    : 'e.g., Midterm Proctored Exam'
+            }
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              clearFieldError('title');
+            }}
+            className={cn(
+              'mt-2 rounded-lg',
+              errors.title && 'border-destructive'
+            )}
+          />
+          {errors.title && (
+            <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              {errors.title}
+            </p>
+          )}
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className="text-sm font-semibold">Description</label>
+          <Textarea
+            placeholder={
+              taskType === 'reading_material'
+                ? 'Optional summary, chapter notes, or reading guidance...'
+                : 'Provide instructions, context, or details about the task...'
+            }
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="mt-2 rounded-lg resize-none min-h-24"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {description.length}/500 characters
+          </p>
+        </div>
+
+        {taskType === 'reading_material' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
+            <div>
+              <label className="text-sm font-semibold">Material Type</label>
+              <Select
+                value={materialType}
+                onValueChange={(value) => setMaterialType(value as MaterialType)}
+              >
+                <SelectTrigger className="mt-2 rounded-lg">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value="document">Document</SelectItem>
+                  <SelectItem value="link">Link</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Resource URL (optional)</label>
+              <Input
+                type="url"
+                placeholder="https://..."
+                value={materialFileUrl}
+                onChange={(e) => setMaterialFileUrl(e.target.value)}
+                className="mt-2 rounded-lg"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <p className="text-xs text-muted-foreground">
+                Reading open/progress tracking and file-type enforcement are scaffolded for the next phase.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {taskType !== 'reading_material' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
+            {/* Due Date */}
+            <div>
+              <label className="text-sm font-semibold">
+                Due Date <span className="text-destructive">*</span>
+              </label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      'w-full mt-2 rounded-lg justify-start text-left font-normal',
+                      !dueDate && 'text-muted-foreground',
+                      errors.dueDate && 'border-destructive'
+                    )}
+                  >
+                    <CalendarIcon className="h-4 w-4 mr-2" />
+                    {dueDate ? formatDate(dueDate) : 'Pick a date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dueDate}
+                    onSelect={(date) => {
+                      setDueDate(date);
+                      clearFieldError('dueDate');
+                    }}
+                    disabled={(date) =>
+                      date < new Date(new Date().setHours(0, 0, 0, 0))
+                    }
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {errors.dueDate && (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.dueDate}
+                </p>
+              )}
+            </div>
+
+            {/* Points */}
+            <div>
+              <label className="text-sm font-semibold">Points</label>
+              <Input
+                type="number"
+                min="0"
+                value={points}
+                onChange={(e) => {
+                  setPoints(e.target.value);
+                  clearFieldError('points');
+                }}
+                className={cn(
+                  'mt-2 rounded-lg',
+                  errors.points && 'border-destructive'
+                )}
+              />
+              {errors.points && (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.points}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {taskType === 'activity' && (
+          <Card className="border-0 bg-muted/30">
+            <CardContent className="p-4 space-y-2">
+              <p className="text-sm font-semibold">Activity Setup</p>
+              <p className="text-xs text-muted-foreground">
+                This task will use the current Drive-based submission flow and teacher review process.
+              </p>
+              <Badge variant="outline" className="rounded-full text-xs">
+                Current API mapping: assignment_type = activity
+              </Badge>
+            </CardContent>
+          </Card>
+        )}
+
+        {taskType === 'quiz' && (
+          <Card className="border-0 bg-muted/30">
+            <CardContent className="p-4 space-y-4">
+              <div>
+                <label className="text-sm font-semibold">Question Order Mode</label>
+                <Select
+                  value={quizQuestionOrder}
+                  onValueChange={(value) => setQuizQuestionOrder(value as 'sequence' | 'random')}
+                >
+                  <SelectTrigger className="mt-2 rounded-lg">
+                    <SelectValue placeholder="Select order mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sequence">Sequential</SelectItem>
+                    <SelectItem value="random">Randomized</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Multi-item question builder is scaffolded in this phase and will be connected to backend support next.
+              </p>
+              <Badge variant="outline" className="rounded-full text-xs">
+                Current API mapping: assignment_type = quiz
+              </Badge>
+            </CardContent>
+          </Card>
+        )}
+
+        {taskType === 'exam' && (
+          <Card className="border-0 bg-muted/30">
+            <CardContent className="p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-semibold">Question Order Mode</label>
+                  <Select
+                    value={examQuestionOrder}
+                    onValueChange={(value) => setExamQuestionOrder(value as 'sequence' | 'random')}
+                  >
+                    <SelectTrigger className="mt-2 rounded-lg">
+                      <SelectValue placeholder="Select order mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sequence">Sequential</SelectItem>
+                      <SelectItem value="random">Randomized</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold">Question Selection</label>
+                  <Select
+                    value={examQuestionSelection}
+                    onValueChange={(value) => setExamQuestionSelection(value as 'sequence' | 'random')}
+                  >
+                    <SelectTrigger className="mt-2 rounded-lg">
+                      <SelectValue placeholder="Select strategy" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="random">Randomized</SelectItem>
+                      <SelectItem value="sequence">Sequential</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold">Integrity Profile</label>
+                  <Select
+                    value={examIntegrityProfile}
+                    onValueChange={(value) => setExamIntegrityProfile(value as 'standard' | 'strict')}
+                  >
+                    <SelectTrigger className="mt-2 rounded-lg">
+                      <SelectValue placeholder="Select integrity profile" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="strict">Strict</SelectItem>
+                      <SelectItem value="standard">Standard</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Use Chapter Pool Selection</p>
+                    <p className="text-xs text-muted-foreground">
+                      Pull questions from tagged chapter pools before ordering.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={examChapterPoolEnabled}
+                    onCheckedChange={(checked) => {
+                      setExamChapterPoolEnabled(checked);
+                      clearFieldError('examChapterTags');
+                      clearFieldError('examQuestionsPerChapter');
+                    }}
+                  />
+                </div>
+
+                {examChapterPoolEnabled && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="md:col-span-2">
+                      <label className="text-sm font-semibold">Chapter Tags</label>
+                      <Input
+                        placeholder="e.g., Chapter 1, Chapter 2, Algebra"
+                        value={examChapterTags}
+                        onChange={(e) => {
+                          setExamChapterTags(e.target.value);
+                          clearFieldError('examChapterTags');
+                        }}
+                        className={cn('mt-2 rounded-lg', errors.examChapterTags && 'border-destructive')}
+                      />
+                      {errors.examChapterTags && (
+                        <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {errors.examChapterTags}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold">Questions per Chapter</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={examQuestionsPerChapter}
+                        onChange={(e) => {
+                          setExamQuestionsPerChapter(e.target.value);
+                          clearFieldError('examQuestionsPerChapter');
+                        }}
+                        className={cn('mt-2 rounded-lg', errors.examQuestionsPerChapter && 'border-destructive')}
+                      />
+                      {errors.examQuestionsPerChapter && (
+                        <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {errors.examQuestionsPerChapter}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold">Total Questions (optional)</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        placeholder="Auto"
+                        value={examTotalQuestions}
+                        onChange={(e) => setExamTotalQuestions(e.target.value)}
+                        className="mt-2 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Exam builder now stores order mode, selection mode, and chapter pool configuration for backend
+                selection logic.
+              </p>
+              <Badge variant="outline" className="rounded-full text-xs">
+                Current API mapping: assignment_type = exam
+              </Badge>
+            </CardContent>
+          </Card>
+        )}
+      </TabsContent>
+
+      {/* Topics Tab */}
+      <TabsContent value="topics" className="space-y-4 mt-6">
+        <div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Organize your task by adding topics. Students can filter
+            by topics to find relevant content.
+          </p>
+
+          {/* Topics List */}
+          {topics.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {topics.map((topic) => (
+                <div
+                  key={topic.id}
+                  className="flex items-center justify-between p-3 bg-card border border-border rounded-lg"
+                >
+                  <span className="text-sm font-medium">{topic.name}</span>
+                  <button
+                    onClick={() => removeTopic(topic.id)}
+                    className="p-1 hover:bg-destructive/10 rounded transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add Topic */}
+          {!showTopicInput ? (
+            <Button
+              variant="outline"
+              className="w-full rounded-lg gap-2"
+              onClick={() => setShowTopicInput(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Add Topic
+            </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                placeholder="e.g., Vectors, Functions, Data structures..."
+                value={newTopic}
+                onChange={(e) => setNewTopic(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addTopic();
+                  }
+                }}
+                className="rounded-lg"
+                autoFocus
+              />
+              <Button
+                size="icon"
+                className="rounded-lg shrink-0"
+                onClick={addTopic}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                className="rounded-lg shrink-0"
+                onClick={() => {
+                  setShowTopicInput(false);
+                  setNewTopic('');
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
+          {/* No topics message */}
+          {topics.length === 0 && !showTopicInput && (
+            <Card className="border-0 bg-muted/30">
+              <CardContent className="p-4 text-center">
+                <p className="text-xs text-muted-foreground">
+                  No topics added yet. Topics help organize content and
+                  improve discoverability.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </TabsContent>
+
+      {/* Files Tab */}
+      <TabsContent value="files" className="space-y-4 mt-6">
+        <div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Attach supporting files such as PDFs, documents, images, or presentations.
+          </p>
+
+          {/* File Upload Area */}
+          <div className="relative">
+            <input
+              type="file"
+              multiple
+              onChange={handleFileAttach}
+              className="hidden"
+              id="file-input"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.mp4,.zip"
+            />
+            <label
+              htmlFor="file-input"
+              className="block p-6 border-2 border-dashed border-border rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors text-center"
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className="p-2 bg-primary/10 rounded-lg w-fit">
+                  <Paperclip className="h-5 w-5 text-primary" />
+                </div>
+                <p className="text-sm font-medium">
+                  Click to upload or drag and drop
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  PDF, Word, Excel, PowerPoint, Images, or ZIP files
+                </p>
+              </div>
+            </label>
+          </div>
+
+          {/* Files List */}
+          {files.length > 0 && (
+            <div className="space-y-2 mt-4">
+              <p className="text-sm font-semibold">Attached Files</p>
+              {files.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex items-center justify-between p-3 bg-card border border-border rounded-lg group hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="p-2 bg-primary/10 rounded flex-shrink-0">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {file.size}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeFile(file.id)}
+                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 rounded transition-all"
+                  >
+                    <X className="h-4 w-4 text-destructive" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* No files message */}
+          {files.length === 0 && (
+            <Card className="border-0 bg-muted/30 mt-4">
+              <CardContent className="p-4 text-center">
+                <p className="text-xs text-muted-foreground">
+                  No files attached yet. Add files to provide students with
+                  resources.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </TabsContent>
+    </Tabs>
+  );
+
+  if (isPage) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-4 md:p-6">
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold">Create Task</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Create a reading material, activity, quiz, or exam for your class.
+          </p>
+        </div>
+
+        {formTabs}
+
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {actionButtons}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-dvw sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl">
@@ -321,512 +1012,10 @@ export function CreateAssignmentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="details" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 rounded-lg">
-            <TabsTrigger value="details" className="rounded-md">
-              Details
-            </TabsTrigger>
-            <TabsTrigger value="topics" className="rounded-md">
-              Topics
-            </TabsTrigger>
-            <TabsTrigger value="files" className="rounded-md">
-              Attachments
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Details Tab */}
-          <TabsContent value="details" className="space-y-5 mt-6">
-            {/* Task Type Selector */}
-            <div>
-              <label className="text-sm font-semibold mb-3 block">
-                Task Type
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {taskOptions.map((option) => {
-                  const Icon = option.icon;
-                  const selected = taskType === option.id;
-
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => handleTaskTypeChange(option.id)}
-                      className={cn(
-                        'flex items-center gap-3 p-4 rounded-lg border-2 transition-all cursor-pointer text-left',
-                        selected
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50 bg-card'
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          'p-2 rounded-lg',
-                          selected ? 'bg-primary/20' : 'bg-muted'
-                        )}
-                      >
-                        <Icon
-                          className={cn(
-                            'h-5 w-5',
-                            selected ? 'text-primary' : 'text-muted-foreground'
-                          )}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm">{option.label}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {option.description}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <Card className="border-0 bg-muted/30">
-              <CardContent className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm font-medium">Selected: {TASK_LABELS[taskType]}</div>
-                <Badge variant="secondary" className="rounded-full w-fit">
-                  Phase 1 skeleton
-                </Badge>
-                <p className="text-xs text-muted-foreground sm:ml-2">{TASK_HELP_TEXT[taskType]}</p>
-              </CardContent>
-            </Card>
-
-            {/* Title */}
-            <div>
-              <label className="text-sm font-semibold">
-                Title <span className="text-destructive">*</span>
-              </label>
-              <Input
-                placeholder={
-                  taskType === 'reading_material'
-                    ? 'e.g., Chapter 4 Reading Pack'
-                    : taskType === 'activity'
-                      ? 'e.g., Lab Activity 2'
-                      : taskType === 'quiz'
-                        ? 'e.g., Chapter 3 Quiz'
-                        : 'e.g., Midterm Proctored Exam'
-                }
-                value={title}
-                onChange={(e) => {
-                  setTitle(e.target.value);
-                  clearFieldError('title');
-                }}
-                className={cn(
-                  'mt-2 rounded-lg',
-                  errors.title && 'border-destructive'
-                )}
-              />
-              {errors.title && (
-                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />
-                  {errors.title}
-                </p>
-              )}
-            </div>
-
-            {/* Description */}
-            <div>
-              <label className="text-sm font-semibold">Description</label>
-              <Textarea
-                placeholder={
-                  taskType === 'reading_material'
-                    ? 'Optional summary, chapter notes, or reading guidance...'
-                    : 'Provide instructions, context, or details about the task...'
-                }
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="mt-2 rounded-lg resize-none min-h-24"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {description.length}/500 characters
-              </p>
-            </div>
-
-            {taskType === 'reading_material' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
-                <div>
-                  <label className="text-sm font-semibold">Material Type</label>
-                  <Select
-                    value={materialType}
-                    onValueChange={(value) => setMaterialType(value as MaterialType)}
-                  >
-                    <SelectTrigger className="mt-2 rounded-lg">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pdf">PDF</SelectItem>
-                      <SelectItem value="video">Video</SelectItem>
-                      <SelectItem value="document">Document</SelectItem>
-                      <SelectItem value="link">Link</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold">Resource URL (optional)</label>
-                  <Input
-                    type="url"
-                    placeholder="https://..."
-                    value={materialFileUrl}
-                    onChange={(e) => setMaterialFileUrl(e.target.value)}
-                    className="mt-2 rounded-lg"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <p className="text-xs text-muted-foreground">
-                    Reading open/progress tracking and file-type enforcement are scaffolded for the next phase.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {taskType !== 'reading_material' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
-                {/* Due Date */}
-                <div>
-                  <label className="text-sm font-semibold">
-                    Due Date <span className="text-destructive">*</span>
-                  </label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          'w-full mt-2 rounded-lg justify-start text-left font-normal',
-                          !dueDate && 'text-muted-foreground',
-                          errors.dueDate && 'border-destructive'
-                        )}
-                      >
-                        <CalendarIcon className="h-4 w-4 mr-2" />
-                        {dueDate ? formatDate(dueDate) : 'Pick a date'}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={dueDate}
-                        onSelect={(date) => {
-                          setDueDate(date);
-                          clearFieldError('dueDate');
-                        }}
-                        disabled={(date) =>
-                          date < new Date(new Date().setHours(0, 0, 0, 0))
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  {errors.dueDate && (
-                    <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" />
-                      {errors.dueDate}
-                    </p>
-                  )}
-                </div>
-
-                {/* Points */}
-                <div>
-                  <label className="text-sm font-semibold">Points</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={points}
-                    onChange={(e) => {
-                      setPoints(e.target.value);
-                      clearFieldError('points');
-                    }}
-                    className={cn(
-                      'mt-2 rounded-lg',
-                      errors.points && 'border-destructive'
-                    )}
-                  />
-                  {errors.points && (
-                    <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" />
-                      {errors.points}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {taskType === 'activity' && (
-              <Card className="border-0 bg-muted/30">
-                <CardContent className="p-4 space-y-2">
-                  <p className="text-sm font-semibold">Activity Setup</p>
-                  <p className="text-xs text-muted-foreground">
-                    This task will use the current Drive-based submission flow and teacher review process.
-                  </p>
-                  <Badge variant="outline" className="rounded-full text-xs">
-                    Current API mapping: assignment_type = activity
-                  </Badge>
-                </CardContent>
-              </Card>
-            )}
-
-            {taskType === 'quiz' && (
-              <Card className="border-0 bg-muted/30">
-                <CardContent className="p-4 space-y-4">
-                  <div>
-                    <label className="text-sm font-semibold">Question Order Mode</label>
-                    <Select
-                      value={quizQuestionOrder}
-                      onValueChange={(value) => setQuizQuestionOrder(value as 'sequence' | 'random')}
-                    >
-                      <SelectTrigger className="mt-2 rounded-lg">
-                        <SelectValue placeholder="Select order mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sequence">Sequential</SelectItem>
-                        <SelectItem value="random">Randomized</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Multi-item question builder is scaffolded in this phase and will be connected to backend support next.
-                  </p>
-                  <Badge variant="outline" className="rounded-full text-xs">
-                    Current API mapping: assignment_type = quiz
-                  </Badge>
-                </CardContent>
-              </Card>
-            )}
-
-            {taskType === 'exam' && (
-              <Card className="border-0 bg-muted/30">
-                <CardContent className="p-4 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-semibold">Question Selection</label>
-                      <Select
-                        value={examQuestionSelection}
-                        onValueChange={(value) => setExamQuestionSelection(value as 'sequence' | 'random')}
-                      >
-                        <SelectTrigger className="mt-2 rounded-lg">
-                          <SelectValue placeholder="Select strategy" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="random">Randomized</SelectItem>
-                          <SelectItem value="sequence">Sequential</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold">Integrity Profile</label>
-                      <Select
-                        value={examIntegrityProfile}
-                        onValueChange={(value) => setExamIntegrityProfile(value as 'standard' | 'strict')}
-                      >
-                        <SelectTrigger className="mt-2 rounded-lg">
-                          <SelectValue placeholder="Select integrity profile" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="strict">Strict</SelectItem>
-                          <SelectItem value="standard">Standard</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground">
-                    Agreement gate, chapter pools, and auto-submit policy controls are scaffolded in this phase while
-                    preserving the current proctored exam backend behavior.
-                  </p>
-                  <Badge variant="outline" className="rounded-full text-xs">
-                    Current API mapping: assignment_type = exam
-                  </Badge>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          {/* Topics Tab */}
-          <TabsContent value="topics" className="space-y-4 mt-6">
-            <div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Organize your task by adding topics. Students can filter
-                by topics to find relevant content.
-              </p>
-
-              {/* Topics List */}
-              {topics.length > 0 && (
-                <div className="space-y-2 mb-4">
-                  {topics.map((topic) => (
-                    <div
-                      key={topic.id}
-                      className="flex items-center justify-between p-3 bg-card border border-border rounded-lg"
-                    >
-                      <span className="text-sm font-medium">{topic.name}</span>
-                      <button
-                        onClick={() => removeTopic(topic.id)}
-                        className="p-1 hover:bg-destructive/10 rounded transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add Topic */}
-              {!showTopicInput ? (
-                <Button
-                  variant="outline"
-                  className="w-full rounded-lg gap-2"
-                  onClick={() => setShowTopicInput(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Topic
-                </Button>
-              ) : (
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="e.g., Vectors, Functions, Data structures..."
-                    value={newTopic}
-                    onChange={(e) => setNewTopic(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTopic();
-                      }
-                    }}
-                    className="rounded-lg"
-                    autoFocus
-                  />
-                  <Button
-                    size="icon"
-                    className="rounded-lg shrink-0"
-                    onClick={addTopic}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="rounded-lg shrink-0"
-                    onClick={() => {
-                      setShowTopicInput(false);
-                      setNewTopic('');
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-
-              {/* No topics message */}
-              {topics.length === 0 && !showTopicInput && (
-                <Card className="border-0 bg-muted/30">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      No topics added yet. Topics help organize content and
-                      improve discoverability.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* Files Tab */}
-          <TabsContent value="files" className="space-y-4 mt-6">
-            <div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Attach supporting files such as PDFs, documents, images, or presentations.
-              </p>
-
-              {/* File Upload Area */}
-              <div className="relative">
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleFileAttach}
-                  className="hidden"
-                  id="file-input"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.mp4,.zip"
-                />
-                <label
-                  htmlFor="file-input"
-                  className="block p-6 border-2 border-dashed border-border rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors text-center"
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="p-2 bg-primary/10 rounded-lg w-fit">
-                      <Paperclip className="h-5 w-5 text-primary" />
-                    </div>
-                    <p className="text-sm font-medium">
-                      Click to upload or drag and drop
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      PDF, Word, Excel, PowerPoint, Images, or ZIP files
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              {/* Files List */}
-              {files.length > 0 && (
-                <div className="space-y-2 mt-4">
-                  <p className="text-sm font-semibold">Attached Files</p>
-                  {files.map((file) => (
-                    <div
-                      key={file.id}
-                      className="flex items-center justify-between p-3 bg-card border border-border rounded-lg group hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="p-2 bg-primary/10 rounded flex-shrink-0">
-                          <FileText className="h-4 w-4 text-primary" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">
-                            {file.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {file.size}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => removeFile(file.id)}
-                        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 rounded transition-all"
-                      >
-                        <X className="h-4 w-4 text-destructive" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* No files message */}
-              {files.length === 0 && (
-                <Card className="border-0 bg-muted/30 mt-4">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      No files attached yet. Add files to provide students with
-                      resources.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+        {formTabs}
 
         <DialogFooter className="mt-6">
-          <Button
-            variant="outline"
-            className="rounded-lg"
-            onClick={() => handleOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button className="rounded-lg gap-2" onClick={handleCreate}>
-            <FileText className="h-4 w-4" />
-            {createTaskButtonLabel}
-          </Button>
+          {actionButtons}
         </DialogFooter>
       </DialogContent>
     </Dialog>

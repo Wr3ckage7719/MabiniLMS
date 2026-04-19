@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   Bell,
+  ClipboardCheck,
   Copy,
+  FileText,
   Image as ImageIcon,
   Palette,
   Plus,
@@ -36,7 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
+import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssignmentDialog';
 import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
@@ -66,6 +69,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
 import { Announcement as ClassAnnouncement } from '@/lib/data';
+import { useSearchParams } from 'react-router-dom';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -130,6 +134,65 @@ interface TeacherDiscussionPost {
   isHidden: boolean;
 }
 
+const CREATE_TASK_OPTIONS: Array<{
+  id: TaskType;
+  label: string;
+  description: string;
+  icon: typeof BookOpen;
+}> = [
+  {
+    id: 'reading_material',
+    label: 'Reading Material',
+    description: 'Upload references and class resources',
+    icon: BookOpen,
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    description: 'Create a graded submission task',
+    icon: Activity,
+  },
+  {
+    id: 'quiz',
+    label: 'Quiz',
+    description: 'Build a scored quiz flow',
+    icon: FileText,
+  },
+  {
+    id: 'exam',
+    label: 'Exam',
+    description: 'Set up a proctored assessment',
+    icon: ClipboardCheck,
+  },
+];
+
+const TASK_LABELS: Record<TaskType, string> = {
+  reading_material: 'Reading Material',
+  activity: 'Activity',
+  quiz: 'Quiz',
+  exam: 'Exam',
+};
+
+type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions';
+
+const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['stream', 'classwork', 'people', 'submissions'];
+
+const parseTeacherClassTab = (value: string | null): TeacherClassTab => {
+  if (value && VALID_TEACHER_CLASS_TABS.includes(value as TeacherClassTab)) {
+    return value as TeacherClassTab;
+  }
+
+  return 'stream';
+};
+
+const parseTaskTypeParam = (value: string | null): TaskType | null => {
+  if (value === 'reading_material' || value === 'activity' || value === 'quiz' || value === 'exam') {
+    return value;
+  }
+
+  return null;
+};
+
 const parseGradeInput = (value: string): number | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -191,6 +254,7 @@ export function TeacherClassStream({
   room,
   schedule,
 }: TeacherClassStreamProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [announcementText, setAnnouncementText] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -226,8 +290,8 @@ export function TeacherClassStream({
   );
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(classCoverImage || null);
   const [savingAppearance, setSavingAppearance] = useState(false);
-  const [activeTab, setActiveTab] = useState('stream');
-  const [showCreateAssignment, setShowCreateAssignment] = useState(false);
+  const [activeTab, setActiveTab] = useState<TeacherClassTab>('stream');
+  const [builderTaskType, setBuilderTaskType] = useState<TaskType | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<ClassworkAssignment | null>(null);
   const [showAssignmentDetail, setShowAssignmentDetail] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<{
@@ -259,9 +323,70 @@ export function TeacherClassStream({
   const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
+  const updateClassRouteState = (
+    nextTab: TeacherClassTab,
+    nextBuilderTaskType: TaskType | null,
+    options?: { replace?: boolean }
+  ) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('view', 'classes');
+    nextParams.set('classId', classId);
+    nextParams.set('tab', nextTab);
+
+    if (nextTab === 'classwork' && nextBuilderTaskType) {
+      nextParams.set('builder', nextBuilderTaskType);
+    } else {
+      nextParams.delete('builder');
+    }
+
+    setSearchParams(nextParams, { replace: options?.replace ?? false });
+  };
+
+  const handleTabChange = (nextTab: TeacherClassTab) => {
+    const nextBuilderTaskType = nextTab === 'classwork' ? builderTaskType : null;
+
+    setActiveTab(nextTab);
+    if (nextTab !== 'classwork' && builderTaskType) {
+      setBuilderTaskType(null);
+    }
+
+    updateClassRouteState(nextTab, nextBuilderTaskType);
+  };
+
+  const openBuilder = (taskType: TaskType) => {
+    setActiveTab('classwork');
+    setBuilderTaskType(taskType);
+    updateClassRouteState('classwork', taskType);
+  };
+
+  const closeBuilder = (replace = true) => {
+    setActiveTab('classwork');
+    setBuilderTaskType(null);
+    updateClassRouteState('classwork', null, { replace });
+  };
+
   useEffect(() => {
     setAnnouncements(apiAnnouncements);
   }, [apiAnnouncements]);
+
+  useEffect(() => {
+    const routeClassId = searchParams.get('classId');
+    if (routeClassId && routeClassId !== classId) {
+      return;
+    }
+
+    const routeBuilderTaskType = parseTaskTypeParam(searchParams.get('builder'));
+    const routeTabParam = searchParams.get('tab');
+    const nextTab = routeBuilderTaskType ? 'classwork' : parseTeacherClassTab(routeTabParam);
+
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+
+    if (routeBuilderTaskType !== builderTaskType) {
+      setBuilderTaskType(routeBuilderTaskType);
+    }
+  }, [activeTab, builderTaskType, classId, searchParams]);
 
   useEffect(() => {
     const nextTheme = classColor || 'blue';
@@ -888,7 +1013,7 @@ export function TeacherClassStream({
       <div className="mb-6">
         <div className="flex gap-1 md:gap-6">
           <button
-            onClick={() => setActiveTab('stream')}
+            onClick={() => handleTabChange('stream')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'stream'
                 ? 'text-primary'
@@ -898,7 +1023,7 @@ export function TeacherClassStream({
             Stream
           </button>
           <button
-            onClick={() => setActiveTab('classwork')}
+            onClick={() => handleTabChange('classwork')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'classwork'
                 ? 'text-primary'
@@ -908,7 +1033,7 @@ export function TeacherClassStream({
             Classwork
           </button>
           <button
-            onClick={() => setActiveTab('people')}
+            onClick={() => handleTabChange('people')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'people'
                 ? 'text-primary'
@@ -918,7 +1043,7 @@ export function TeacherClassStream({
             People
           </button>
           <button
-            onClick={() => setActiveTab('submissions')}
+            onClick={() => handleTabChange('submissions')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'submissions'
                 ? 'text-primary'
@@ -974,7 +1099,7 @@ export function TeacherClassStream({
                 variant="ghost"
                 size="sm"
                 className="w-full text-xs text-primary hover:bg-blue-50 rounded-lg"
-                onClick={() => setActiveTab('classwork')}
+                onClick={() => handleTabChange('classwork')}
               >
                 View all
               </Button>
@@ -1537,22 +1662,77 @@ export function TeacherClassStream({
           {/* Classwork Tab Content */}
           {activeTab === 'classwork' && (
             <div className="space-y-4">
-              {/* Create Task Dialog */}
-              <CreateAssignmentDialog
-                open={showCreateAssignment}
-                onOpenChange={setShowCreateAssignment}
-                classId={classId}
-              />
+              {builderTaskType ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold">Create {TASK_LABELS[builderTaskType]}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        You are now on the full-page task builder. Configure all details before publishing.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="rounded-lg"
+                      onClick={() => closeBuilder(true)}
+                    >
+                      Back to classwork
+                    </Button>
+                  </div>
 
-              {/* Create Classwork Button */}
-              <div className="flex justify-end">
-                <Button 
-                  onClick={() => setShowCreateAssignment(true)}
-                  className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create task
-                </Button>
-              </div>
+                  <CreateAssignmentDialog
+                    open={true}
+                    isPage
+                    classId={classId}
+                    initialTaskType={builderTaskType}
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen) {
+                        closeBuilder(true);
+                      }
+                    }}
+                    onCreated={() => {
+                      closeBuilder(true);
+                    }}
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* Create Classwork Button */}
+                  <div className="flex justify-end">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300"
+                          data-testid="create-task-button"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Create task
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-72 rounded-xl">
+                        {CREATE_TASK_OPTIONS.map((taskOption) => {
+                          const Icon = taskOption.icon;
+
+                          return (
+                            <DropdownMenuItem
+                              key={taskOption.id}
+                              className="rounded-lg cursor-pointer py-3"
+                              data-testid={`create-task-option-${taskOption.id}`}
+                              onClick={() => openBuilder(taskOption.id)}
+                            >
+                              <div className="mr-3 rounded-lg bg-primary/10 p-2 text-primary">
+                                <Icon className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">{taskOption.label}</p>
+                                <p className="text-xs text-muted-foreground">{taskOption.description}</p>
+                              </div>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
 
               {/* Classwork Items */}
               <div className="space-y-3">
@@ -1663,6 +1843,8 @@ export function TeacherClassStream({
                   </Card>
                 )}
               </div>
+                </>
+              )}
             </div>
           )}
 
