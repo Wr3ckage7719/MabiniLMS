@@ -954,6 +954,45 @@ export function TeacherClassStream({
 
   const currentGradient = gradients[selectedTheme] || gradients.blue;
 
+  const isFullScreenBuilder = activeTab === 'classwork' && Boolean(builderTaskType);
+
+  if (isFullScreenBuilder && builderTaskType) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] bg-background py-3 md:py-6">
+        <div className="mx-auto w-full max-w-[1600px] px-3 md:px-6 lg:px-8">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{className}</p>
+              <h2 className="text-xl md:text-2xl font-semibold">Create {TASK_LABELS[builderTaskType]}</h2>
+            </div>
+            <Button
+              variant="outline"
+              className="rounded-lg w-full sm:w-auto"
+              onClick={() => closeBuilder(true)}
+            >
+              Back to classwork
+            </Button>
+          </div>
+
+          <CreateAssignmentDialog
+            open={true}
+            isPage
+            classId={classId}
+            initialTaskType={builderTaskType}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) {
+                closeBuilder(true);
+              }
+            }}
+            onCreated={() => {
+              closeBuilder(true);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-0 animate-fade-in">
       {/* Theme Banner */}
@@ -1662,77 +1701,42 @@ export function TeacherClassStream({
           {/* Classwork Tab Content */}
           {activeTab === 'classwork' && (
             <div className="space-y-4">
-              {builderTaskType ? (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold">Create {TASK_LABELS[builderTaskType]}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        You are now on the full-page task builder. Configure all details before publishing.
-                      </p>
-                    </div>
+              {/* Create Classwork Button */}
+              <div className="flex justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <Button
-                      variant="outline"
-                      className="rounded-lg"
-                      onClick={() => closeBuilder(true)}
+                      className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300"
+                      data-testid="create-task-button"
                     >
-                      Back to classwork
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create task
                     </Button>
-                  </div>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-72 rounded-xl">
+                    {CREATE_TASK_OPTIONS.map((taskOption) => {
+                      const Icon = taskOption.icon;
 
-                  <CreateAssignmentDialog
-                    open={true}
-                    isPage
-                    classId={classId}
-                    initialTaskType={builderTaskType}
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) {
-                        closeBuilder(true);
-                      }
-                    }}
-                    onCreated={() => {
-                      closeBuilder(true);
-                    }}
-                  />
-                </div>
-              ) : (
-                <>
-                  {/* Create Classwork Button */}
-                  <div className="flex justify-end">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300"
-                          data-testid="create-task-button"
+                      return (
+                        <DropdownMenuItem
+                          key={taskOption.id}
+                          className="rounded-lg cursor-pointer py-3"
+                          data-testid={`create-task-option-${taskOption.id}`}
+                          onClick={() => openBuilder(taskOption.id)}
                         >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Create task
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-72 rounded-xl">
-                        {CREATE_TASK_OPTIONS.map((taskOption) => {
-                          const Icon = taskOption.icon;
-
-                          return (
-                            <DropdownMenuItem
-                              key={taskOption.id}
-                              className="rounded-lg cursor-pointer py-3"
-                              data-testid={`create-task-option-${taskOption.id}`}
-                              onClick={() => openBuilder(taskOption.id)}
-                            >
-                              <div className="mr-3 rounded-lg bg-primary/10 p-2 text-primary">
-                                <Icon className="h-4 w-4" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">{taskOption.label}</p>
-                                <p className="text-xs text-muted-foreground">{taskOption.description}</p>
-                              </div>
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                          <div className="mr-3 rounded-lg bg-primary/10 p-2 text-primary">
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{taskOption.label}</p>
+                            <p className="text-xs text-muted-foreground">{taskOption.description}</p>
+                          </div>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
 
               {/* Classwork Items */}
               <div className="space-y-3">
@@ -1843,8 +1847,6 @@ export function TeacherClassStream({
                   </Card>
                 )}
               </div>
-                </>
-              )}
             </div>
           )}
 
