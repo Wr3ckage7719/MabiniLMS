@@ -13,6 +13,9 @@ export type ProctorViolationType =
 export interface ProctoringPolicy {
   max_violations: number
   terminate_on_fullscreen_exit: boolean
+  auto_submit_on_tab_switch: boolean
+  auto_submit_on_fullscreen_exit: boolean
+  require_agreement_before_start: boolean
   block_clipboard: boolean
   block_context_menu: boolean
   block_print_shortcut: boolean
@@ -191,10 +194,22 @@ export const examsService = {
   async reportExamViolation(
     attemptId: string,
     payload: { violation_type: ProctorViolationType; metadata?: Record<string, unknown> }
-  ): Promise<{ attempt_status: ExamAttempt['status']; violation_count: number; terminated: boolean }> {
+  ): Promise<{
+    attempt_status: ExamAttempt['status']
+    violation_count: number
+    terminated: boolean
+    auto_submitted?: boolean
+    submission_result?: ExamSubmissionResult
+  }> {
     const response = await apiClient.post<{
       success: boolean
-      data: { attempt_status: ExamAttempt['status']; violation_count: number; terminated: boolean }
+      data: {
+        attempt_status: ExamAttempt['status']
+        violation_count: number
+        terminated: boolean
+        auto_submitted?: boolean
+        submission_result?: ExamSubmissionResult
+      }
     }>(`/assignments/exam/attempts/${attemptId}/violations`, payload)
     return unwrapData(response)
   },

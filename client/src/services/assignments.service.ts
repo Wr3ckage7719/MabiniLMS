@@ -17,6 +17,16 @@ export interface AssignmentData {
     chapters: Array<{ tag: string; take?: number }>;
     total_questions?: number;
   };
+  proctoring_policy?: {
+    max_violations?: number;
+    terminate_on_fullscreen_exit?: boolean;
+    auto_submit_on_tab_switch?: boolean;
+    auto_submit_on_fullscreen_exit?: boolean;
+    require_agreement_before_start?: boolean;
+    block_clipboard?: boolean;
+    block_context_menu?: boolean;
+    block_print_shortcut?: boolean;
+  };
   is_proctored?: boolean;
   submissions_open?: boolean;
   submission_open_at?: string | null;

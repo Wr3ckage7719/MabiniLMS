@@ -13,6 +13,7 @@ import {
   ListViolationsQuery,
   ProctoringPolicy,
   ReportExamViolationInput,
+  ReportExamViolationResult,
   StartExamAttemptInput,
   SubmitExamAnswerInput,
 } from '../types/exams.js'
@@ -46,12 +47,43 @@ type AttemptContext = {
   assignment: AssignmentContext
 }
 
+type DatabaseErrorShape = {
+  code?: string
+  message?: string
+  details?: string
+  hint?: string
+}
+
+const EXAM_QUESTION_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
+  'item_type',
+  'answer_payload',
+  'chapter_tag',
+])
+
 const defaultPolicy: ProctoringPolicy = {
   max_violations: 3,
   terminate_on_fullscreen_exit: false,
+  auto_submit_on_tab_switch: false,
+  auto_submit_on_fullscreen_exit: false,
+  require_agreement_before_start: true,
   block_clipboard: true,
   block_context_menu: true,
   block_print_shortcut: true,
+}
+
+const examHardPolicyAutoSubmitEnabled = process.env.FEATURE_EXAM_HARD_POLICY_AUTOSUBMIT !== 'false'
+
+const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
+  return [error?.message, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+}
+
+const extractMissingColumnName = (error?: DatabaseErrorShape | null): string | null => {
+  const message = normalizeDbErrorText(error)
+  const match = message.match(/column\s+"?([a-z0-9_]+)"?\s+does not exist/i)
+  return match?.[1] || null
 }
 
 const toNumber = (value: unknown, fallback: number): number => {
@@ -78,23 +110,56 @@ const toPolicy = (raw: unknown): ProctoringPolicy => {
 
   const policy = raw as Record<string, unknown>
 
+  const legacyTerminateOnFullscreenExit =
+    typeof policy.terminate_on_fullscreen_exit === 'boolean'
+      ? policy.terminate_on_fullscreen_exit
+      : typeof policy.terminateOnFullscreenExit === 'boolean'
+        ? policy.terminateOnFullscreenExit
+        : defaultPolicy.terminate_on_fullscreen_exit
+
+  const autoSubmitOnFullscreenExit =
+    typeof policy.auto_submit_on_fullscreen_exit === 'boolean'
+      ? policy.auto_submit_on_fullscreen_exit
+      : typeof policy.autoSubmitOnFullscreenExit === 'boolean'
+        ? policy.autoSubmitOnFullscreenExit
+        : legacyTerminateOnFullscreenExit
+
   return {
-    max_violations: Math.max(1, Math.floor(toNumber(policy.max_violations, defaultPolicy.max_violations))),
-    terminate_on_fullscreen_exit:
-      typeof policy.terminate_on_fullscreen_exit === 'boolean'
-        ? policy.terminate_on_fullscreen_exit
-        : defaultPolicy.terminate_on_fullscreen_exit,
+    max_violations: Math.max(
+      1,
+      Math.floor(toNumber(policy.max_violations ?? policy.maxViolations, defaultPolicy.max_violations))
+    ),
+    terminate_on_fullscreen_exit: legacyTerminateOnFullscreenExit,
+    auto_submit_on_tab_switch:
+      typeof policy.auto_submit_on_tab_switch === 'boolean'
+        ? policy.auto_submit_on_tab_switch
+        : typeof policy.autoSubmitOnTabSwitch === 'boolean'
+          ? policy.autoSubmitOnTabSwitch
+          : defaultPolicy.auto_submit_on_tab_switch,
+    auto_submit_on_fullscreen_exit: autoSubmitOnFullscreenExit,
+    require_agreement_before_start:
+      typeof policy.require_agreement_before_start === 'boolean'
+        ? policy.require_agreement_before_start
+        : typeof policy.requireAgreementBeforeStart === 'boolean'
+          ? policy.requireAgreementBeforeStart
+          : defaultPolicy.require_agreement_before_start,
     block_clipboard:
       typeof policy.block_clipboard === 'boolean'
         ? policy.block_clipboard
+        : typeof policy.blockClipboard === 'boolean'
+          ? policy.blockClipboard
         : defaultPolicy.block_clipboard,
     block_context_menu:
       typeof policy.block_context_menu === 'boolean'
         ? policy.block_context_menu
+        : typeof policy.blockContextMenu === 'boolean'
+          ? policy.blockContextMenu
         : defaultPolicy.block_context_menu,
     block_print_shortcut:
       typeof policy.block_print_shortcut === 'boolean'
         ? policy.block_print_shortcut
+        : typeof policy.blockPrintShortcut === 'boolean'
+          ? policy.blockPrintShortcut
         : defaultPolicy.block_print_shortcut,
   }
 }
@@ -682,26 +747,51 @@ export const createExamQuestion = async (
 
   const normalizedInput = normalizeExamQuestionWritePayload(input)
 
-  const { data, error } = await supabaseAdmin
-    .from('exam_questions')
-    .insert({
-      assignment_id: assignmentId,
-      prompt: input.prompt,
-      item_type: normalizedInput.item_type,
-      answer_payload: normalizedInput.answer_payload,
-      chapter_tag: normalizedInput.chapter_tag,
-      choices: normalizedInput.choices,
-      correct_choice_index: normalizedInput.correct_choice_index,
-      points: input.points,
-      explanation: input.explanation || null,
-      order_index: input.order_index || 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .select('*')
-    .single()
+  let insertPayload: Record<string, unknown> = {
+    assignment_id: assignmentId,
+    prompt: input.prompt,
+    item_type: normalizedInput.item_type,
+    answer_payload: normalizedInput.answer_payload,
+    chapter_tag: normalizedInput.chapter_tag,
+    choices: normalizedInput.choices,
+    correct_choice_index: normalizedInput.correct_choice_index,
+    points: input.points,
+    explanation: input.explanation || null,
+    order_index: input.order_index || 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
 
-  if (error || !data) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('exam_questions')
+      .insert(insertPayload)
+      .select('*')
+      .single()
+
+    if (!error && data) {
+      return parseExamQuestion(data as Record<string, unknown>)
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (
+      missingColumn
+      && EXAM_QUESTION_COMPAT_OPTIONAL_COLUMNS.has(missingColumn)
+      && Object.prototype.hasOwnProperty.call(insertPayload, missingColumn)
+    ) {
+      delete insertPayload[missingColumn]
+
+      logger.warn('Retrying exam question create without optional column', {
+        assignmentId,
+        userId,
+        missingColumn,
+        attempt: attempt + 1,
+        error: error?.message,
+      })
+
+      continue
+    }
+
     logger.error('Failed to create exam question', {
       assignmentId,
       userId,
@@ -710,7 +800,7 @@ export const createExamQuestion = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create exam question', 500)
   }
 
-  return parseExamQuestion(data as Record<string, unknown>)
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create exam question', 500)
 }
 
 export const updateExamQuestion = async (
@@ -756,15 +846,43 @@ export const updateExamQuestion = async (
   if (input.explanation !== undefined) updatePayload.explanation = input.explanation || null
   if (input.order_index !== undefined) updatePayload.order_index = input.order_index
 
-  const { data, error } = await supabaseAdmin
-    .from('exam_questions')
-    .update(updatePayload)
-    .eq('id', questionId)
-    .eq('assignment_id', assignmentId)
-    .select('*')
-    .single()
+  let mutableUpdatePayload: Record<string, unknown> = {
+    ...updatePayload,
+  }
 
-  if (error || !data) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('exam_questions')
+      .update(mutableUpdatePayload)
+      .eq('id', questionId)
+      .eq('assignment_id', assignmentId)
+      .select('*')
+      .single()
+
+    if (!error && data) {
+      return parseExamQuestion(data as Record<string, unknown>)
+    }
+
+    const missingColumn = extractMissingColumnName(error)
+    if (
+      missingColumn
+      && EXAM_QUESTION_COMPAT_OPTIONAL_COLUMNS.has(missingColumn)
+      && Object.prototype.hasOwnProperty.call(mutableUpdatePayload, missingColumn)
+    ) {
+      delete mutableUpdatePayload[missingColumn]
+
+      logger.warn('Retrying exam question update without optional column', {
+        assignmentId,
+        questionId,
+        userId,
+        missingColumn,
+        attempt: attempt + 1,
+        error: error?.message,
+      })
+
+      continue
+    }
+
     logger.error('Failed to update exam question', {
       assignmentId,
       questionId,
@@ -774,7 +892,7 @@ export const updateExamQuestion = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update exam question', 500)
   }
 
-  return parseExamQuestion(data as Record<string, unknown>)
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update exam question', 500)
 }
 
 export const deleteExamQuestion = async (
@@ -980,7 +1098,7 @@ export const reportExamViolation = async (
   input: ReportExamViolationInput,
   userId: string,
   userRole: UserRole
-): Promise<{ attempt_status: ExamAttempt['status']; violation_count: number; terminated: boolean }> => {
+): Promise<ReportExamViolationResult> => {
   const context = await resolveAttemptContext(attemptId)
   assertAttemptAccess(context, userId, userRole)
 
@@ -993,6 +1111,7 @@ export const reportExamViolation = async (
       attempt_status: context.attempt.status,
       violation_count: 0,
       terminated: context.attempt.status === 'terminated',
+      auto_submitted: false,
     }
   }
 
@@ -1035,8 +1154,16 @@ export const reportExamViolation = async (
   const violationCount = count || 0
   const policy = toPolicy(context.assignment.proctoring_policy)
 
+  const hardFullscreenTrigger =
+    input.violation_type === 'fullscreen_exit'
+    && (policy.auto_submit_on_fullscreen_exit || policy.terminate_on_fullscreen_exit)
+  const hardTabSwitchTrigger =
+    input.violation_type === 'visibility_hidden'
+    && policy.auto_submit_on_tab_switch
+  const hardPolicyTrigger = hardFullscreenTrigger || hardTabSwitchTrigger
+
   const shouldTerminate =
-    (input.violation_type === 'fullscreen_exit' && policy.terminate_on_fullscreen_exit)
+    hardPolicyTrigger
     || violationCount >= policy.max_violations
 
   if (!shouldTerminate) {
@@ -1044,6 +1171,7 @@ export const reportExamViolation = async (
       attempt_status: 'active',
       violation_count: violationCount,
       terminated: false,
+      auto_submitted: false,
     }
   }
 
@@ -1065,10 +1193,23 @@ export const reportExamViolation = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to terminate exam attempt', 500)
   }
 
+  if (hardPolicyTrigger && examHardPolicyAutoSubmitEnabled) {
+    const submissionResult = await submitExamAttempt(attemptId, userId, userRole)
+
+    return {
+      attempt_status: 'submitted',
+      violation_count: violationCount,
+      terminated: true,
+      auto_submitted: true,
+      submission_result: submissionResult,
+    }
+  }
+
   return {
     attempt_status: 'terminated',
     violation_count: violationCount,
     terminated: true,
+    auto_submitted: false,
   }
 }
 

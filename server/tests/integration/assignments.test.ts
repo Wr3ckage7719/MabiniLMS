@@ -195,6 +195,41 @@ describe('Assignment Schemas', () => {
         expect(result.success).toBe(true)
       })
 
+      it('should accept exam integrity policy options', () => {
+        const result = createAssignmentSchema.safeParse({
+          title: 'Exam Integrity Policy',
+          assignment_type: 'exam',
+          proctoring_policy: {
+            max_violations: 4,
+            require_agreement_before_start: true,
+            auto_submit_on_tab_switch: true,
+            auto_submit_on_fullscreen_exit: true,
+          },
+        })
+
+        expect(result.success).toBe(true)
+      })
+
+      it('should accept backward-compatible alias fields', () => {
+        const result = createAssignmentSchema.safeParse({
+          title: 'Alias Compatibility',
+          assignment_type: 'exam',
+          order_mode: 'random',
+          exam_selection_mode: 'sequence',
+          chapter_pool: {
+            enabled: true,
+            chapters: [{ tag: 'Legacy Chapter', take: 2 }],
+          },
+          proctoring_policy: {
+            maxViolations: 2,
+            autoSubmitOnTabSwitch: true,
+            requireAgreementBeforeStart: true,
+          },
+        })
+
+        expect(result.success).toBe(true)
+      })
+
     it('should validate due_date as ISO datetime', () => {
       const resultInvalid = createAssignmentSchema.safeParse({
         title: 'Test',
