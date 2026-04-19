@@ -40,6 +40,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useQueryClient } from '@tanstack/react-query';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 interface TeacherClassesSectionProps {
   onSelectClass: (classId: string) => void;
@@ -56,6 +58,7 @@ export function TeacherClassesSection({
   searchQuery,
   onSearchQueryChange,
 }: TeacherClassesSectionProps) {
+  const queryClient = useQueryClient();
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'students' | 'pending'>('name-asc');
@@ -159,6 +162,7 @@ export function TeacherClassesSection({
         cls.id === actionClass.id ? { ...cls, archived: true } : cls
       );
       onClassesChange(updatedClasses);
+      await invalidateClassData(queryClient, { classId: actionClass.id });
       toast({
         title: 'Class archived',
         description: 'The class has been moved to archived.',
@@ -183,6 +187,7 @@ export function TeacherClassesSection({
       await coursesService.deleteCourse(actionClass.id);
       const updatedClasses = classes.filter((cls) => cls.id !== actionClass.id);
       onClassesChange(updatedClasses);
+      await invalidateClassData(queryClient, { classId: actionClass.id });
       toast({
         title: 'Class deleted',
         description: 'The class has been permanently deleted.',
@@ -209,6 +214,7 @@ export function TeacherClassesSection({
         cls.id === actionClass.id ? { ...cls, archived: false } : cls
       );
       onClassesChange(updatedClasses);
+      await invalidateClassData(queryClient, { classId: actionClass.id });
       toast({
         title: 'Class restored',
         description: 'The class is active again.',

@@ -9,6 +9,7 @@ import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { getFeedbackErrorMessage } from '@/lib/feedback';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 interface CreateClassDialogProps {
   open: boolean;
@@ -69,7 +70,7 @@ export function CreateClassDialog({ open, onOpenChange, onSuccess }: CreateClass
         title: 'Success!',
         description: 'Class created successfully.',
       });
-      await queryClient.invalidateQueries({ queryKey: ['classes'] });
+      await invalidateClassData(queryClient);
       resetForm();
       onOpenChange(false);
       onSuccess?.();

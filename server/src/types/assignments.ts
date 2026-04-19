@@ -14,6 +14,8 @@ export enum SubmissionStatus {
 
 export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
 export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
+export const questionOrderModeSchema = z.enum(['sequence', 'random']);
+export type QuestionOrderMode = z.infer<typeof questionOrderModeSchema>;
 
 const proctoringPolicySchema = z.object({
   max_violations: z.number().int().min(1).max(20).optional(),
@@ -23,6 +25,20 @@ const proctoringPolicySchema = z.object({
   block_print_shortcut: z.boolean().optional(),
 });
 
+const examChapterPoolSchema = z.object({
+  enabled: z.boolean().default(false),
+  chapters: z
+    .array(
+      z.object({
+        tag: z.string().trim().min(1).max(120),
+        take: z.number().int().min(1).max(500).optional(),
+      })
+    )
+    .default([]),
+  total_questions: z.number().int().min(1).max(500).optional(),
+});
+export type ExamChapterPoolSettings = z.infer<typeof examChapterPoolSchema>;
+
 // ============================================
 // Assignment Schemas
 // ============================================
@@ -31,6 +47,9 @@ export const createAssignmentSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   description: z.string().optional(),
   assignment_type: assignmentCategorySchema.default('activity'),
+  question_order_mode: questionOrderModeSchema.default('sequence').optional(),
+  exam_question_selection_mode: questionOrderModeSchema.default('random').optional(),
+  exam_chapter_pool: examChapterPoolSchema.optional(),
   due_date: z.string().datetime().optional(),
   max_points: z.number().int().min(0).max(1000).default(100),
   submissions_open: z.boolean().optional().default(true),
@@ -58,6 +77,9 @@ export const updateAssignmentSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
   assignment_type: assignmentCategorySchema.optional(),
+  question_order_mode: questionOrderModeSchema.optional(),
+  exam_question_selection_mode: questionOrderModeSchema.optional(),
+  exam_chapter_pool: examChapterPoolSchema.optional(),
   due_date: z.string().datetime().nullable().optional(),
   max_points: z.number().int().min(0).max(1000).optional(),
   submissions_open: z.boolean().optional(),
@@ -162,6 +184,9 @@ export interface Assignment {
   title: string;
   description: string | null;
   assignment_type: AssignmentCategory;
+  question_order_mode?: QuestionOrderMode;
+  exam_question_selection_mode?: QuestionOrderMode;
+  exam_chapter_pool?: ExamChapterPoolSettings;
   due_date: string | null;
   max_points: number;
   submissions_open?: boolean;

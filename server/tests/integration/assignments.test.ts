@@ -161,6 +161,40 @@ describe('Assignment Schemas', () => {
         expect(result.success).toBe(false)
       })
 
+      it('should accept question order mode settings for quiz and exam', () => {
+        const quizResult = createAssignmentSchema.safeParse({
+          title: 'Quiz Ordering',
+          assignment_type: 'quiz',
+          question_order_mode: 'random',
+        })
+        expect(quizResult.success).toBe(true)
+
+        const examResult = createAssignmentSchema.safeParse({
+          title: 'Exam Ordering',
+          assignment_type: 'exam',
+          question_order_mode: 'sequence',
+          exam_question_selection_mode: 'random',
+        })
+        expect(examResult.success).toBe(true)
+      })
+
+      it('should accept exam chapter pool settings', () => {
+        const result = createAssignmentSchema.safeParse({
+          title: 'Exam Pool',
+          assignment_type: 'exam',
+          exam_chapter_pool: {
+            enabled: true,
+            chapters: [
+              { tag: 'Chapter 1', take: 3 },
+              { tag: 'Chapter 2', take: 2 },
+            ],
+            total_questions: 5,
+          },
+        })
+
+        expect(result.success).toBe(true)
+      })
+
     it('should validate due_date as ISO datetime', () => {
       const resultInvalid = createAssignmentSchema.safeParse({
         title: 'Test',

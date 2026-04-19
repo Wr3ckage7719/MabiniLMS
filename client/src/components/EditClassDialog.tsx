@@ -8,6 +8,7 @@ import { Pencil } from 'lucide-react';
 import { coursesService } from '@/services/courses.service';
 import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateClassData } from '@/lib/query-invalidation';
 
 interface EditClassDialogProps {
   open: boolean;
@@ -73,7 +74,7 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
         syllabus: serializeCourseMetadata(metadata),
       });
 
-      await queryClient.invalidateQueries({ queryKey: ['classes'] });
+      await invalidateClassData(queryClient, { classId: classItem.id });
 
       onSave({
         name,

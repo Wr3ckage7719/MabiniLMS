@@ -492,5 +492,34 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
     fetchDashboard();
   }, [fetchDashboard]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleFocusRefresh = () => {
+      void fetchDashboard();
+    };
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchDashboard();
+      }
+    };
+
+    const refreshTimer = window.setInterval(() => {
+      void fetchDashboard();
+    }, 3 * 60 * 1000);
+
+    window.addEventListener('focus', handleFocusRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener('focus', handleFocusRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
+  }, [fetchDashboard]);
+
   return { data, loading, error, refetch: fetchDashboard };
 }

@@ -10,6 +10,14 @@ export interface AssignmentData {
   due_date: string;
   max_points: number;
   assignment_type?: 'exam' | 'quiz' | 'activity';
+  question_order_mode?: 'sequence' | 'random';
+  exam_question_selection_mode?: 'sequence' | 'random';
+  exam_chapter_pool?: {
+    enabled: boolean;
+    chapters: Array<{ tag: string; take?: number }>;
+    total_questions?: number;
+  };
+  is_proctored?: boolean;
   submissions_open?: boolean;
   submission_open_at?: string | null;
   submission_close_at?: string | null;
