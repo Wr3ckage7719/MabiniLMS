@@ -2,6 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { ClassItem } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { TeacherClassStream } from './TeacherClassStream';
+import { useSearchParams } from 'react-router-dom';
 
 interface TeacherClassDetailProps {
   classId?: string;
@@ -11,6 +12,7 @@ interface TeacherClassDetailProps {
 
 export function TeacherClassDetail(props: TeacherClassDetailProps) {
   const { classId: propClassId, classItem, onBack } = props;
+  const [searchParams, setSearchParams] = useSearchParams();
   const cls = classItem ?? null;
 
   if (!cls) {
@@ -26,21 +28,41 @@ export function TeacherClassDetail(props: TeacherClassDetailProps) {
     );
   }
 
+  const resolvedClassId = propClassId || cls.id;
+  const isBuilderRoute =
+    searchParams.get('tab') === 'classwork' &&
+    Boolean(searchParams.get('builder')) &&
+    searchParams.get('classId') === resolvedClassId;
+
+  const handleBackClick = () => {
+    if (isBuilderRoute) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('view', 'classes');
+      nextParams.set('classId', resolvedClassId);
+      nextParams.set('tab', 'classwork');
+      nextParams.delete('builder');
+      setSearchParams(nextParams, { replace: true });
+      return;
+    }
+
+    onBack?.();
+  };
+
   return (
     <div className="w-full h-full overflow-auto">
       <div className="p-4 md:p-6 lg:p-8">
         <Button
           variant="ghost"
-          onClick={onBack}
+          onClick={handleBackClick}
           className="mb-6"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
+          {isBuilderRoute ? 'Back to classwork' : 'Back'}
         </Button>
 
         <div className="max-w-7xl mx-auto space-y-6">
           <TeacherClassStream
-            classId={propClassId || cls.id}
+            classId={resolvedClassId}
             className={cls.name}
             classColor={cls.color}
             classCoverImage={cls.coverImage}
