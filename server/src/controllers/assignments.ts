@@ -317,15 +317,26 @@ export const deleteAssignment = async (
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - drive_file_id
- *               - drive_file_name
+ *             description: Provide either provider_file_id (preferred) or drive_file_id (legacy alias).
  *             properties:
+ *               provider:
+ *                 type: string
+ *                 enum: [google_drive]
+ *               provider_file_id:
+ *                 type: string
+ *                 description: Preferred provider-backed file identifier.
+ *               provider_file_name:
+ *                 type: string
+ *                 description: Optional provider-backed file name override.
  *               drive_file_id:
  *                 type: string
+ *                 description: Legacy alias for provider_file_id.
  *               drive_file_name:
  *                 type: string
+ *                 description: Legacy alias for provider_file_name.
  *               content:
+ *                 type: string
+ *               sync_key:
  *                 type: string
  *     responses:
  *       201:
