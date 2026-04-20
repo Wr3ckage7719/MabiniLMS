@@ -78,8 +78,9 @@ export const createAssignmentSchema = z.object({
   if (value.submission_open_at && value.submission_close_at) {
     const openAt = new Date(value.submission_open_at).getTime();
     const closeAt = new Date(value.submission_close_at).getTime();
+    const shouldEnforceWindowOrdering = value.submissions_open !== true;
 
-    if (closeAt < openAt) {
+    if (shouldEnforceWindowOrdering && closeAt < openAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['submission_close_at'],
@@ -112,8 +113,9 @@ export const updateAssignmentSchema = z.object({
   if (value.submission_open_at && value.submission_close_at) {
     const openAt = new Date(value.submission_open_at).getTime();
     const closeAt = new Date(value.submission_close_at).getTime();
+    const shouldEnforceWindowOrdering = value.submissions_open === false;
 
-    if (closeAt < openAt) {
+    if (shouldEnforceWindowOrdering && closeAt < openAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['submission_close_at'],

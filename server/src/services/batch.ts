@@ -373,7 +373,7 @@ export const exportGrades = async (
     const assignment = Array.isArray(submission?.assignment) ? submission.assignment[0] : submission?.assignment
     const student = Array.isArray(submission?.student) ? submission.student[0] : submission?.student
 
-    const percentage = calculatePercentage(grade.points_earned, assignment?.max_points || 100)
+    const percentage = calculatePercentage(grade.points_earned, assignment?.max_points ?? 100)
     const letterGrade = calculateLetterGrade(percentage)
 
     const row: GradeExportRow = {

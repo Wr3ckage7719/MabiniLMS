@@ -190,7 +190,7 @@ export const getCourseAnalytics = async (
     const percentages = grades.map((g: any) => {
       const submission = Array.isArray(g.submission) ? g.submission[0] : g.submission
       const assignment = Array.isArray(submission?.assignment) ? submission.assignment[0] : submission?.assignment
-      return calculatePercentage(g.points_earned, assignment?.max_points || 100)
+      return calculatePercentage(g.points_earned, assignment?.max_points ?? 100)
     })
 
     gradeStats.average = Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length * 100) / 100
@@ -310,7 +310,7 @@ export const getStudentAnalytics = async (
     const percentages = grades.map((g: any) => {
       const submission = Array.isArray(g.submission) ? g.submission[0] : g.submission
       const assignment = Array.isArray(submission?.assignment) ? submission.assignment[0] : submission?.assignment
-      return calculatePercentage(g.points_earned, assignment?.max_points || 100)
+      return calculatePercentage(g.points_earned, assignment?.max_points ?? 100)
     })
 
     averageGrade = Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length * 100) / 100
@@ -543,7 +543,7 @@ export const getTeacherAnalytics = async (
     const percentages = grades.map((g: any) => {
       const submission = Array.isArray(g.submission) ? g.submission[0] : g.submission
       const assignment = Array.isArray(submission?.assignment) ? submission.assignment[0] : submission?.assignment
-      return calculatePercentage(g.points_earned, assignment?.max_points || 100)
+      return calculatePercentage(g.points_earned, assignment?.max_points ?? 100)
     })
 
     averageGradeGiven = Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length * 100) / 100

@@ -709,7 +709,7 @@ export const createAssignment = async (
     title: input.title,
     description: input.description || null,
     due_date: input.due_date || null,
-    max_points: input.max_points || 100,
+    max_points: input.max_points ?? 100,
     submissions_open: input.submissions_open ?? true,
     submission_open_at: input.submission_open_at || null,
     submission_close_at: input.submission_close_at || null,
@@ -806,7 +806,7 @@ export const createAssignment = async (
     max_points:
       typeof insertedAssignment.max_points === 'number'
         ? insertedAssignment.max_points
-        : input.max_points || 100,
+        : input.max_points ?? 100,
     created_at:
       typeof insertedAssignment.created_at === 'string'
         ? insertedAssignment.created_at
