@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  ArrowUpDown,
   Bell,
   ClipboardCheck,
   Copy,
   FileText,
   Image as ImageIcon,
+  ListFilter,
   Palette,
   Plus,
   Send,
@@ -135,6 +137,9 @@ interface TeacherDiscussionPost {
   isHidden: boolean;
 }
 
+type ClassworkFilter = 'all' | TaskType;
+type ClassworkSort = 'newest' | 'oldest' | 'due_soonest' | 'due_latest' | 'title_asc';
+
 const CREATE_TASK_OPTIONS: Array<{
   id: TaskType;
   label: string;
@@ -166,6 +171,69 @@ const CREATE_TASK_OPTIONS: Array<{
     icon: ClipboardCheck,
   },
 ];
+
+const CLASSWORK_FILTER_OPTIONS: Array<{ value: ClassworkFilter; label: string }> = [
+  { value: 'all', label: 'All Tasks' },
+  { value: 'activity', label: 'Activities' },
+  { value: 'quiz', label: 'Quizzes' },
+  { value: 'exam', label: 'Exams' },
+  { value: 'reading_material', label: 'Reading Materials' },
+];
+
+const CLASSWORK_SORT_OPTIONS: Array<{ value: ClassworkSort; label: string }> = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'due_soonest', label: 'Due Soonest' },
+  { value: 'due_latest', label: 'Due Latest' },
+  { value: 'title_asc', label: 'Title A-Z' },
+];
+
+const CLASSWORK_EMPTY_COPY: Record<ClassworkFilter, { title: string; description: string }> = {
+  all: {
+    title: 'No activities yet',
+    description: 'Create a classwork task to get started.',
+  },
+  activity: {
+    title: 'No activities yet',
+    description: 'Create an activity task to get started.',
+  },
+  quiz: {
+    title: 'No quizzes yet',
+    description: 'Create a quiz task to get started.',
+  },
+  exam: {
+    title: 'No exams yet',
+    description: 'Create an exam task to get started.',
+  },
+  reading_material: {
+    title: 'No reading materials yet',
+    description: 'Create a reading material to get started.',
+  },
+};
+
+const TASK_TYPE_BADGE_LABELS: Record<TaskType, string> = {
+  reading_material: 'Reading Material',
+  activity: 'Activity',
+  quiz: 'Quiz',
+  exam: 'Exam',
+};
+
+const normalizeClassworkTaskType = (rawType?: string): TaskType => {
+  if (rawType === 'reading_material' || rawType === 'activity' || rawType === 'quiz' || rawType === 'exam') {
+    return rawType;
+  }
+
+  return 'activity';
+};
+
+const toUnixTime = (value?: string | Date | null): number | null => {
+  if (!value) return null;
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  const timestamp = parsed.getTime();
+
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
 
 type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions';
 
@@ -319,6 +387,8 @@ export function TeacherClassStream({
   const [submissionFeedback, setSubmissionFeedback] = useState('');
   const [savingSubmissionGrade, setSavingSubmissionGrade] = useState(false);
   const [assignments, setAssignments] = useState<ClassworkAssignment[]>([]);
+  const [classworkFilter, setClassworkFilter] = useState<ClassworkFilter>('all');
+  const [classworkSort, setClassworkSort] = useState<ClassworkSort>('newest');
   const [editingAnnouncement, setEditingAnnouncement] = useState<EditableAnnouncement | null>(null);
   const [editAnnouncementTitle, setEditAnnouncementTitle] = useState('');
   const [editAnnouncementContent, setEditAnnouncementContent] = useState('');
@@ -441,6 +511,77 @@ export function TeacherClassStream({
 
     setAssignments(mappedAssignments);
   }, [apiAssignments, apiSubmissions]);
+
+  const filteredSortedAssignments = useMemo(() => {
+    const filtered = assignments.filter((assignment) => {
+      if (classworkFilter === 'all') {
+        return true;
+      }
+
+      if (classworkFilter === 'reading_material') {
+        return false;
+      }
+
+      return normalizeClassworkTaskType(assignment.rawType) === classworkFilter;
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (classworkSort === 'title_asc') {
+        return a.title.localeCompare(b.title);
+      }
+
+      if (classworkSort === 'newest') {
+        const left = toUnixTime(a.createdAt) ?? 0;
+        const right = toUnixTime(b.createdAt) ?? 0;
+        return right - left;
+      }
+
+      if (classworkSort === 'oldest') {
+        const left = toUnixTime(a.createdAt) ?? 0;
+        const right = toUnixTime(b.createdAt) ?? 0;
+        return left - right;
+      }
+
+      const leftDue = toUnixTime(a.dueDate);
+      const rightDue = toUnixTime(b.dueDate);
+
+      if (leftDue === null && rightDue === null) return a.title.localeCompare(b.title);
+      if (leftDue === null) return 1;
+      if (rightDue === null) return -1;
+
+      return classworkSort === 'due_soonest' ? leftDue - rightDue : rightDue - leftDue;
+    });
+  }, [assignments, classworkFilter, classworkSort]);
+
+  const filteredSortedMaterials = useMemo(() => {
+    const filtered = apiMaterials.filter(() => {
+      return classworkFilter === 'all' || classworkFilter === 'reading_material';
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (classworkSort === 'title_asc') {
+        return a.title.localeCompare(b.title);
+      }
+
+      const left = toUnixTime(a.uploadedDate) ?? 0;
+      const right = toUnixTime(b.uploadedDate) ?? 0;
+
+      if (classworkSort === 'oldest') {
+        return left - right;
+      }
+
+      return right - left;
+    });
+  }, [apiMaterials, classworkFilter, classworkSort]);
+
+  const hasVisibleClassworkItems =
+    filteredSortedAssignments.length > 0 || filteredSortedMaterials.length > 0;
+
+  const activeClassworkFilterLabel =
+    CLASSWORK_FILTER_OPTIONS.find((option) => option.value === classworkFilter)?.label || 'All Tasks';
+
+  const activeClassworkSortLabel =
+    CLASSWORK_SORT_OPTIONS.find((option) => option.value === classworkSort)?.label || 'Newest';
 
   const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
     return apiSubmissions
@@ -1697,8 +1838,59 @@ export function TeacherClassStream({
           {/* Classwork Tab Content */}
           {activeTab === 'classwork' && (
             <div className="space-y-4">
-              {/* Create Classwork Button */}
-              <div className="flex justify-end">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="rounded-lg">
+                        <ListFilter className="h-4 w-4 mr-2" />
+                        Filter: {activeClassworkFilterLabel}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 rounded-xl">
+                      {CLASSWORK_FILTER_OPTIONS.map((option) => (
+                        <DropdownMenuItem
+                          key={option.value}
+                          className="rounded-lg cursor-pointer"
+                          onClick={() => setClassworkFilter(option.value)}
+                        >
+                          <span>{option.label}</span>
+                          {classworkFilter === option.value && (
+                            <Badge variant="secondary" className="ml-auto rounded-full text-[10px]">
+                              Selected
+                            </Badge>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="rounded-lg">
+                        <ArrowUpDown className="h-4 w-4 mr-2" />
+                        Sort: {activeClassworkSortLabel}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 rounded-xl">
+                      {CLASSWORK_SORT_OPTIONS.map((option) => (
+                        <DropdownMenuItem
+                          key={option.value}
+                          className="rounded-lg cursor-pointer"
+                          onClick={() => setClassworkSort(option.value)}
+                        >
+                          <span>{option.label}</span>
+                          {classworkSort === option.value && (
+                            <Badge variant="secondary" className="ml-auto rounded-full text-[10px]">
+                              Selected
+                            </Badge>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1736,8 +1928,8 @@ export function TeacherClassStream({
 
               {/* Classwork Items */}
               <div className="space-y-3">
-                {assignments.length > 0 ? (
-                  assignments.map((item, idx) => (
+                {filteredSortedAssignments.length > 0 &&
+                  filteredSortedAssignments.map((item, idx) => (
                     <Card
                       key={item.id}
                       className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group cursor-pointer"
@@ -1756,6 +1948,9 @@ export function TeacherClassStream({
                               <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors truncate">
                                 {item.title}
                               </h3>
+                              <Badge variant="outline" className="rounded-full text-[10px] uppercase tracking-wide">
+                                {TASK_TYPE_BADGE_LABELS[normalizeClassworkTaskType(item.rawType)]}
+                              </Badge>
                               {item.dueSoon && (
                                 <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs font-medium rounded-full">
                                   Due Soon
@@ -1832,27 +2027,32 @@ export function TeacherClassStream({
                         </div>
                       </CardContent>
                     </Card>
-                  ))
-                ) : (
+                  ))}
+
+                {!hasVisibleClassworkItems && (
                   <Card className="border-0 shadow-sm">
                     <CardContent className="p-12 text-center">
                       <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-                      <p className="text-muted-foreground font-medium">No assignments yet</p>
-                      <p className="text-xs text-muted-foreground mt-1">Create one to get started</p>
+                      <p className="text-muted-foreground font-medium">
+                        {CLASSWORK_EMPTY_COPY[classworkFilter].title}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {CLASSWORK_EMPTY_COPY[classworkFilter].description}
+                      </p>
                     </CardContent>
                   </Card>
                 )}
 
-                {apiMaterials.length > 0 && (
+                {filteredSortedMaterials.length > 0 && (
                   <div className="space-y-3 pt-2">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-semibold text-foreground">Reading Materials</h3>
                       <Badge variant="outline" className="rounded-full text-xs">
-                        {apiMaterials.length}
+                        {filteredSortedMaterials.length}
                       </Badge>
                     </div>
 
-                    {apiMaterials.map((material, idx) => (
+                    {filteredSortedMaterials.map((material, idx) => (
                       <Card
                         key={material.id}
                         className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
