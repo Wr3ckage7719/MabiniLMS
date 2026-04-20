@@ -37,6 +37,12 @@ type SupabaseKeyKind =
   | 'publishable'
   | 'unknown';
 
+type KeyCandidate = {
+  source: string;
+  value: string;
+  kind: SupabaseKeyKind;
+};
+
 const decodeJwtPayload = (token: string): JwtPayload | null => {
   const segments = token.split('.');
   if (segments.length !== 3) {
@@ -82,15 +88,53 @@ const classifySupabaseKey = (key: string): SupabaseKeyKind => {
   return 'jwt_other';
 };
 
+const buildKeyCandidates = (
+  entries: Array<{ source: string; rawValue: string | undefined }>
+): KeyCandidate[] => {
+  return entries
+    .map(({ source, rawValue }) => ({
+      source,
+      value: normalizeEnvValue(rawValue),
+    }))
+    .filter(({ value }) => Boolean(value))
+    .map(({ source, value }) => ({
+      source,
+      value,
+      kind: classifySupabaseKey(value),
+    }));
+};
+
+const selectPreferredKeyCandidate = (
+  candidates: KeyCandidate[],
+  preferredKinds: SupabaseKeyKind[]
+): KeyCandidate | null => {
+  for (const candidate of candidates) {
+    if (preferredKinds.includes(candidate.kind)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0] || null;
+};
+
 const supabaseUrl = normalizeEnvValue(process.env.SUPABASE_URL);
-const supabaseAnonKey = normalizeEnvValue(
-  process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY
-);
-const supabaseServiceKey = normalizeEnvValue(
-  process.env.SUPABASE_SECRET_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_KEY
-);
+const anonKeyCandidates = buildKeyCandidates([
+  { source: 'SUPABASE_ANON_KEY', rawValue: process.env.SUPABASE_ANON_KEY },
+  { source: 'SUPABASE_PUBLISHABLE_KEY', rawValue: process.env.SUPABASE_PUBLISHABLE_KEY },
+]);
+const serviceKeyCandidates = buildKeyCandidates([
+  { source: 'SUPABASE_SECRET_KEY', rawValue: process.env.SUPABASE_SECRET_KEY },
+  { source: 'SUPABASE_SERVICE_ROLE_KEY', rawValue: process.env.SUPABASE_SERVICE_ROLE_KEY },
+  { source: 'SUPABASE_SERVICE_KEY', rawValue: process.env.SUPABASE_SERVICE_KEY },
+]);
+
+const selectedAnonKey = selectPreferredKeyCandidate(anonKeyCandidates, ['publishable', 'jwt_anon']);
+const selectedServiceKey = selectPreferredKeyCandidate(serviceKeyCandidates, ['secret', 'jwt_service_role']);
+
+const supabaseAnonKey = selectedAnonKey?.value || '';
+const supabaseServiceKey = selectedServiceKey?.value || '';
+const supabaseAnonKeySource = selectedAnonKey?.source || 'UNSET';
+const supabaseServiceKeySource = selectedServiceKey?.source || 'UNSET';
 
 if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
   const missing: string[] = [];
@@ -116,15 +160,18 @@ const assertSupabaseKeyConfiguration = (): void => {
   const serviceKeyKind = classifySupabaseKey(supabaseServiceKey);
   const anonKeyKind = classifySupabaseKey(supabaseAnonKey);
 
-  if (serviceKeyKind === 'jwt_anon' || serviceKeyKind === 'publishable') {
+  const hasPrivilegedServiceKeyKind = serviceKeyKind === 'secret' || serviceKeyKind === 'jwt_service_role';
+  const hasPublicClientKeyKind = anonKeyKind === 'publishable' || anonKeyKind === 'jwt_anon';
+
+  if (!hasPrivilegedServiceKeyKind) {
     throw new Error(
-      'Invalid Supabase key configuration: backend write key is an anon/publishable key. Set SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY with a privileged key.'
+      `Invalid Supabase key configuration: backend write key from ${supabaseServiceKeySource} is not a privileged key (detected ${serviceKeyKind}). Set SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY with a service role/secret key.`
     );
   }
 
-  if (anonKeyKind === 'jwt_service_role' || anonKeyKind === 'secret') {
+  if (!hasPublicClientKeyKind) {
     throw new Error(
-      'Invalid Supabase key configuration: public key appears to be service role/secret. Use SUPABASE_ANON_KEY (or SUPABASE_PUBLISHABLE_KEY) for public client access.'
+      `Invalid Supabase key configuration: public key from ${supabaseAnonKeySource} is not an anon/publishable key (detected ${anonKeyKind}). Use SUPABASE_ANON_KEY or SUPABASE_PUBLISHABLE_KEY for public client access.`
     );
   }
 };

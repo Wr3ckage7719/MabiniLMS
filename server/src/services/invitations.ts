@@ -28,6 +28,50 @@ const shouldCountAsFailure = (status: DirectEnrollmentStatus): boolean => {
   return status !== DirectEnrollmentStatus.ENROLLED && status !== DirectEnrollmentStatus.ALREADY_ENROLLED;
 };
 
+type DatabaseErrorShape = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
+const normalizeDbErrorText = (error: DatabaseErrorShape | null | undefined): string => {
+  if (!error) {
+    return '';
+  }
+
+  return [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const isPermissionDeniedError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const text = normalizeDbErrorText(error);
+  return (
+    error.code === '42501'
+    || text.includes('permission denied')
+    || text.includes('row-level security')
+  );
+};
+
+const isMissingRelationError = (error: DatabaseErrorShape | null | undefined): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const text = normalizeDbErrorText(error);
+  return (
+    error.code === '42P01'
+    || text.includes('could not find the table')
+    || (text.includes('relation') && text.includes('does not exist'))
+  );
+};
+
 export interface LoginEnrollmentSyncResult {
   pending_invitations: number;
   enrolled: number;
@@ -376,6 +420,33 @@ export const createInvitation = async (
       studentEmail: normalizedEmail,
       error: error?.message,
     });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Invitation storage is not available. Run migrations 010_invitations_and_assignment_comments and latest migrations.',
+        503,
+        {
+          reason: 'INVITATIONS_SCHEMA_OUTDATED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while creating invitation. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create invitation', 500);
   }
 
@@ -608,6 +679,33 @@ export const acceptInvitation = async (
 
   if (error || !data) {
     logger.error('Failed to accept invitation', { invitationId, userId, error: error?.message });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Invitation storage is not available. Run migrations 010_invitations_and_assignment_comments and latest migrations.',
+        503,
+        {
+          reason: 'INVITATIONS_SCHEMA_OUTDATED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while accepting invitation. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to accept invitation', 500);
   }
 
@@ -638,6 +736,33 @@ export const declineInvitation = async (
 
   if (error || !data) {
     logger.error('Failed to decline invitation', { invitationId, userId, error: error?.message });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Invitation storage is not available. Run migrations 010_invitations_and_assignment_comments and latest migrations.',
+        503,
+        {
+          reason: 'INVITATIONS_SCHEMA_OUTDATED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while declining invitation. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error?.code,
+          db_message: error?.message,
+        }
+      );
+    }
+
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to decline invitation', 500);
   }
 
