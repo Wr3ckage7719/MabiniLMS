@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { TeacherClassesSection } from './TeacherClassesSection';
 import { TeacherClassDetail } from './TeacherClassDetail';
 import { ClassItem } from '@/lib/data';
+import { useSearchParams } from 'react-router-dom';
 
 interface TeacherClassesViewProps {
   classes: ClassItem[];
@@ -17,6 +18,29 @@ export function TeacherClassesView({
   onSearchQueryChange,
 }: TeacherClassesViewProps) {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const handleSelectClass = (classId: string) => {
+    setSelectedClassId(classId);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('view', 'classes');
+    nextParams.set('classId', classId);
+    nextParams.set('tab', 'classwork');
+    nextParams.delete('builder');
+    setSearchParams(nextParams, { replace: false });
+  };
+
+  const handleBackToClasses = () => {
+    setSelectedClassId(null);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('view', 'classes');
+    nextParams.delete('classId');
+    nextParams.delete('tab');
+    nextParams.delete('builder');
+    setSearchParams(nextParams, { replace: true });
+  };
 
   useEffect(() => {
     if ((searchQuery || '').trim().length > 0) {
@@ -30,14 +54,14 @@ export function TeacherClassesView({
       <TeacherClassDetailWrapper
         classId={selectedClassId}
         classItem={selectedClass}
-        onBack={() => setSelectedClassId(null)}
+        onBack={handleBackToClasses}
       />
     );
   }
 
   return (
     <TeacherClassesSection 
-      onSelectClass={setSelectedClassId} 
+      onSelectClass={handleSelectClass} 
       classes={classes}
       onClassesChange={onClassesChange}
       searchQuery={searchQuery}
