@@ -50,6 +50,15 @@ const isMissingRelationError = (error?: DatabaseErrorShape | null): boolean => {
   );
 };
 
+const isPermissionDeniedError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42501'
+    || message.includes('permission denied')
+    || message.includes('row-level security')
+  );
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixMaterialProgressStudentJoin = (row: any): MaterialProgressWithStudent => {
   const student = Array.isArray(row.student) ? row.student[0] || null : row.student;
@@ -1093,6 +1102,33 @@ export const archiveCourse = async (
 
   if (error) {
     logger.error('Failed to archive course', { courseId, error: error.message });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Course storage is not available. Run migrations 001_initial_schema and latest migrations.',
+        503,
+        {
+          reason: 'COURSES_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while archiving course. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to archive course', 500);
   }
 
@@ -1138,6 +1174,33 @@ export const unarchiveCourse = async (
 
   if (error) {
     logger.error('Failed to unarchive course', { courseId, error: error.message });
+
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Course storage is not available. Run migrations 001_initial_schema and latest migrations.',
+        503,
+        {
+          reason: 'COURSES_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    if (isPermissionDeniedError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Database permission denied while unarchiving course. Verify SUPABASE_SECRET_KEY (preferred) or SUPABASE_SERVICE_ROLE_KEY uses a service role/secret key.',
+        503,
+        {
+          reason: 'SUPABASE_PERMISSION_DENIED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to unarchive course', 500);
   }
 
