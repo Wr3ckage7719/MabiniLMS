@@ -461,6 +461,23 @@ export const notifyAssignmentCreated = async (
 };
 
 /**
+ * Notify course participants of new reading material
+ */
+export const notifyMaterialAdded = async (
+  courseId: string,
+  material: {
+    id: string;
+    title: string;
+    courseId?: string;
+    courseName: string;
+    materialType?: string;
+    fileUrl?: string | null;
+  }
+): Promise<void> => {
+  await sendToCourse(courseId, SocketEvent.MATERIAL_ADDED, material);
+};
+
+/**
  * Notify student that grade was released
  */
 export const notifyGradeReleased = (
@@ -553,6 +570,7 @@ export default {
   notifyAdminsPendingTeacher,
   notifyAnnouncementCreated,
   notifyAssignmentCreated,
+  notifyMaterialAdded,
   notifyGradeReleased,
   notifySubmissionReceived,
   notifyStandingUpdated,

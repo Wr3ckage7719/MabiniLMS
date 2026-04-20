@@ -11,7 +11,7 @@ import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
+import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -53,6 +53,40 @@ const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
   presentation: Book,
   spreadsheet: FileText,
   archive: Archive,
+};
+
+const getAssignmentTypeLabel = (assignment: Assignment): string => {
+  const type = (assignment.rawType || assignment.type || 'assignment').toLowerCase();
+  switch (type) {
+    case 'exam':
+      return 'Exam';
+    case 'quiz':
+      return 'Quiz';
+    case 'activity':
+      return 'Activity';
+    case 'discussion':
+      return 'Discussion';
+    case 'project':
+      return 'Project';
+    default:
+      return 'Assignment';
+  }
+};
+
+const formatShortDate = (dateValue?: string): string => {
+  if (!dateValue) {
+    return 'No due date';
+  }
+
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return 'No due date';
+  }
+
+  return parsedDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
 };
 
 export default function ClassDetail() {
@@ -235,6 +269,16 @@ export default function ClassDetail() {
 
   const classCode = cls.id.slice(0, 8).toUpperCase();
   const displayedStudentCount = classStudents.length || cls.students || 0;
+  const openMaterialUrl = (url?: string) => {
+    if (!url) {
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const classSubtitle = (() => {
     const section = (cls.section || '').trim();
     const block = (cls.block || '').trim();
@@ -403,10 +447,11 @@ export default function ClassDetail() {
               {assignments.length > 0 ? (
                 assignments.map((a) => {
                   const Icon = TYPE_ICONS[a.type] || FileText;
+                  const assignmentTypeLabel = getAssignmentTypeLabel(a);
                   return (
                     <Card
                       key={`mobile-assignment-${a.id}`}
-                      className="rounded-[14px] border border-border/70 shadow-none"
+                      className="rounded-[14px] border border-border/70 shadow-none cursor-pointer transition-colors active:bg-muted/40"
                       onClick={() => setSelectedAssignment(a)}
                     >
                       <CardContent className="p-3">
@@ -415,10 +460,18 @@ export default function ClassDetail() {
                             <Icon className={`h-3.5 w-3.5 ${a.status === 'late' ? 'text-destructive' : 'text-primary'}`} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium leading-tight truncate">{a.title}</p>
+                            <p className="text-[13px] font-medium leading-tight line-clamp-2">{a.title}</p>
                             <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{a.description}</p>
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 h-5">
+                                {assignmentTypeLabel}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-5">
+                                {a.points} pts
+                              </Badge>
+                            </div>
                             <p className={`text-[11px] mt-1 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
-                              Due {new Date(a.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              Due {formatShortDate(a.dueDate)}
                             </p>
                           </div>
                         </div>
@@ -439,17 +492,46 @@ export default function ClassDetail() {
                 materials.map((material) => {
                   const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
                   return (
-                    <Card key={`mobile-material-${material.id}`} className="rounded-[14px] border border-border/70 shadow-none">
+                    <Card
+                      key={`mobile-material-${material.id}`}
+                      className={`rounded-[14px] border border-border/70 shadow-none transition-colors ${material.url ? 'cursor-pointer active:bg-muted/40' : ''}`}
+                      onClick={() => openMaterialUrl(material.url)}
+                    >
                       <CardContent className="p-3">
                         <div className="flex items-start gap-2.5">
                           <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
                             <Icon className="h-3.5 w-3.5 text-primary" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium leading-tight truncate">{material.title}</p>
+                            <p className="text-[13px] font-medium leading-tight line-clamp-2">{material.title}</p>
                             <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{material.description}</p>
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 h-5 capitalize">
+                                {material.fileType}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-5">
+                                {material.fileSize}
+                              </Badge>
+                            </div>
                           </div>
+                          {material.url ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openMaterialUrl(material.url);
+                              }}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                            </Button>
+                          ) : null}
                         </div>
+                        <p className="text-[11px] text-muted-foreground mt-2">
+                          Added {formatShortDate(material.uploadedDate)}
+                        </p>
                       </CardContent>
                     </Card>
                   );

@@ -59,6 +59,14 @@ interface AnnouncementEventPayload {
   courseName?: string;
 }
 
+interface MaterialEventPayload {
+  id?: string;
+  title?: string;
+  courseId?: string;
+  courseName?: string;
+  materialType?: string;
+}
+
 const NOTIFICATIONS_REFRESH_EVENT = 'mabini:notifications-refresh';
 const REALTIME_NOTIFICATION_DEDUP_TTL_MS = 15_000;
 const realtimeNotificationSeenAt = new Map<string, number>();
@@ -117,6 +125,19 @@ const getAssignmentLabel = (assignmentType?: string): string => {
     default:
       return 'Assignment';
   }
+};
+
+const getMaterialLabel = (materialType?: string): string => {
+  const normalizedType = (materialType || '').toLowerCase();
+  if (!normalizedType || normalizedType === 'reading_material') {
+    return 'Reading Material';
+  }
+
+  return normalizedType
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
 };
 
 const resolveSocketUrl = (): string => {
@@ -495,6 +516,42 @@ export function useRealtimeNotifications() {
       }
     );
 
+    const unsubMaterial = subscribe<any>(
+      SocketEvent.MATERIAL_ADDED,
+      (data: MaterialEventPayload) => {
+        refreshCourseRealtimeData(data.courseId);
+        dispatchNotificationsRefresh();
+
+        if (!isStudent) {
+          return;
+        }
+
+        const materialLabel = getMaterialLabel(data.materialType);
+        const courseName = data.courseName || 'your class';
+
+        toast({
+          title: `📚 New ${materialLabel}`,
+          description: `${materialLabel} "${data.title || 'Untitled'}" in ${courseName}`,
+        });
+
+        setUnreadCount((prev) => prev + 1);
+        playNotificationSound();
+        void showDeviceNotification(
+          `New ${materialLabel} in ${courseName}`,
+          data.title
+            ? `"${data.title}" was just added.`
+            : `A new ${materialLabel.toLowerCase()} was just added.`,
+          {
+            courseId: data.courseId,
+            actionUrl: data.courseId ? `/class/${data.courseId}` : undefined,
+            metadata: {
+              course_id: data.courseId,
+            },
+          }
+        );
+      }
+    );
+
     // Subscribe to announcements
     const unsubAnnouncement = subscribe<any>(
       SocketEvent.ANNOUNCEMENT_CREATED,
@@ -554,6 +611,7 @@ export function useRealtimeNotifications() {
       unsubCount();
       unsubGrade();
       unsubAssignment();
+      unsubMaterial();
       unsubAnnouncement();
       unsubTeacherPending();
       unsubSubmissionReceived();

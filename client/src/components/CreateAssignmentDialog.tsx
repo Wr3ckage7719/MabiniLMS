@@ -216,6 +216,14 @@ const normalizeQuestionImportType = (value: unknown): QuizQuestionType => {
   return 'multiple_choice';
 };
 
+const toEndOfDayISOString = (value?: Date): string | null => {
+  if (!value) return null;
+
+  const endOfDay = new Date(value);
+  endOfDay.setHours(23, 59, 59, 999);
+  return endOfDay.toISOString();
+};
+
 const splitInlineChoices = (value: string): string[] => {
   const source = value.trim();
   if (!source) return [];
@@ -1054,11 +1062,9 @@ export function CreateAssignmentDialog({
               : 5;
         const strictProctoring = examIntegrityProfile === 'strict';
         const submissionCloseAt = autoCloseSubmissionsOnDueDate
-          ? dueDate
-            ? dueDate.toISOString()
-            : null
+          ? toEndOfDayISOString(dueDate)
           : customSubmissionCloseDate
-            ? customSubmissionCloseDate.toISOString()
+            ? toEndOfDayISOString(customSubmissionCloseDate)
             : null;
         const submissionOpenAt = submissionsOpen ? new Date().toISOString() : null;
         const assignmentInstructions =
@@ -1074,7 +1080,7 @@ export function CreateAssignmentDialog({
           title: title.trim(),
           description: description.trim() || undefined,
           assignment_type: assignmentType,
-          due_date: dueDate ? dueDate.toISOString() : new Date().toISOString(),
+          due_date: toEndOfDayISOString(dueDate) || new Date().toISOString(),
           max_points: Number(points) || 100,
           submissions_open: submissionsOpen,
           submission_open_at: submissionOpenAt,
@@ -1159,7 +1165,16 @@ export function CreateAssignmentDialog({
       onOpenChange(false);
       onCreated?.();
     } catch (error: any) {
+      const metadataFields = error?.response?.data?.error?.metadata?.fields;
+      const firstFieldEntry =
+        metadataFields && typeof metadataFields === 'object'
+          ? Object.entries(metadataFields).find(([, value]) => Array.isArray(value) && value.length > 0)
+          : undefined;
+      const firstFieldMessage = firstFieldEntry
+        ? `${firstFieldEntry[0]}: ${String(firstFieldEntry[1][0] || '').trim()}`
+        : null;
       const message =
+        firstFieldMessage ||
         error?.response?.data?.error?.message ||
         error?.response?.data?.message ||
         error?.message ||

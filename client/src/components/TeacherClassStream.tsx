@@ -46,6 +46,7 @@ import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPane
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
+import { useMaterials } from '@/hooks-api/useMaterials';
 import {
   DiscussionPost,
   useDeleteDiscussionPost,
@@ -222,6 +223,17 @@ const formatRelativeTime = (value: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+const formatDateTime = (value?: string | null): string => {
+  if (!value) return 'Unknown';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString();
+};
+
 const toTeacherDiscussionPost = (post: DiscussionPost): TeacherDiscussionPost => {
   const firstName = post.author?.first_name?.trim() || '';
   const lastName = post.author?.last_name?.trim() || '';
@@ -267,6 +279,10 @@ export function TeacherClassStream({
     data: apiAssignments = [],
     refetch: refetchAssignments,
   } = useAssignments(classId);
+  const {
+    data: apiMaterials = [],
+    refetch: refetchMaterials,
+  } = useMaterials(classId);
   const {
     data: apiDiscussionPosts = [],
     isLoading: discussionPostsLoading,
@@ -986,6 +1002,7 @@ export function TeacherClassStream({
             }}
             onCreated={() => {
               closeBuilder(true);
+              void Promise.all([refetchAssignments(), refetchMaterials()]);
             }}
           />
         </div>
@@ -1845,6 +1862,75 @@ export function TeacherClassStream({
                       <p className="text-xs text-muted-foreground mt-1">Create one to get started</p>
                     </CardContent>
                   </Card>
+                )}
+
+                {apiMaterials.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-foreground">Reading Materials</h3>
+                      <Badge variant="outline" className="rounded-full text-xs">
+                        {apiMaterials.length}
+                      </Badge>
+                    </div>
+
+                    {apiMaterials.map((material, idx) => (
+                      <Card
+                        key={material.id}
+                        className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
+                        style={{
+                          animation: `slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 50}ms both`,
+                        }}
+                      >
+                        <CardContent className="p-4 md:p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2">
+                                <BookOpen className="h-4 w-4 text-primary flex-shrink-0" />
+                                <h3 className="font-semibold text-foreground truncate">
+                                  {material.title}
+                                </h3>
+                              </div>
+
+                              {material.description && (
+                                <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
+                                  {material.description}
+                                </p>
+                              )}
+
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
+                                <Badge variant="outline" className="rounded-full text-xs">
+                                  {material.fileType.toUpperCase()}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-full text-xs">
+                                  {material.fileSize}
+                                </Badge>
+                                <Badge variant="outline" className="rounded-full text-xs">
+                                  {material.downloads} downloads
+                                </Badge>
+                              </div>
+
+                              <p className="text-xs text-muted-foreground">
+                                Uploaded: {formatDateTime(material.uploadedDate)}
+                              </p>
+                            </div>
+
+                            {material.url && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-lg"
+                                onClick={() => {
+                                  window.open(material.url, '_blank', 'noopener,noreferrer');
+                                }}
+                              >
+                                Open
+                              </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

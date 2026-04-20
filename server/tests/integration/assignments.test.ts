@@ -111,9 +111,21 @@ describe('Assignment Schemas', () => {
       expect(result.success).toBe(true)
     })
 
-    it('should reject submission windows where close precedes open', () => {
+    it('should allow legacy open submission payloads where close precedes open', () => {
+      const result = createAssignmentSchema.safeParse({
+        title: 'Legacy Window Compatibility',
+        submissions_open: true,
+        submission_open_at: '2026-05-01T18:00:00.000Z',
+        submission_close_at: '2026-05-01T08:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject closed submission windows where close precedes open', () => {
       const result = createAssignmentSchema.safeParse({
         title: 'Invalid Window',
+        submissions_open: false,
         submission_open_at: '2026-05-01T18:00:00.000Z',
         submission_close_at: '2026-05-01T08:00:00.000Z',
       })
@@ -281,8 +293,18 @@ describe('Assignment Schemas', () => {
       expect(result.success).toBe(true)
     })
 
-    it('should reject invalid submission window updates', () => {
+    it('should allow legacy submission window updates when submissions_open is not closed', () => {
       const result = updateAssignmentSchema.safeParse({
+        submission_open_at: '2026-06-02T09:00:00.000Z',
+        submission_close_at: '2026-06-01T09:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should reject invalid closed submission window updates', () => {
+      const result = updateAssignmentSchema.safeParse({
+        submissions_open: false,
         submission_open_at: '2026-06-02T09:00:00.000Z',
         submission_close_at: '2026-06-01T09:00:00.000Z',
       })
