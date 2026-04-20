@@ -167,13 +167,6 @@ const CREATE_TASK_OPTIONS: Array<{
   },
 ];
 
-const TASK_LABELS: Record<TaskType, string> = {
-  reading_material: 'Reading Material',
-  activity: 'Activity',
-  quiz: 'Quiz',
-  exam: 'Exam',
-};
-
 type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions';
 
 const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['stream', 'classwork', 'people', 'submissions'];
@@ -976,20 +969,6 @@ export function TeacherClassStream({
     return (
       <div className="min-h-[calc(100vh-4rem)] bg-background py-3 md:py-6">
         <div className="mx-auto w-full max-w-[1600px] px-3 md:px-6 lg:px-8">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{className}</p>
-              <h2 className="text-xl md:text-2xl font-semibold">Create {TASK_LABELS[builderTaskType]}</h2>
-            </div>
-            <Button
-              variant="outline"
-              className="rounded-lg w-full sm:w-auto"
-              onClick={() => closeBuilder(true)}
-            >
-              Back to classwork
-            </Button>
-          </div>
-
           <CreateAssignmentDialog
             open={true}
             isPage

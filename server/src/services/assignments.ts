@@ -205,22 +205,45 @@ const isMissingRelationError = (
   );
 };
 
+const extractMissingColumnName = (error?: DatabaseErrorShape | null): string | null => {
+  const message = normalizeDbErrorText(error);
+
+  const patterns = [
+    /column\s+[a-z0-9_]+\."?([a-z0-9_]+)"?\s+does not exist/i,
+    /column\s+"?([a-z0-9_]+)"?\s+does not exist/i,
+    /could not find the ['"]([a-z0-9_]+)['"]\s+column/i,
+    /record\s+"[^"]+"\s+has no field\s+"?([a-z0-9_]+)"?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) {
+      return match[1].toLowerCase();
+    }
+  }
+
+  return null;
+};
+
 const isMissingColumnError = (
   error: DatabaseErrorShape | null | undefined,
   columnName: string
 ): boolean => {
+  const missingColumn = extractMissingColumnName(error);
+  if (missingColumn) {
+    return missingColumn === columnName.toLowerCase();
+  }
+
   const message = normalizeDbErrorText(error);
   return (
     message.includes('column') &&
     message.includes(columnName.toLowerCase()) &&
-    message.includes('does not exist')
+    (
+      message.includes('does not exist') ||
+      message.includes('could not find') ||
+      message.includes('has no field')
+    )
   );
-};
-
-const extractMissingColumnName = (error?: DatabaseErrorShape | null): string | null => {
-  const message = normalizeDbErrorText(error);
-  const match = message.match(/column\s+"?([a-z0-9_]+)"?\s+does not exist/i);
-  return match?.[1] || null;
 };
 
 const isPermissionDeniedError = (error?: DatabaseErrorShape | null): boolean => {
