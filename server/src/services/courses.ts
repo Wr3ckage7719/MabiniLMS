@@ -17,6 +17,7 @@ import {
   PaginatedCourses,
   CourseStatus,
 } from '../types/courses.js';
+import { notifyMaterialAdded } from './websocket.js';
 import logger from '../utils/logger.js';
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 
@@ -671,6 +672,23 @@ export const createMaterial = async (
       'Failed to create material',
       500
     );
+  }
+
+  try {
+    await notifyMaterialAdded(courseId, {
+      id: String(data.id),
+      title: String(data.title || input.title),
+      courseId,
+      courseName: course.title || 'Course',
+      materialType: String(data.type || input.type || 'reading_material'),
+      fileUrl: typeof data.file_url === 'string' ? data.file_url : null,
+    });
+  } catch (notifyError) {
+    logger.warn('Failed to broadcast material created event', {
+      courseId,
+      materialId: data.id,
+      error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+    });
   }
 
   return data as CourseMaterial;

@@ -11,6 +11,6 @@ export function useMaterials(courseId?: string): UseQueryResult<LearningMaterial
       const response = await apiClient.get(`/courses/${courseId}/materials`);
       return transformMaterials(response.data || []);
     },
-    staleTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 60 * 1000, // 1 minute
   });
 }
