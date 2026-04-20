@@ -507,6 +507,7 @@ export function CreateAssignmentDialog({
   const [quizImportFileName, setQuizImportFileName] = useState<string | null>(null);
   const [examQuestionOrder, setExamQuestionOrder] = useState<'sequence' | 'random'>('random');
   const [examQuestionSelection, setExamQuestionSelection] = useState<'sequence' | 'random'>('random');
+  const [examQuestions, setExamQuestions] = useState<QuizBuilderQuestion[]>([createQuizDraftQuestion()]);
   const [examIntegrityProfile, setExamIntegrityProfile] = useState<'standard' | 'strict'>('strict');
   const [examRequireAgreementBeforeStart, setExamRequireAgreementBeforeStart] = useState(true);
   const [examAutoSubmitOnTabSwitch, setExamAutoSubmitOnTabSwitch] = useState(false);
@@ -728,6 +729,72 @@ export function CreateAssignmentDialog({
     );
   };
 
+  const hasQuestionDraftContent = (question: QuizBuilderQuestion): boolean => {
+    if (question.prompt.trim().length > 0) return true;
+    if (question.answerKey.trim().length > 0) return true;
+    if (question.type === 'multiple_choice') {
+      return question.choices.some((choice) => choice.trim().length > 0);
+    }
+
+    return false;
+  };
+
+  const addExamQuestion = () => {
+    setExamQuestions((prev) => [...prev, createQuizDraftQuestion()]);
+  };
+
+  const removeExamQuestion = (questionId: string) => {
+    setExamQuestions((prev) => {
+      if (prev.length <= 1) {
+        return prev;
+      }
+
+      return prev.filter((question) => question.id !== questionId);
+    });
+  };
+
+  const updateExamQuestion = (questionId: string, update: Partial<QuizBuilderQuestion>) => {
+    setExamQuestions((prev) =>
+      prev.map((question) => {
+        if (question.id !== questionId) {
+          return question;
+        }
+
+        const nextType = update.type ?? question.type;
+        const nextChoices =
+          nextType === 'multiple_choice'
+            ? question.choices.length >= 4
+              ? question.choices
+              : ['', '', '', '']
+            : [];
+
+        return {
+          ...question,
+          ...update,
+          type: nextType,
+          choices: update.choices ?? nextChoices,
+        };
+      })
+    );
+  };
+
+  const updateExamChoice = (questionId: string, choiceIndex: number, value: string) => {
+    setExamQuestions((prev) =>
+      prev.map((question) => {
+        if (question.id !== questionId || question.type !== 'multiple_choice') {
+          return question;
+        }
+
+        const nextChoices = [...question.choices];
+        nextChoices[choiceIndex] = value;
+        return {
+          ...question,
+          choices: nextChoices,
+        };
+      })
+    );
+  };
+
   const parseQuestionImportFile = async (file: File): Promise<QuestionImportParseResult> => {
     const extension = file.name.split('.').pop()?.toLowerCase();
     let candidates: unknown[] | null = null;
@@ -870,12 +937,25 @@ export function CreateAssignmentDialog({
     return 0;
   };
 
-  const toExamImportPayload = (
-    question: ImportedQuestionDraft,
+  const toExamQuestionPayload = (
+    question: {
+      type: QuizQuestionType;
+      prompt: string;
+      choices: string[];
+      answerKey: string;
+      points?: number;
+      explanation?: string;
+      chapterTag?: string | null;
+    },
     orderIndex: number
   ): CreateExamQuestionPayload | null => {
+    const prompt = question.prompt.trim();
+    if (!prompt) {
+      return null;
+    }
+
     const basePayload = {
-      prompt: question.prompt,
+      prompt,
       points: question.points,
       explanation: question.explanation || undefined,
       order_index: orderIndex,
@@ -925,6 +1005,26 @@ export function CreateAssignmentDialog({
         case_sensitive: false,
       },
     };
+  };
+
+  const toExamImportPayload = (
+    question: ImportedQuestionDraft,
+    orderIndex: number
+  ): CreateExamQuestionPayload | null => {
+    return toExamQuestionPayload(question, orderIndex);
+  };
+
+  const toExamBuilderPayload = (
+    question: QuizBuilderQuestion,
+    orderIndex: number
+  ): CreateExamQuestionPayload | null => {
+    return toExamQuestionPayload(
+      {
+        ...question,
+        points: 1,
+      },
+      orderIndex
+    );
   };
 
   const buildActivityInstructions = () => {
@@ -979,6 +1079,18 @@ export function CreateAssignmentDialog({
   };
 
   const buildExamInstructions = () => {
+    const examQuestionBlueprint = examQuestions
+      .filter((question) => question.prompt.trim().length > 0)
+      .map((question) => ({
+        type: question.type,
+        prompt: question.prompt.trim(),
+        choices:
+          question.type === 'multiple_choice'
+            ? question.choices.map((choice) => choice.trim()).filter(Boolean)
+            : undefined,
+        answer_key: question.answerKey.trim() || undefined,
+      }));
+
     return [
       'Exam Builder Configuration',
       JSON.stringify(
@@ -986,7 +1098,9 @@ export function CreateAssignmentDialog({
           order_mode: examQuestionOrder,
           selection_mode: examQuestionSelection,
           import_source: examImportFileName || null,
+          builder_questions_count: examQuestionBlueprint.length,
           imported_questions_count: examImportedQuestions.length,
+          questions: examQuestionBlueprint,
           policy: {
             require_agreement_before_start: examRequireAgreementBeforeStart,
             auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch,
@@ -1127,10 +1241,17 @@ export function CreateAssignmentDialog({
             || ''
         );
 
-        if (taskType === 'exam' && createdAssignmentId && examImportedQuestions.length > 0) {
-          const mappedPayloads = examImportedQuestions
-            .map((question, index) => toExamImportPayload(question, index))
+        if (taskType === 'exam' && createdAssignmentId) {
+          const candidateBuilderQuestions = examQuestions.filter(hasQuestionDraftContent);
+          const builderPayloads = candidateBuilderQuestions
+            .map((question, index) => toExamBuilderPayload(question, index))
             .filter((payload): payload is CreateExamQuestionPayload => Boolean(payload));
+
+          const importedPayloads = examImportedQuestions
+            .map((question, index) => toExamImportPayload(question, builderPayloads.length + index))
+            .filter((payload): payload is CreateExamQuestionPayload => Boolean(payload));
+
+          const mappedPayloads = [...builderPayloads, ...importedPayloads];
 
           if (mappedPayloads.length > 0) {
             await Promise.all(
@@ -1138,11 +1259,13 @@ export function CreateAssignmentDialog({
             );
           }
 
-          const skippedOnSave = examImportedQuestions.length - mappedPayloads.length;
+          const sourceQuestionCount = candidateBuilderQuestions.length + examImportedQuestions.length;
+          const skippedOnSave = sourceQuestionCount - mappedPayloads.length;
+
           if (skippedOnSave > 0) {
             toast({
-              title: 'Exam import partially applied',
-              description: `${mappedPayloads.length} questions saved. ${skippedOnSave} questions were skipped due to missing answer keys or choices.`,
+              title: 'Exam questions partially applied',
+              description: `${mappedPayloads.length} questions saved. ${skippedOnSave} questions were skipped due to missing prompt, answer key, or choices.`,
             });
           }
         }
@@ -1207,6 +1330,7 @@ export function CreateAssignmentDialog({
     setQuizImportFileName(null);
     setExamQuestionOrder('random');
     setExamQuestionSelection('random');
+    setExamQuestions([createQuizDraftQuestion()]);
     setExamIntegrityProfile('strict');
     setExamRequireAgreementBeforeStart(true);
     setExamAutoSubmitOnTabSwitch(false);
@@ -1286,6 +1410,14 @@ export function CreateAssignmentDialog({
 
   const selectedTaskOption = taskOptions.find((option) => option.id === taskType);
   const SelectedTaskIcon = selectedTaskOption?.icon ?? FileText;
+  const examBuilderCandidateCount = examQuestions.filter(hasQuestionDraftContent).length;
+  const examBuilderReadyCount = examQuestions.reduce((count, question, index) => {
+    if (!hasQuestionDraftContent(question)) {
+      return count;
+    }
+
+    return count + (toExamBuilderPayload(question, index) ? 1 : 0);
+  }, 0);
   const examImportReadyCount = examImportedQuestions.reduce((count, question, index) => {
     return count + (toExamImportPayload(question, index) ? 1 : 0);
   }, 0);
@@ -2003,11 +2135,154 @@ export function CreateAssignmentDialog({
                     {examImportReadyCount} of {examImportedQuestions.length} questions are ready for automatic save.
                   </p>
                   <p>
-                    For exam auto-save, supported backend item types are Multiple Choice, True/False, and Short Answer.
+                    For exam auto-save, objective backend item types are Multiple Choice, True/False, and Short Answer.
                     Fill in the Blank and Essay are mapped to Short Answer when answer keys are provided.
                   </p>
                 </div>
               )}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-violet-200/70 bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Exam Question Builder</p>
+                <Badge variant="secondary" className="rounded-full text-xs">
+                  {examQuestions.length} question{examQuestions.length === 1 ? '' : 's'}
+                </Badge>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Build exam questions directly in this form. Fill in the Blank and Essay entries are saved as Short Answer
+                when answer keys are provided.
+              </p>
+
+              <div className="space-y-3">
+                {examQuestions.map((question, index) => (
+                  <Card key={question.id} className="border border-border/70 bg-card">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold">Question {index + 1}</p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-destructive"
+                          disabled={examQuestions.length <= 1}
+                          onClick={() => removeExamQuestion(question.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium">Question Type</label>
+                        <Select
+                          value={question.type}
+                          onValueChange={(value) => updateExamQuestion(question.id, { type: value as QuizQuestionType })}
+                        >
+                          <SelectTrigger className="mt-2 rounded-lg">
+                            <SelectValue placeholder="Select question type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {QUIZ_QUESTION_TYPE_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium">Prompt</label>
+                        <Textarea
+                          value={question.prompt}
+                          onChange={(event) => updateExamQuestion(question.id, { prompt: event.target.value })}
+                          placeholder="Type your exam question prompt"
+                          className="mt-2 min-h-20 rounded-lg resize-none"
+                        />
+                      </div>
+
+                      {question.type === 'multiple_choice' && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Choices</label>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {question.choices.map((choice, choiceIndex) => (
+                              <Input
+                                key={`${question.id}-exam-${choiceIndex}`}
+                                value={choice}
+                                onChange={(event) => updateExamChoice(question.id, choiceIndex, event.target.value)}
+                                placeholder={`Choice ${String.fromCharCode(65 + choiceIndex)}`}
+                                className="rounded-lg"
+                              />
+                            ))}
+                          </div>
+
+                          <div>
+                            <label className="text-sm font-medium">Correct Answer Key</label>
+                            <Input
+                              value={question.answerKey}
+                              onChange={(event) => updateExamQuestion(question.id, { answerKey: event.target.value })}
+                              placeholder="Use choice text or letter (A-D)"
+                              className="mt-2 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {question.type === 'true_false' && (
+                        <div>
+                          <label className="text-sm font-medium">Correct Answer</label>
+                          <Select
+                            value={question.answerKey || 'True'}
+                            onValueChange={(value) => updateExamQuestion(question.id, { answerKey: value })}
+                          >
+                            <SelectTrigger className="mt-2 rounded-lg">
+                              <SelectValue placeholder="Select answer" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="True">True</SelectItem>
+                              <SelectItem value="False">False</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {question.type !== 'multiple_choice' && question.type !== 'true_false' && (
+                        <div>
+                          <label className="text-sm font-medium">Answer Key</label>
+                          <Input
+                            value={question.answerKey}
+                            onChange={(event) => updateExamQuestion(question.id, { answerKey: event.target.value })}
+                            placeholder="Expected answer (use | for multiple accepted answers)"
+                            className="mt-2 rounded-lg"
+                          />
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-lg"
+                onClick={addExamQuestion}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Exam Question
+              </Button>
+
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Builder readiness: {examBuilderReadyCount} of {examBuilderCandidateCount} drafted questions are ready
+                  for save.
+                </p>
+                <p>
+                  Supported live attempt item types are currently Multiple Choice and True/False. Short Answer-based items
+                  (including Fill in the Blank and Essay mappings) may not be playable in the current student exam player.
+                </p>
+              </div>
             </div>
 
             <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-3">
@@ -2088,9 +2363,14 @@ export function CreateAssignmentDialog({
               Exam builder now stores order mode, selection mode, and chapter pool configuration for backend
               selection logic.
             </p>
-            <Badge variant="outline" className="rounded-full text-xs">
-              Current API mapping: assignment_type = exam
-            </Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="rounded-full text-xs">
+                Question types: MCQ, True/False, Short Answer, Fill in the Blank, Essay
+              </Badge>
+              <Badge variant="outline" className="rounded-full text-xs">
+                Current API mapping: assignment_type = exam
+              </Badge>
+            </div>
           </CardContent>
         </Card>
       )}
