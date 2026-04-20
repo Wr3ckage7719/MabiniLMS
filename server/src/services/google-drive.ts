@@ -19,11 +19,13 @@ export const getFileMetadata = async (
   mimeType: string;
   webViewLink: string;
   size?: string;
+  md5Checksum?: string;
+  version?: string;
 }> => {
   const token = await getValidGoogleToken(userId);
 
   const response = await fetch(
-    `${DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,webViewLink,size`,
+    `${DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,webViewLink,size,md5Checksum,version`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -47,6 +49,8 @@ export const getFileMetadata = async (
     mimeType: string;
     webViewLink: string;
     size?: string;
+    md5Checksum?: string;
+    version?: string;
   }>;
 };
 

@@ -16,7 +16,10 @@ import {
   TransitionSubmissionStatusInput,
   SubmissionStatus,
 } from '../types/assignments.js';
-import * as driveService from './google-drive.js';
+import {
+  normalizeSubmissionStorageInput,
+  prepareSubmissionStorageSnapshot,
+} from './submission-storage.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
 import { sendAssignmentCreatedNotification } from './notifications.js';
@@ -547,7 +550,9 @@ const getSubmissionWithAccessContext = async (
   const { data, error } = await supabaseAdmin
     .from('submissions')
     .select(`
-      id, assignment_id, student_id, content, file_url, drive_file_id, drive_view_link, drive_file_name, submitted_at, status,
+      id, assignment_id, student_id, content, file_url, drive_file_id, drive_view_link, drive_file_name,
+      storage_provider, provider_file_id, provider_revision_id, provider_mime_type, provider_size_bytes,
+      provider_checksum, submission_snapshot_at, submitted_at, status,
       student:profiles!submissions_student_id_fkey(id, email, first_name, last_name, role),
       assignment:assignments(
         *,
@@ -1211,7 +1216,7 @@ export const deleteAssignment = async (
 // ============================================
 
 /**
- * Submit an assignment with Google Drive file
+ * Submit an assignment with provider-backed file metadata (Google Drive for now).
  */
 export const submitAssignment = async (
   assignmentId: string,
@@ -1290,27 +1295,11 @@ export const submitAssignment = async (
     }
   }
 
-  // Verify file access
-  const hasAccess = await driveService.checkFileAccess(input.drive_file_id, userId);
-  if (!hasAccess) {
-    throw new ApiError(
-      ErrorCode.FORBIDDEN,
-      'Unable to access the specified Drive file',
-      403
-    );
-  }
-
-  // Get file metadata
-  const fileMetadata = await driveService.getFileMetadata(input.drive_file_id, userId);
-
-  // Share file with teacher (grant read access)
-  const teacherEmail = assignment.course.teacher.email;
-  await driveService.shareFileWithUser(
-    input.drive_file_id,
-    teacherEmail,
-    'reader',
-    userId
-  );
+  const normalizedStorageInput = normalizeSubmissionStorageInput(input);
+  const storageSnapshot = await prepareSubmissionStorageSnapshot(normalizedStorageInput, {
+    userId,
+    teacherEmail: assignment.course.teacher.email,
+  });
 
   // Determine if late
   const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
@@ -1352,9 +1341,16 @@ export const submitAssignment = async (
     const { data, error } = await supabaseAdmin
       .from('submissions')
       .update({
-        drive_file_id: input.drive_file_id,
-        drive_file_name: input.drive_file_name || fileMetadata.name,
-        drive_view_link: driveService.getDriveWebViewUrl(input.drive_file_id),
+        drive_file_id: storageSnapshot.legacyDriveFileId,
+        drive_file_name: storageSnapshot.legacyDriveFileName,
+        drive_view_link: storageSnapshot.legacyDriveViewLink,
+        storage_provider: storageSnapshot.storageProvider,
+        provider_file_id: storageSnapshot.providerFileId,
+        provider_revision_id: storageSnapshot.providerRevisionId,
+        provider_mime_type: storageSnapshot.providerMimeType,
+        provider_size_bytes: storageSnapshot.providerSizeBytes,
+        provider_checksum: storageSnapshot.providerChecksum,
+        submission_snapshot_at: storageSnapshot.snapshotAt,
         content: input.content || null,
         submitted_at: new Date().toISOString(),
         status: targetStatus,
@@ -1402,6 +1398,8 @@ export const submitAssignment = async (
         submission_id: data.id,
         assignment_title: assignment.title,
         is_late: isLate,
+        storage_provider: storageSnapshot.storageProvider,
+        provider_file_id: storageSnapshot.providerFileId,
       }
     );
 
@@ -1421,9 +1419,16 @@ export const submitAssignment = async (
     .insert({
       assignment_id: assignmentId,
       student_id: userId,
-      drive_file_id: input.drive_file_id,
-      drive_file_name: input.drive_file_name || fileMetadata.name,
-      drive_view_link: driveService.getDriveWebViewUrl(input.drive_file_id),
+      drive_file_id: storageSnapshot.legacyDriveFileId,
+      drive_file_name: storageSnapshot.legacyDriveFileName,
+      drive_view_link: storageSnapshot.legacyDriveViewLink,
+      storage_provider: storageSnapshot.storageProvider,
+      provider_file_id: storageSnapshot.providerFileId,
+      provider_revision_id: storageSnapshot.providerRevisionId,
+      provider_mime_type: storageSnapshot.providerMimeType,
+      provider_size_bytes: storageSnapshot.providerSizeBytes,
+      provider_checksum: storageSnapshot.providerChecksum,
+      submission_snapshot_at: storageSnapshot.snapshotAt,
       content: input.content || null,
       submitted_at: new Date().toISOString(),
       status: targetStatus,
@@ -1468,6 +1473,8 @@ export const submitAssignment = async (
       submission_id: data.id,
       assignment_title: assignment.title,
       is_late: isLate,
+      storage_provider: storageSnapshot.storageProvider,
+      provider_file_id: storageSnapshot.providerFileId,
     }
   );
 

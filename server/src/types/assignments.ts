@@ -12,6 +12,9 @@ export enum SubmissionStatus {
   GRADED = 'graded',
 }
 
+export const submissionStorageProviderSchema = z.enum(['google_drive']);
+export type SubmissionStorageProvider = z.infer<typeof submissionStorageProviderSchema>;
+
 export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
 export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
 export const questionOrderModeSchema = z.enum(['sequence', 'random']);
@@ -145,15 +148,33 @@ export const listAssignmentsQuerySchema = z.object({
 // ============================================
 
 export const createSubmissionSchema = z.object({
-  drive_file_id: z.string().min(1, 'Google Drive file ID is required'),
-  drive_file_name: z.string().min(1, 'File name is required'),
+  provider: submissionStorageProviderSchema.default('google_drive').optional(),
+  provider_file_id: z.string().trim().min(1, 'Provider file ID is required').optional(),
+  provider_file_name: z.string().trim().min(1, 'File name is required').optional(),
+  // Legacy aliases kept for backward compatibility with existing clients.
+  drive_file_id: z.string().trim().min(1, 'Google Drive file ID is required').optional(),
+  drive_file_name: z.string().trim().min(1, 'File name is required').optional(),
   content: z.string().optional(), // Optional text content
   sync_key: z.string().min(1).max(100).optional(),
+}).superRefine((value, ctx) => {
+  const fileId = value.provider_file_id || value.drive_file_id;
+
+  if (!fileId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['provider_file_id'],
+      message: 'A submission file reference is required',
+    });
+  }
 });
 
 export const updateSubmissionSchema = z.object({
-  drive_file_id: z.string().min(1).optional(),
-  drive_file_name: z.string().optional(),
+  provider: submissionStorageProviderSchema.optional(),
+  provider_file_id: z.string().trim().min(1).optional(),
+  provider_file_name: z.string().trim().min(1).optional(),
+  // Legacy aliases kept for backward compatibility with existing clients.
+  drive_file_id: z.string().trim().min(1).optional(),
+  drive_file_name: z.string().trim().min(1).optional(),
   content: z.string().optional(),
 });
 
@@ -242,6 +263,13 @@ export interface Submission {
   drive_file_id: string | null;
   drive_view_link: string | null;
   drive_file_name: string | null;
+  storage_provider: SubmissionStorageProvider;
+  provider_file_id: string | null;
+  provider_revision_id: string | null;
+  provider_mime_type: string | null;
+  provider_size_bytes: number | null;
+  provider_checksum: string | null;
+  submission_snapshot_at: string | null;
   submitted_at: string;
   status: SubmissionStatus;
 }

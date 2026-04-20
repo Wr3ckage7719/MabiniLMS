@@ -446,44 +446,53 @@ describe('Assignment Schemas', () => {
   // ============================================
 
   describe('createSubmissionSchema', () => {
-    it('should accept valid submission data', () => {
+    it('should accept provider-backed submission data', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: 'abc123',
+        provider: 'google_drive',
+        provider_file_id: 'abc123',
+        provider_file_name: 'submission.pdf',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('should accept legacy drive fields for backward compatibility', () => {
+      const result = createSubmissionSchema.safeParse({
+        drive_file_id: 'legacy123',
         drive_file_name: 'submission.pdf',
       })
 
       expect(result.success).toBe(true)
     })
 
-    it('should require drive_file_id', () => {
+    it('should require either provider_file_id or drive_file_id', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_name: 'submission.pdf',
+        provider_file_name: 'submission.pdf',
       })
 
       expect(result.success).toBe(false)
     })
 
-    it('should require drive_file_name', () => {
+    it('should reject empty provider_file_id', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: 'abc123',
+        provider_file_id: '',
       })
 
       expect(result.success).toBe(false)
     })
 
-    it('should reject empty drive_file_id', () => {
+    it('should allow omitting file name when metadata fallback is available', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: '',
-        drive_file_name: 'submission.pdf',
+        provider_file_id: 'abc123',
       })
 
-      expect(result.success).toBe(false)
+      expect(result.success).toBe(true)
     })
 
     it('should allow optional content', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: 'abc123',
-        drive_file_name: 'submission.pdf',
+        provider_file_id: 'abc123',
+        provider_file_name: 'submission.pdf',
         content: 'Optional text content',
       })
 
@@ -492,8 +501,8 @@ describe('Assignment Schemas', () => {
 
     it('should allow optional sync_key', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: 'abc123',
-        drive_file_name: 'submission.pdf',
+        provider_file_id: 'abc123',
+        provider_file_name: 'submission.pdf',
         sync_key: 'sync-123',
       })
 
@@ -502,9 +511,18 @@ describe('Assignment Schemas', () => {
 
     it('should reject empty sync_key', () => {
       const result = createSubmissionSchema.safeParse({
-        drive_file_id: 'abc123',
-        drive_file_name: 'submission.pdf',
+        provider_file_id: 'abc123',
+        provider_file_name: 'submission.pdf',
         sync_key: '',
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    it('should reject unsupported provider values', () => {
+      const result = createSubmissionSchema.safeParse({
+        provider: 'supabase_storage',
+        provider_file_id: 'abc123',
       })
 
       expect(result.success).toBe(false)
