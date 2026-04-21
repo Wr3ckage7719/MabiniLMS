@@ -49,13 +49,9 @@ export function MaterialPreviewDialog({
     canFetchEngagement
   );
 
-  if (!material) {
-    return null;
-  }
-
-  const hasUrl = Boolean(material.url);
-  const isImage = material.fileType === 'image';
-  const isVideo = material.fileType === 'video';
+  const hasUrl = Boolean(material?.url);
+  const isImage = material?.fileType === 'image';
+  const isVideo = material?.fileType === 'video';
   const getUrlExtension = (url?: string): string => {
     if (!url) {
       return '';
@@ -73,10 +69,10 @@ export function MaterialPreviewDialog({
       return (extension || '').toLowerCase();
     }
   };
-  const fileExtension = getUrlExtension(material.url);
-  const isPdf = material.fileType === 'pdf' || fileExtension === 'pdf';
-  const isDoc = material.fileType === 'doc' || fileExtension === 'doc' || fileExtension === 'docx';
-  const isPresentation = material.fileType === 'presentation' || fileExtension === 'ppt' || fileExtension === 'pptx';
+  const fileExtension = getUrlExtension(material?.url);
+  const isPdf = material?.fileType === 'pdf' || fileExtension === 'pdf';
+  const isDoc = material?.fileType === 'doc' || fileExtension === 'doc' || fileExtension === 'docx';
+  const isPresentation = material?.fileType === 'presentation' || fileExtension === 'ppt' || fileExtension === 'pptx';
   const canInlinePreview = isImage || isVideo || isPdf || isDoc || isPresentation;
 
   const currentPptxSlide = pptxSlides[currentSlideIndex] || null;
@@ -294,7 +290,7 @@ export function MaterialPreviewDialog({
   }, []);
 
   const handleDownload = useCallback(() => {
-    if (!material.url) {
+    if (!material || !material.url) {
       return;
     }
 
@@ -323,6 +319,10 @@ export function MaterialPreviewDialog({
   const goToNextSlide = useCallback(() => {
     setCurrentSlideIndex((index) => Math.min(index + 1, Math.max(pptxSlides.length - 1, 0)));
   }, [pptxSlides.length]);
+
+  if (!material) {
+    return null;
+  }
 
   const renderTeacherEngagement = () => {
     if (!isTeacher) {
