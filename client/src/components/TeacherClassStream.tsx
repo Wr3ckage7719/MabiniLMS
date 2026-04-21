@@ -16,6 +16,8 @@ import {
   Clock,
   BookOpen,
   Upload,
+  Download,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,6 +61,7 @@ import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { announcementsService } from '@/services/announcements.service';
 import { assignmentsService } from '@/services/assignments.service';
 import { coursesService } from '@/services/courses.service';
+import { materialsService } from '@/services/materials.service';
 import {
   buildCourseMetadata,
   parseCourseMetadataFromDescription,
@@ -69,12 +72,13 @@ import { teacherService } from '@/services/teacher.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
-import { Announcement as ClassAnnouncement } from '@/lib/data';
+import { Announcement as ClassAnnouncement, type LearningMaterial } from '@/lib/data';
 import { useSearchParams } from 'react-router-dom';
 import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
+import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -336,10 +340,12 @@ export function TeacherClassStream({
   const [postingAnnouncement, setPostingAnnouncement] = useState(false);
   const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
   const [deletingAssignmentIds, setDeletingAssignmentIds] = useState<string[]>([]);
+  const [deletingMaterialIds, setDeletingMaterialIds] = useState<string[]>([]);
   const [deletingAnnouncementIds, setDeletingAnnouncementIds] = useState<string[]>([]);
   const [likingDiscussionPostIds, setLikingDiscussionPostIds] = useState<string[]>([]);
   const [hidingDiscussionPostIds, setHidingDiscussionPostIds] = useState<string[]>([]);
   const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
+  const [selectedMaterial, setSelectedMaterial] = useState<LearningMaterial | null>(null);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateClassRouteState = (
@@ -724,6 +730,55 @@ export function TeacherClassStream({
         setDeletingAssignmentIds((previous) => previous.filter((assignmentId) => assignmentId !== id));
       }
     })();
+  };
+
+  const handleDeleteMaterial = (material: LearningMaterial) => {
+    if (deletingMaterialIds.includes(material.id)) {
+      return;
+    }
+
+    void (async () => {
+      setDeletingMaterialIds((previous) => [...previous, material.id]);
+
+      try {
+        await materialsService.delete(material.id);
+        await refetchMaterials();
+
+        toast({
+          title: 'Material deleted',
+          description: 'The reading material and hosted file were removed.',
+        });
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || 'Failed to delete material';
+
+        toast({
+          title: 'Delete failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setDeletingMaterialIds((previous) =>
+          previous.filter((materialId) => materialId !== material.id)
+        );
+      }
+    })();
+  };
+
+  const handleDownloadMaterial = (material: LearningMaterial) => {
+    if (!material.url) {
+      toast({
+        title: 'Material link unavailable',
+        description: 'This material does not have a valid file URL yet.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    window.open(material.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteAnnouncement = (announcementId: string) => {
@@ -1910,18 +1965,48 @@ export function TeacherClassStream({
                               </p>
                             </div>
 
-                            {material.url && (
+                            <div className="flex flex-col items-end gap-2">
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="rounded-lg"
+                                disabled={!material.url}
                                 onClick={() => {
-                                  window.open(material.url, '_blank', 'noopener,noreferrer');
+                                  if (!material.url) {
+                                    return;
+                                  }
+                                  setSelectedMaterial(material);
                                 }}
                               >
                                 Open
                               </Button>
-                            )}
+
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-lg"
+                                disabled={!material.url}
+                                onClick={() => {
+                                  handleDownloadMaterial(material);
+                                }}
+                              >
+                                <Download className="h-4 w-4 mr-1.5" />
+                                Download
+                              </Button>
+
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-lg text-destructive hover:text-destructive"
+                                disabled={deletingMaterialIds.includes(material.id)}
+                                onClick={() => {
+                                  handleDeleteMaterial(material);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1.5" />
+                                {deletingMaterialIds.includes(material.id) ? 'Deleting...' : 'Delete'}
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -2053,6 +2138,17 @@ export function TeacherClassStream({
           </div>
         </div>
       )}
+
+      <MaterialPreviewDialog
+        open={Boolean(selectedMaterial)}
+        material={selectedMaterial}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedMaterial(null);
+          }
+        }}
+        onDownload={handleDownloadMaterial}
+      />
 
       {/* Teacher Assignment Detail Dialog */}
       {selectedAssignment && (

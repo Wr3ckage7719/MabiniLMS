@@ -6,6 +6,7 @@ export interface CreateMaterialPayload {
   title: string;
   type: MaterialType;
   file_url?: string;
+  file?: File;
 }
 
 export interface UpdateMaterialPayload {
@@ -39,6 +40,23 @@ export const materialsService = {
   },
 
   create(courseId: string, payload: CreateMaterialPayload) {
+    if (payload.file) {
+      const formData = new FormData();
+      formData.append('title', payload.title);
+      formData.append('type', payload.type);
+      formData.append('file', payload.file);
+
+      if (payload.file_url) {
+        formData.append('file_url', payload.file_url);
+      }
+
+      return apiClient.post(`/courses/${courseId}/materials`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+    }
+
     return apiClient.post(`/courses/${courseId}/materials`, payload);
   },
 

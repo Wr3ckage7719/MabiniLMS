@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest, ApiResponse } from '../types/index.js';
+import { ApiError, AuthRequest, ApiResponse, ErrorCode } from '../types/index.js';
 import {
   Course,
   CourseWithStats,
@@ -16,6 +16,10 @@ import {
   UpdateMaterialProgressInput,
 } from '../types/courses.js';
 import * as courseService from '../services/courses.js';
+
+interface AuthRequestWithFile extends AuthRequest {
+  file?: Express.Multer.File;
+}
 
 // ============================================
 // Course Controllers
@@ -476,17 +480,38 @@ export const listMaterials = async (
  *         $ref: '#/components/responses/NotFoundError'
  */
 export const createMaterial = async (
-  req: AuthRequest,
+  req: AuthRequestWithFile,
   res: Response,
   next: NextFunction
 ) => {
   try {
     const { courseId } = req.params;
     const input: CreateMaterialInput = req.body;
+    const file = req.file;
     const userId = req.user!.id;
     const userRole = req.user!.role;
 
-    const material = await courseService.createMaterial(courseId, input, userId, userRole);
+    if (!file && !input.file_url) {
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        'Attach a file or provide a resource URL for this material.',
+        400
+      );
+    }
+
+    const material = await courseService.createMaterial(
+      courseId,
+      input,
+      userId,
+      userRole,
+      file
+        ? {
+            buffer: file.buffer,
+            mimetype: file.mimetype,
+            originalname: file.originalname,
+          }
+        : undefined
+    );
 
     const response: ApiResponse<CourseMaterial> = {
       success: true,

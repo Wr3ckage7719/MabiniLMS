@@ -131,6 +131,8 @@ export interface CourseMaterial {
   title: string;
   type: MaterialType;
   file_url: string | null;
+  drive_file_id?: string | null;
+  drive_view_link?: string | null;
   uploaded_at: string;
 }
 
