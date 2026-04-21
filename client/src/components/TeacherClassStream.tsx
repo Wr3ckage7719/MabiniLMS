@@ -71,6 +71,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
 import { Announcement as ClassAnnouncement } from '@/lib/data';
 import { useSearchParams } from 'react-router-dom';
+import {
+  formatProviderFileSize,
+  normalizeSubmissionStorageMetadata,
+} from '@/lib/submission-storage';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -113,6 +117,12 @@ interface RecentSubmissionItem {
   onTime: boolean;
   submissionContent?: string;
   submissionUrl?: string;
+  providerLabel?: string;
+  providerFileId?: string;
+  providerFileName?: string;
+  providerMimeType?: string;
+  providerSizeBytes?: number;
+  submissionSnapshotAt?: string;
   existingGrade?: number | null;
   existingFeedback?: string | null;
   points?: number;
@@ -445,6 +455,7 @@ export function TeacherClassStream({
   const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
     return apiSubmissions
       .map((submission) => {
+        const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
         const firstName = submission.student?.first_name?.trim() || '';
         const lastName = submission.student?.last_name?.trim() || '';
         const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
@@ -465,8 +476,14 @@ export function TeacherClassStream({
             ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
             : true,
           points: submission.assignment?.max_points,
-          submissionContent: submission.submission_text || submission.submission_url || undefined,
-          submissionUrl: submission.drive_view_link || submission.submission_url || undefined,
+          submissionContent: normalizedStorage.submissionText || undefined,
+          submissionUrl: normalizedStorage.submissionUrl || undefined,
+          providerLabel: normalizedStorage.providerLabel,
+          providerFileId: normalizedStorage.providerFileId || undefined,
+          providerFileName: normalizedStorage.providerFileName || undefined,
+          providerMimeType: normalizedStorage.providerMimeType || undefined,
+          providerSizeBytes: normalizedStorage.providerSizeBytes ?? undefined,
+          submissionSnapshotAt: normalizedStorage.snapshotAt || undefined,
           existingGrade:
             typeof normalizedGrade?.points_earned === 'number'
               ? normalizedGrade.points_earned
@@ -1944,6 +1961,11 @@ export function TeacherClassStream({
                               </div>
                               <p className="text-xs text-muted-foreground mb-1">{submission.assignment}</p>
                               <p className="text-xs text-muted-foreground">Submitted: {submission.submittedAt}</p>
+                              {submission.providerFileName && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {submission.providerLabel || 'Submitted file'}: {submission.providerFileName}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <Button
@@ -2134,8 +2156,33 @@ export function TeacherClassStream({
                         rel="noreferrer"
                         className="mt-3 inline-block text-sm text-primary underline"
                       >
-                        Open submitted file
+                        {selectedSubmission.providerFileName || 'Open submitted file'}
                       </a>
+                    )}
+                    {(selectedSubmission.providerFileId || selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
+                      <div className="mt-3 rounded-lg border border-border bg-background p-3 space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {selectedSubmission.providerLabel || 'Submission file'}
+                        </p>
+                        {selectedSubmission.providerFileId && (
+                          <p className="text-xs text-muted-foreground break-all">
+                            File ID: {selectedSubmission.providerFileId}
+                          </p>
+                        )}
+                        {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
+                          <p className="text-xs text-muted-foreground">
+                            {[
+                              selectedSubmission.providerMimeType || null,
+                              formatProviderFileSize(selectedSubmission.providerSizeBytes),
+                              selectedSubmission.submissionSnapshotAt
+                                ? `Snapshot ${new Date(selectedSubmission.submissionSnapshotAt).toLocaleString()}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </CardContent>
                 </Card>

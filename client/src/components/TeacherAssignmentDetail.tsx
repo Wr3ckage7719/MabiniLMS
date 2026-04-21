@@ -52,6 +52,10 @@ import {
 import { gradesService } from '@/services/grades.service';
 import { useToast } from '@/hooks/use-toast';
 import { TeacherExamManagementPanel } from '@/components/TeacherExamManagementPanel';
+import {
+  formatProviderFileSize,
+  normalizeSubmissionStorageMetadata,
+} from '@/lib/submission-storage';
 
 interface StudentSubmission {
   id: string;
@@ -64,6 +68,12 @@ interface StudentSubmission {
   feedback?: string | null;
   submissionText?: string;
   submissionUrl?: string;
+  providerLabel?: string;
+  providerFileId?: string;
+  providerFileName?: string;
+  providerMimeType?: string;
+  providerSizeBytes?: number;
+  submissionSnapshotAt?: string;
 }
 
 interface AssignmentComment {
@@ -336,6 +346,7 @@ export function TeacherAssignmentDetail({
 
   useEffect(() => {
     const mappedSubmissions: StudentSubmission[] = apiSubmissions.map((submission) => {
+      const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
       const firstName = submission.student?.first_name?.trim() || '';
       const lastName = submission.student?.last_name?.trim() || '';
       const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
@@ -359,8 +370,14 @@ export function TeacherAssignmentDetail({
             : undefined,
         gradeId: normalizedGrade?.id,
         feedback: normalizedGrade?.feedback ?? null,
-        submissionText: submission.content || submission.submission_text || undefined,
-        submissionUrl: submission.drive_view_link || submission.submission_url || undefined,
+        submissionText: normalizedStorage.submissionText || undefined,
+        submissionUrl: normalizedStorage.submissionUrl || undefined,
+        providerLabel: normalizedStorage.providerLabel,
+        providerFileId: normalizedStorage.providerFileId || undefined,
+        providerFileName: normalizedStorage.providerFileName || undefined,
+        providerMimeType: normalizedStorage.providerMimeType || undefined,
+        providerSizeBytes: normalizedStorage.providerSizeBytes ?? undefined,
+        submissionSnapshotAt: normalizedStorage.snapshotAt || undefined,
       };
     });
 
@@ -872,8 +889,33 @@ export function TeacherAssignmentDetail({
                               rel="noreferrer"
                               className="text-primary underline break-all"
                             >
-                              {selectedSubmission.submissionUrl}
+                              {selectedSubmission.providerFileName || selectedSubmission.submissionUrl}
                             </a>
+                          )}
+                          {(selectedSubmission.providerFileId || selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
+                            <div className="rounded-lg border border-border bg-background p-3 space-y-1">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {selectedSubmission.providerLabel || 'Submission file'}
+                              </p>
+                              {selectedSubmission.providerFileId && (
+                                <p className="text-xs text-muted-foreground break-all">
+                                  File ID: {selectedSubmission.providerFileId}
+                                </p>
+                              )}
+                              {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
+                                <p className="text-xs text-muted-foreground">
+                                  {[
+                                    selectedSubmission.providerMimeType || null,
+                                    formatProviderFileSize(selectedSubmission.providerSizeBytes),
+                                    selectedSubmission.submissionSnapshotAt
+                                      ? `Snapshot ${new Date(selectedSubmission.submissionSnapshotAt).toLocaleString()}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' • ')}
+                                </p>
+                              )}
+                            </div>
                           )}
                         </div>
                       ) : (

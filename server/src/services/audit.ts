@@ -44,6 +44,7 @@ export enum AuditEventType {
   ASSIGNMENT_UPDATED = 'assignment_updated',
   ASSIGNMENT_SUBMITTED = 'assignment_submitted',
   ASSIGNMENT_RESUBMITTED = 'assignment_resubmitted',
+  ASSIGNMENT_SUBMISSION_STORAGE_DIAGNOSTICS_VIEWED = 'assignment_submission_storage_diagnostics_viewed',
   
   // Grade events
   GRADE_VIEWED = 'grade_viewed',

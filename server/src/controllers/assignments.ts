@@ -406,6 +406,46 @@ export const listSubmissions = async (
 
 /**
  * @swagger
+ * /api/assignments/{assignmentId}/submissions/storage-diagnostics:
+ *   get:
+ *     summary: Get submission storage metadata diagnostics (teacher/admin)
+ *     tags: [Submissions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: assignmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Submission storage metadata diagnostics report
+ */
+export const getSubmissionStorageDiagnostics = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { assignmentId } = req.params;
+    const diagnostics = await assignmentService.getAssignmentSubmissionStorageDiagnostics(
+      assignmentId,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+
+    res.json({
+      success: true,
+      data: diagnostics,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @swagger
  * /api/assignments/{assignmentId}/my-submission:
  *   get:
  *     summary: Get my submission (student)

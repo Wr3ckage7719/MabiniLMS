@@ -13,6 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 import { assignmentsService } from '@/services/assignments.service';
 import { useToast } from '@/hooks/use-toast';
+import {
+  formatProviderFileSize,
+  normalizeSubmissionStorageMetadata,
+} from '@/lib/submission-storage';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   assignment: FileText,
@@ -26,15 +30,40 @@ interface Submission {
   content: string;
   timestamp: string;
   status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
-  driveFileName?: string | null;
-  driveViewLink?: string | null;
+  providerLabel: string;
+  providerFileId?: string | null;
+  providerFileName?: string | null;
+  providerViewLink?: string | null;
+  providerMimeType?: string | null;
+  providerSizeBytes?: number | null;
+  snapshotAt?: string | null;
 }
 
 interface ApiSubmission {
   id: string;
   content: string | null;
+  drive_file_id?: string | null;
   drive_file_name: string | null;
   drive_view_link: string | null;
+  file_url?: string | null;
+  storage_provider?: string | null;
+  provider_file_id?: string | null;
+  provider_file_name?: string | null;
+  provider_view_link?: string | null;
+  provider_revision_id?: string | null;
+  provider_mime_type?: string | null;
+  provider_size_bytes?: number | null;
+  provider_checksum?: string | null;
+  submission_snapshot_at?: string | null;
+  storage_metadata_complete?: boolean;
+  storage_consistency_issues?: Array<{
+    code: string;
+    message: string;
+    severity: 'warning' | 'error';
+    fallback_applied: boolean;
+  }>;
+  submission_text?: string | null;
+  submission_url?: string | null;
   submitted_at: string;
   status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
 }
@@ -188,14 +217,24 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
   const submissions = useMemo<Submission[]>(() => {
     if (!submission) return [];
+
+    const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
+
     return [
       {
         id: submission.id,
-        content: submission.content || 'No submission text provided.',
+        content:
+          normalizedStorage.submissionText ||
+          'No submission text provided.',
         timestamp: new Date(submission.submitted_at).toLocaleString(),
         status: submission.status,
-        driveFileName: submission.drive_file_name,
-        driveViewLink: submission.drive_view_link,
+        providerLabel: normalizedStorage.providerLabel,
+        providerFileId: normalizedStorage.providerFileId,
+        providerFileName: normalizedStorage.providerFileName,
+        providerViewLink: normalizedStorage.providerViewLink,
+        providerMimeType: normalizedStorage.providerMimeType,
+        providerSizeBytes: normalizedStorage.providerSizeBytes,
+        snapshotAt: normalizedStorage.snapshotAt,
       },
     ];
   }, [submission]);
@@ -216,8 +255,9 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     setSubmitting(true);
     try {
       const result = await assignmentsService.submitAssignment(classId, assignment.id, {
-        drive_file_id: driveFileId,
-        drive_file_name: driveFileName.trim() || 'Drive Submission',
+        provider: 'google_drive',
+        provider_file_id: driveFileId,
+        provider_file_name: driveFileName.trim() || 'Drive Submission',
         content: submissionText.trim() || undefined,
       });
 
@@ -494,20 +534,42 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     </div>
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground mb-2 break-words">{s.content}</p>
-                  {s.driveFileName && (
+                  {(s.providerFileName || s.providerViewLink || s.providerFileId) && (
                     <div className="p-2 sm:p-3 bg-primary/5 rounded-lg">
-                      <p className="text-xs font-medium text-primary mb-1">Drive File</p>
-                      {s.driveViewLink ? (
+                      <p className="text-xs font-medium text-primary mb-1">
+                        {s.providerLabel} File
+                      </p>
+                      {s.providerViewLink ? (
                         <a
-                          href={s.driveViewLink}
+                          href={s.providerViewLink}
                           target="_blank"
                           rel="noreferrer"
                           className="text-xs sm:text-sm text-primary underline break-all"
                         >
-                          {s.driveFileName}
+                          {s.providerFileName || 'Open submitted file'}
                         </a>
                       ) : (
-                        <p className="text-xs sm:text-sm text-muted-foreground">{s.driveFileName}</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground">
+                          {s.providerFileName || 'Submitted file'}
+                        </p>
+                      )}
+                      {s.providerFileId && (
+                        <p className="text-[11px] text-muted-foreground mt-1 break-all">
+                          File ID: {s.providerFileId}
+                        </p>
+                      )}
+                      {(s.providerMimeType || s.providerSizeBytes || s.snapshotAt) && (
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          {[
+                            s.providerMimeType || null,
+                            formatProviderFileSize(s.providerSizeBytes),
+                            s.snapshotAt
+                              ? `Snapshot ${new Date(s.snapshotAt).toLocaleString()}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </p>
                       )}
                     </div>
                   )}

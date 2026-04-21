@@ -11,6 +11,8 @@ import {
   Submission,
   SubmissionWithStudent,
   SubmissionWithGrade,
+  SubmissionStorageDiagnosticsReport,
+  SubmissionStorageDiagnosticEntry,
   SubmissionStatusHistoryEntry,
   CreateSubmissionInput,
   TransitionSubmissionStatusInput,
@@ -19,6 +21,8 @@ import {
 import {
   normalizeSubmissionStorageInput,
   prepareSubmissionStorageSnapshot,
+  normalizeSubmissionStorageSnapshotForRead,
+  summarizeSubmissionStorageConsistencyIssues,
 } from './submission-storage.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
@@ -422,7 +426,13 @@ const getSubmissionBySyncKey = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load synced submission', 500);
   }
 
-  return submission as Submission;
+  return normalizeSubmissionRowForRead(
+    submission,
+    {
+      source: 'submission_sync_lookup',
+      assignmentId: (submission as any)?.assignment_id,
+    }
+  );
 };
 
 const recordSubmissionSyncEvent = async (
@@ -507,16 +517,50 @@ const parseSubmissionStatus = (status: string): SubmissionStatus => {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normalizeSubmissionRowForRead = (
+  record: any,
+  context: { source: string; assignmentId?: string },
+  options: { logIssues?: boolean } = {}
+): Submission => {
+  const normalizedStorage = normalizeSubmissionStorageSnapshotForRead(record || {});
+  const normalized = {
+    ...(record || {}),
+    ...normalizedStorage,
+    status: parseSubmissionStatus(record?.status),
+  } as Submission;
+
+  if (
+    options.logIssues !== false
+    && normalizedStorage.storage_consistency_issues.length > 0
+  ) {
+    logger.warn('Submission storage consistency fallback applied', {
+      source: context.source,
+      submissionId: record?.id || null,
+      assignmentId: context.assignmentId || record?.assignment_id || null,
+      issueCodes: normalizedStorage.storage_consistency_issues.map((issue) => issue.code),
+    });
+  }
+
+  return normalized;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normalizeSubmissionContext = (record: any): SubmissionWithAccessContext => {
   const assignment = Array.isArray(record.assignment) ? record.assignment[0] || null : record.assignment;
   const course = assignment?.course
     ? (Array.isArray(assignment.course) ? assignment.course[0] || null : assignment.course)
     : null;
   const student = Array.isArray(record.student) ? record.student[0] || null : record.student;
+  const normalizedSubmission = normalizeSubmissionRowForRead(
+    record,
+    {
+      source: 'get_submission_with_access_context',
+      assignmentId: assignment?.id || record?.assignment_id || undefined,
+    }
+  );
 
   return {
-    ...record,
-    status: parseSubmissionStatus(record.status),
+    ...normalizedSubmission,
     student,
     assignment: {
       id: assignment?.id,
@@ -1410,7 +1454,13 @@ export const submitAssignment = async (
       submittedAt: new Date().toISOString(),
     });
 
-    return data as Submission;
+    return normalizeSubmissionRowForRead(
+      data,
+      {
+        source: 'submit_assignment_update',
+        assignmentId,
+      }
+    );
   }
 
   // Create new submission
@@ -1485,7 +1535,13 @@ export const submitAssignment = async (
     submittedAt: new Date().toISOString(),
   });
 
-  return data as Submission;
+  return normalizeSubmissionRowForRead(
+    data,
+    {
+      source: 'submit_assignment_insert',
+      assignmentId,
+    }
+  );
 };
 
 /**
@@ -1717,23 +1773,47 @@ export const listSubmissions = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to list submissions', 500);
   }
 
-  return (data || []).map((submission: any) => {
+  const normalizedSubmissions = (data || []).map((submission: any) => {
+    const normalizedSubmission = normalizeSubmissionRowForRead(
+      submission,
+      {
+        source: 'list_submissions',
+        assignmentId,
+      },
+      { logIssues: false }
+    );
     const grade = Array.isArray(submission.grade) ? submission.grade[0] || null : submission.grade;
-    const assignment = Array.isArray(submission.assignment)
+    const assignmentRecord = Array.isArray(submission.assignment)
       ? submission.assignment[0] || null
       : submission.assignment;
 
     return {
-      ...submission,
-      assignment: assignment
+      ...normalizedSubmission,
+      assignment: assignmentRecord
         ? {
-            ...assignment,
-            assignment_type: normalizeAssignmentType(assignment.assignment_type),
+            ...assignmentRecord,
+            assignment_type: normalizeAssignmentType(assignmentRecord.assignment_type),
           }
-        : assignment,
+        : assignmentRecord,
       grade,
     };
   }) as SubmissionWithGrade[];
+
+  const issueBreakdown = summarizeSubmissionStorageConsistencyIssues(normalizedSubmissions);
+  const inconsistentSubmissions = normalizedSubmissions.filter(
+    (submission) => (submission.storage_consistency_issues || []).length > 0
+  ).length;
+
+  if (inconsistentSubmissions > 0) {
+    logger.warn('Submission storage consistency issues detected in assignment listing', {
+      assignmentId,
+      inconsistentSubmissions,
+      totalSubmissions: normalizedSubmissions.length,
+      issueBreakdown,
+    });
+  }
+
+  return normalizedSubmissions;
 };
 
 /**
@@ -1755,7 +1835,119 @@ export const getMySubmission = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to get submission', 500);
   }
 
-  return data as Submission | null;
+  if (!data) {
+    return null;
+  }
+
+  return normalizeSubmissionRowForRead(
+    data,
+    {
+      source: 'get_my_submission',
+      assignmentId,
+    }
+  );
+};
+
+export const getAssignmentSubmissionStorageDiagnostics = async (
+  assignmentId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<SubmissionStorageDiagnosticsReport> => {
+  const assignment = await getAssignmentById(assignmentId);
+
+  if (userRole !== UserRole.ADMIN && assignment.course.teacher.id !== userId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only view submission diagnostics for your own courses',
+      403
+    );
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('submissions')
+    .select(`
+      id,
+      assignment_id,
+      student_id,
+      submitted_at,
+      status,
+      drive_file_id,
+      drive_file_name,
+      drive_view_link,
+      storage_provider,
+      provider_file_id,
+      provider_revision_id,
+      provider_mime_type,
+      provider_size_bytes,
+      provider_checksum,
+      submission_snapshot_at
+    `)
+    .eq('assignment_id', assignmentId)
+    .order('submitted_at', { ascending: false });
+
+  if (error) {
+    logger.error('Failed to load submission storage diagnostics', {
+      assignmentId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load submission diagnostics', 500);
+  }
+
+  const normalizedSubmissions = (data || []).map((submission: any) => {
+    return normalizeSubmissionRowForRead(
+      submission,
+      {
+        source: 'submission_storage_diagnostics',
+        assignmentId,
+      },
+      { logIssues: false }
+    );
+  });
+
+  const diagnosticsEntries: SubmissionStorageDiagnosticEntry[] = normalizedSubmissions.map((submission) => ({
+    submission_id: submission.id,
+    student_id: submission.student_id,
+    status: submission.status,
+    submitted_at: submission.submitted_at,
+    storage_provider: submission.storage_provider,
+    provider_file_id: submission.provider_file_id,
+    submission_snapshot_at: submission.submission_snapshot_at,
+    issues: submission.storage_consistency_issues || [],
+  }));
+
+  const issueBreakdown = summarizeSubmissionStorageConsistencyIssues(normalizedSubmissions);
+  const inconsistentSubmissions = diagnosticsEntries.filter((entry) => entry.issues.length > 0).length;
+
+  const report: SubmissionStorageDiagnosticsReport = {
+    assignment_id: assignmentId,
+    total_submissions: diagnosticsEntries.length,
+    consistent_submissions: diagnosticsEntries.length - inconsistentSubmissions,
+    inconsistent_submissions: inconsistentSubmissions,
+    issue_breakdown: issueBreakdown,
+    submissions: diagnosticsEntries,
+  };
+
+  if (inconsistentSubmissions > 0) {
+    logger.warn('Submission storage diagnostics found inconsistent metadata rows', {
+      assignmentId,
+      inconsistentSubmissions,
+      totalSubmissions: diagnosticsEntries.length,
+      issueBreakdown,
+    });
+  }
+
+  await auditService.logAssignmentEvent(
+    userId,
+    AuditEventType.ASSIGNMENT_SUBMISSION_STORAGE_DIAGNOSTICS_VIEWED,
+    assignmentId,
+    {
+      total_submissions: report.total_submissions,
+      inconsistent_submissions: report.inconsistent_submissions,
+      issue_breakdown: report.issue_breakdown,
+    }
+  );
+
+  return report;
 };
 
 const ensureAssignmentCommentAccess = async (

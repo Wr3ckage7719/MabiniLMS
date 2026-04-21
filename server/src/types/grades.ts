@@ -5,6 +5,10 @@
  */
 
 import { z } from 'zod'
+import type {
+  SubmissionStorageConsistencyIssue,
+  SubmissionStorageProvider,
+} from './assignments.js'
 
 // ============================================
 // Zod Schemas
@@ -168,6 +172,17 @@ export interface GradeWithSubmission extends GradeWithGrader {
     drive_file_id: string | null
     drive_file_name: string | null
     drive_view_link: string | null
+    storage_provider: SubmissionStorageProvider
+    provider_file_id: string | null
+    provider_revision_id: string | null
+    provider_mime_type: string | null
+    provider_size_bytes: number | null
+    provider_checksum: string | null
+    submission_snapshot_at: string | null
+    provider_file_name?: string | null
+    provider_view_link?: string | null
+    storage_metadata_complete?: boolean
+    storage_consistency_issues?: SubmissionStorageConsistencyIssue[]
     submitted_at: string
     status: string
   }

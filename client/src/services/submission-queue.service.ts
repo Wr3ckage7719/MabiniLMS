@@ -4,6 +4,9 @@ const STORAGE_KEY = 'mabinilms:submission-queue:v1';
 const QUEUE_EVENT = 'submission-queue:changed';
 
 export interface SubmissionRequestPayload {
+  provider?: 'google_drive';
+  provider_file_id?: string;
+  provider_file_name?: string;
   drive_file_id?: string;
   drive_file_name?: string;
   content?: string;
@@ -38,6 +41,29 @@ interface EnqueueSubmissionInput {
   courseId: string;
   payload: Omit<SubmissionRequestPayload, 'sync_key'> & { sync_key?: string };
 }
+
+const normalizeQueuePayload = (
+  payload: Omit<SubmissionRequestPayload, 'sync_key'> & { sync_key?: string },
+  syncKey: string
+): SubmissionRequestPayload => {
+  const providerFileId = payload.provider_file_id || payload.drive_file_id;
+  if (!providerFileId) {
+    throw new Error('Queued submission is missing a file reference.');
+  }
+
+  const providerFileName = payload.provider_file_name || payload.drive_file_name;
+
+  return {
+    provider: 'google_drive',
+    provider_file_id: providerFileId,
+    provider_file_name: providerFileName,
+    // Preserve legacy aliases for compatibility with in-flight payload consumers.
+    drive_file_id: providerFileId,
+    drive_file_name: providerFileName,
+    content: payload.content,
+    sync_key: syncKey,
+  };
+};
 
 const defaultQueueState = (): QueueState => ({ version: 1, items: [] });
 
@@ -133,17 +159,13 @@ export const subscribeToSubmissionQueue = (listener: () => void): (() => void) =
 export const enqueueSubmission = (input: EnqueueSubmissionInput): QueuedSubmission => {
   const syncKey = input.payload.sync_key || createSubmissionSyncKey();
   const now = new Date().toISOString();
+  const payload = normalizeQueuePayload(input.payload, syncKey);
 
   const queuedSubmission: QueuedSubmission = {
     syncKey,
     assignmentId: input.assignmentId,
     courseId: input.courseId,
-    payload: {
-      drive_file_id: input.payload.drive_file_id,
-      drive_file_name: input.payload.drive_file_name,
-      content: input.payload.content,
-      sync_key: syncKey,
-    },
+    payload,
     status: 'queued',
     attempts: 0,
     queuedAt: now,
@@ -212,7 +234,8 @@ export const flushSubmissionQueue = async (): Promise<QueueSyncResult> => {
     markSyncStatus(currentItem.syncKey, 'syncing');
 
     try {
-      await apiClient.post(`/assignments/${currentItem.assignmentId}/submit`, currentItem.payload);
+      const payload = normalizeQueuePayload(currentItem.payload, currentItem.syncKey);
+      await apiClient.post(`/assignments/${currentItem.assignmentId}/submit`, payload);
       removeQueuedSubmission(currentItem.syncKey);
       synced++;
     } catch (error: any) {

@@ -35,6 +35,9 @@ export interface AssignmentData {
 }
 
 export interface SubmissionData {
+  provider?: 'google_drive';
+  provider_file_id?: string;
+  provider_file_name?: string;
   drive_file_id?: string;
   drive_file_name?: string;
   content?: string;
@@ -80,14 +83,46 @@ interface SubmitAssignmentOptions {
   skipQueue?: boolean;
 }
 
+export interface SubmissionRequestPayload {
+  provider: 'google_drive';
+  provider_file_id: string;
+  provider_file_name?: string;
+  drive_file_id?: string;
+  drive_file_name?: string;
+  content?: string;
+  sync_key: string;
+}
+
 const buildSubmissionContent = (data: SubmissionData): string | undefined => {
   return data.content || data.submission_text || data.submission_url || undefined;
 };
 
-const buildSubmissionPayload = (data: SubmissionData, syncKey: string) => {
+const resolveSubmissionFileId = (data: SubmissionData): string | undefined => {
+  return data.provider_file_id || data.drive_file_id;
+};
+
+const resolveSubmissionFileName = (data: SubmissionData): string | undefined => {
+  return data.provider_file_name || data.drive_file_name;
+};
+
+const buildSubmissionPayload = (
+  data: SubmissionData,
+  syncKey: string
+): SubmissionRequestPayload => {
+  const providerFileId = resolveSubmissionFileId(data);
+  if (!providerFileId) {
+    throw new Error('A submission file reference is required before submitting an assignment.');
+  }
+
+  const providerFileName = resolveSubmissionFileName(data);
+
   return {
-    drive_file_id: data.drive_file_id,
-    drive_file_name: data.drive_file_name,
+    provider: data.provider || 'google_drive',
+    provider_file_id: providerFileId,
+    provider_file_name: providerFileName,
+    // Keep legacy aliases while older backend/client paths still read them.
+    drive_file_id: providerFileId,
+    drive_file_name: providerFileName,
     content: buildSubmissionContent(data),
     sync_key: syncKey,
   };
@@ -150,8 +185,8 @@ export const assignmentsService = {
     data: SubmissionData,
     options: SubmitAssignmentOptions = {}
   ): Promise<SubmissionResult> {
-    if (!data.drive_file_id || !data.drive_file_name) {
-      throw new Error('A Drive file is required before submitting an assignment.');
+    if (!resolveSubmissionFileId(data)) {
+      throw new Error('A submission file reference is required before submitting an assignment.');
     }
 
     const syncKey = data.sync_key || createSubmissionSyncKey();
