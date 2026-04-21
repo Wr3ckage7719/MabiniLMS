@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment } from '@/lib/data';
+import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment, type LearningMaterial } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClass } from '@/hooks-api/useClasses';
@@ -11,6 +11,12 @@ import { useStudents } from '@/hooks-api/useStudents';
 import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useToast } from '@/hooks/use-toast';
+import {
+  downloadAllMaterialsWithTracking,
+  downloadMaterialWithTracking,
+  openMaterialWithTracking,
+} from '@/lib/material-actions';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -95,6 +101,7 @@ export default function ClassDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   const { currentUserAvatar } = useRole();
+  const { toast } = useToast();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] = useState<ClassAnnouncement | null>(null);
@@ -269,13 +276,54 @@ export default function ClassDetail() {
 
   const classCode = cls.id.slice(0, 8).toUpperCase();
   const displayedStudentCount = classStudents.length || cls.students || 0;
-  const openMaterialUrl = (url?: string) => {
-    if (!url) {
+
+  const showMaterialUnavailableToast = () => {
+    toast({
+      title: 'Material link unavailable',
+      description: 'This material does not have a valid file URL yet.',
+      variant: 'destructive',
+    });
+  };
+
+  const handleOpenMaterial = (material: LearningMaterial) => {
+    const didOpen = openMaterialWithTracking(material);
+    if (!didOpen) {
+      showMaterialUnavailableToast();
+    }
+  };
+
+  const handleDownloadMaterial = (material: LearningMaterial) => {
+    const didDownload = downloadMaterialWithTracking(material);
+    if (!didDownload) {
+      showMaterialUnavailableToast();
+    }
+  };
+
+  const handleDownloadAllMaterials = () => {
+    const downloadedCount = downloadAllMaterialsWithTracking(materials);
+
+    if (downloadedCount === 0) {
+      showMaterialUnavailableToast();
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      window.open(url, '_blank', 'noopener,noreferrer');
+    toast({
+      title: downloadedCount === 1 ? '1 material opened for download' : `${downloadedCount} materials opened for download`,
+      description: 'Your browser may prompt for permission when opening multiple files.',
+    });
+  };
+
+  const handleMaterialCardKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    material: LearningMaterial
+  ) => {
+    if (!material.url) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpenMaterial(material);
     }
   };
 
@@ -495,7 +543,11 @@ export default function ClassDetail() {
                     <Card
                       key={`mobile-material-${material.id}`}
                       className={`rounded-[14px] border border-border/70 shadow-none transition-colors ${material.url ? 'cursor-pointer active:bg-muted/40' : ''}`}
-                      onClick={() => openMaterialUrl(material.url)}
+                      onClick={() => {
+                        if (material.url) {
+                          handleOpenMaterial(material);
+                        }
+                      }}
                     >
                       <CardContent className="p-3">
                         <div className="flex items-start gap-2.5">
@@ -514,24 +566,37 @@ export default function ClassDetail() {
                               </Badge>
                             </div>
                           </div>
-                          {material.url ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-[11px]"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openMaterialUrl(material.url);
-                              }}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                            </Button>
-                          ) : null}
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-2">
                           Added {formatShortDate(material.uploadedDate)}
                         </p>
+                        {material.url ? (
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-8 text-[11px]"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenMaterial(material);
+                              }}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-[11px]"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDownloadMaterial(material);
+                              }}
+                            >
+                              <Download className="h-3.5 w-3.5 mr-1" /> Download
+                            </Button>
+                          </div>
+                        ) : null}
                       </CardContent>
                     </Card>
                   );
@@ -548,7 +613,13 @@ export default function ClassDetail() {
           <TabsContent value="materials" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 mb-3 md:mb-4 lg:mb-6">
               <h3 className="font-semibold text-base md:text-lg">Learning Materials</h3>
-              <Button variant="outline" size="sm" className="rounded-lg gap-2 w-full md:w-fit text-xs md:text-sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg gap-2 w-full md:w-fit text-xs md:text-sm"
+                onClick={handleDownloadAllMaterials}
+              >
                 <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 Download All
               </Button>
@@ -559,10 +630,18 @@ export default function ClassDetail() {
                 return (
                   <Card
                     key={material.id}
-                    className="border-0 shadow-sm card-interactive cursor-pointer hover:shadow-md transition-all"
+                    className={`border-0 shadow-sm card-interactive hover:shadow-md transition-all ${material.url ? 'cursor-pointer' : ''}`}
                     style={{
                       animation: `fade-in 0.4s ease-out ${idx * 50}ms both`,
                     }}
+                    onClick={() => {
+                      if (material.url) {
+                        handleOpenMaterial(material);
+                      }
+                    }}
+                    onKeyDown={(event) => handleMaterialCardKeyDown(event, material)}
+                    role={material.url ? 'button' : undefined}
+                    tabIndex={material.url ? 0 : -1}
                   >
                     <CardContent className="p-2 md:p-4 lg:p-5">
                       <div className="flex flex-col gap-2 md:gap-3">
@@ -575,9 +654,14 @@ export default function ClassDetail() {
                             <p className="text-xs md:text-sm text-muted-foreground mt-0.5 line-clamp-2">{material.description}</p>
                           </div>
                           <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
                             className="rounded-lg flex-shrink-0 h-8 w-8 md:h-9 md:w-9 hover:bg-primary/10"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDownloadMaterial(material);
+                            }}
                           >
                             <Download className="h-4 w-4" />
                           </Button>

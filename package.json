@@ -24,6 +24,7 @@
     "db:migrate:reset": "npm run db:migrate:reset --workspace=server",
     "supabase:query": "node scripts/supabase-linked-query.mjs",
     "supabase:ping": "node scripts/supabase-linked-query.mjs \"select 1 as ok;\"",
+    "rollout:submission-storage:check": "node scripts/submission-storage-rollout-check.mjs",
     "lint": "npm run lint --workspaces",
     "format": "prettier --write \"**/*.{js,ts,json,md}\""
   },
