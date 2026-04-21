@@ -21,6 +21,59 @@ export interface MaterialProgressPayload {
   last_viewed_at?: string;
 }
 
+export interface MaterialTrackViewStartPayload {
+  user_agent?: string;
+  device_type?: 'desktop' | 'mobile' | 'tablet' | 'unknown';
+}
+
+export interface MaterialTrackViewEndPayload {
+  time_spent_seconds: number;
+  final_scroll_percent: number;
+  completed?: boolean;
+  page_number?: number;
+}
+
+export interface MaterialTrackDownloadPayload {
+  file_name?: string;
+  file_size?: number;
+}
+
+export interface MaterialTrackProgressPayload {
+  scroll_percent: number;
+  page_number?: number;
+  pages_viewed?: number[];
+}
+
+export interface MaterialEngagementEvent {
+  type: 'view_start' | 'view_end' | 'download' | 'scroll';
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+export interface MaterialEngagementRecord {
+  id: string;
+  material_id: string;
+  course_id: string;
+  user_id: string;
+  progress_percent: number;
+  completed: boolean;
+  download_count: number;
+  current_scroll_position: number;
+  pages_viewed: number[];
+  interaction_events: MaterialEngagementEvent[];
+  event_count: number;
+  view_count: number;
+  avg_session_duration_seconds: number | null;
+  last_viewed_at: string;
+  completed_at: string | null;
+  student: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
+}
+
 export interface MaterialProgressRecord {
   id: string;
   material_id: string;
@@ -76,8 +129,28 @@ export const materialsService = {
     return apiClient.put(`/materials/${materialId}/progress/me`, payload);
   },
 
+  trackViewStart(materialId: string, payload: MaterialTrackViewStartPayload = {}) {
+    return apiClient.post(`/materials/${materialId}/track/view-start`, payload);
+  },
+
+  trackViewEnd(materialId: string, payload: MaterialTrackViewEndPayload) {
+    return apiClient.post(`/materials/${materialId}/track/view-end`, payload);
+  },
+
+  trackDownload(materialId: string, payload: MaterialTrackDownloadPayload = {}) {
+    return apiClient.post(`/materials/${materialId}/track/download`, payload);
+  },
+
+  trackProgress(materialId: string, payload: MaterialTrackProgressPayload) {
+    return apiClient.post(`/materials/${materialId}/track/progress`, payload);
+  },
+
   listProgress(materialId: string) {
     return apiClient.get(`/materials/${materialId}/progress`);
+  },
+
+  getEngagement(materialId: string) {
+    return apiClient.get(`/materials/${materialId}/engagement`);
   },
 
   delete(materialId: string) {
