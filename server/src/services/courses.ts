@@ -28,6 +28,12 @@ type DatabaseErrorShape = {
   hint?: string;
 };
 
+type MaterialUploadFile = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+};
+
 // ============================================
 // Helpers
 // ============================================
@@ -58,6 +64,181 @@ const isPermissionDeniedError = (error?: DatabaseErrorShape | null): boolean => 
     || message.includes('permission denied')
     || message.includes('row-level security')
   );
+};
+
+const MATERIALS_BUCKET = 'course-materials';
+const MATERIALS_STORAGE_PROVIDER = 'supabase_storage';
+const MATERIALS_FILE_SIZE_LIMIT = '50MB';
+const MATERIALS_ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'video/mp4',
+  'video/webm',
+  'application/zip',
+  'application/x-zip-compressed',
+];
+
+const isMissingBucketError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return normalized.includes('bucket') && (normalized.includes('not found') || normalized.includes('does not exist'));
+};
+
+const isAlreadyExistsBucketError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return normalized.includes('already exists') || normalized.includes('duplicate');
+};
+
+const isStoragePermissionDeniedError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return (
+    normalized.includes('not authorized')
+    || normalized.includes('permission denied')
+    || normalized.includes('forbidden')
+    || normalized.includes('row-level security')
+  );
+};
+
+const isStorageObjectMissingError = (message?: string): boolean => {
+  const normalized = (message || '').toLowerCase();
+  return normalized.includes('not found') || normalized.includes('no such file') || normalized.includes('does not exist');
+};
+
+const toSafeStorageBaseName = (value: string): string => {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!normalized) {
+    return 'material';
+  }
+
+  return normalized.slice(0, 80);
+};
+
+const extractFileExtension = (fileName: string): string => {
+  const dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex === -1) {
+    return '';
+  }
+
+  return fileName.slice(dotIndex + 1).trim().toLowerCase();
+};
+
+const buildMaterialStoragePath = (
+  courseId: string,
+  userId: string,
+  title: string,
+  originalName: string
+): string => {
+  const timestamp = Date.now();
+  const titlePart = toSafeStorageBaseName(title || 'material');
+  const extension = extractFileExtension(originalName);
+  const extensionPart = extension ? `.${extension}` : '';
+  return `${courseId}/${userId}/${timestamp}-${titlePart}${extensionPart}`;
+};
+
+const ensureMaterialsBucketExists = async (): Promise<void> => {
+  const { data: bucket, error: getBucketError } = await supabaseAdmin.storage.getBucket(MATERIALS_BUCKET);
+
+  if (!getBucketError && bucket) {
+    return;
+  }
+
+  if (getBucketError && !isMissingBucketError(getBucketError.message)) {
+    logger.warn('Could not verify materials bucket, attempting creation anyway', {
+      error: getBucketError.message,
+    });
+  }
+
+  const { error: createBucketError } = await supabaseAdmin.storage.createBucket(MATERIALS_BUCKET, {
+    public: true,
+    allowedMimeTypes: MATERIALS_ALLOWED_MIME_TYPES,
+    fileSizeLimit: MATERIALS_FILE_SIZE_LIMIT,
+  });
+
+  if (!createBucketError) {
+    return;
+  }
+
+  if (isAlreadyExistsBucketError(createBucketError.message)) {
+    return;
+  }
+
+  if (isStoragePermissionDeniedError(createBucketError.message)) {
+    logger.warn('Could not auto-create materials bucket due permissions. Proceeding with upload attempt.', {
+      error: createBucketError.message,
+    });
+    return;
+  }
+
+  logger.warn('Failed to auto-create materials bucket. Proceeding with upload attempt.', {
+    error: createBucketError.message,
+  });
+};
+
+const uploadMaterialFile = async (
+  courseId: string,
+  userId: string,
+  title: string,
+  file: MaterialUploadFile
+): Promise<{ objectPath: string; publicUrl: string }> => {
+  await ensureMaterialsBucketExists();
+
+  const objectPath = buildMaterialStoragePath(courseId, userId, title, file.originalname);
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(MATERIALS_BUCKET)
+    .upload(objectPath, file.buffer, {
+      contentType: file.mimetype,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    logger.error('Failed to upload course material', {
+      courseId,
+      userId,
+      objectPath,
+      error: uploadError.message,
+    });
+
+    if (isMissingBucketError(uploadError.message)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Course material storage is not configured. Please contact an administrator.',
+        500
+      );
+    }
+
+    if (isStoragePermissionDeniedError(uploadError.message)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Course material storage permissions are not configured correctly. Please contact an administrator.',
+        500
+      );
+    }
+
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to upload material file', 500);
+  }
+
+  const { data: urlData } = supabaseAdmin.storage
+    .from(MATERIALS_BUCKET)
+    .getPublicUrl(objectPath);
+
+  return {
+    objectPath,
+    publicUrl: urlData.publicUrl,
+  };
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -640,7 +821,8 @@ export const createMaterial = async (
   courseId: string,
   input: CreateMaterialInput,
   userId: string,
-  userRole: UserRole
+  userRole: UserRole,
+  uploadedFile?: MaterialUploadFile
 ): Promise<CourseMaterial> => {
   // Check course exists and user has permission
   const course = await getCourseById(courseId);
@@ -653,13 +835,26 @@ export const createMaterial = async (
     );
   }
 
+  let fileUrl = input.file_url || null;
+  let storageObjectPath: string | null = null;
+  let storageProvider: string | null = null;
+
+  if (uploadedFile) {
+    const uploaded = await uploadMaterialFile(courseId, userId, input.title, uploadedFile);
+    fileUrl = uploaded.publicUrl;
+    storageObjectPath = uploaded.objectPath;
+    storageProvider = MATERIALS_STORAGE_PROVIDER;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('course_materials')
     .insert({
       course_id: courseId,
       title: input.title,
       type: input.type,
-      file_url: input.file_url || null,
+      file_url: fileUrl,
+      drive_file_id: storageObjectPath,
+      drive_view_link: storageProvider,
       uploaded_at: new Date().toISOString(),
     })
     .select()
@@ -681,7 +876,7 @@ export const createMaterial = async (
       courseId,
       courseName: course.title || 'Course',
       materialType: String(data.type || input.type || 'reading_material'),
-      fileUrl: typeof data.file_url === 'string' ? data.file_url : null,
+      fileUrl: typeof fileUrl === 'string' ? fileUrl : null,
     });
   } catch (notifyError) {
     logger.warn('Failed to broadcast material created event', {
@@ -827,6 +1022,32 @@ export const deleteMaterial = async (
       'You can only delete materials from your own courses',
       403
     );
+  }
+
+  const shouldDeleteStoredFile =
+    material.drive_view_link === MATERIALS_STORAGE_PROVIDER
+    && typeof material.drive_file_id === 'string'
+    && material.drive_file_id.trim().length > 0;
+
+  if (shouldDeleteStoredFile) {
+    const objectPath = material.drive_file_id!.trim();
+    const { error: storageDeleteError } = await supabaseAdmin.storage
+      .from(MATERIALS_BUCKET)
+      .remove([objectPath]);
+
+    if (storageDeleteError && !isStorageObjectMissingError(storageDeleteError.message)) {
+      logger.error('Failed to delete material file from storage', {
+        materialId,
+        objectPath,
+        error: storageDeleteError.message,
+      });
+
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to delete material file from storage',
+        500
+      );
+    }
   }
 
   const { error } = await supabaseAdmin

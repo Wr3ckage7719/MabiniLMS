@@ -63,6 +63,7 @@ interface AttachedFile {
   name: string;
   size: string;
   type: string;
+  file: File;
 }
 
 interface Topic {
@@ -106,7 +107,7 @@ const TASK_LABELS: Record<TaskType, string> = {
 };
 
 const TASK_HELP_TEXT: Record<TaskType, string> = {
-  reading_material: 'Share PDF, DOCX, or PPT resources from institutional Drive with per-student progress visibility.',
+  reading_material: 'Upload PDF, DOCX, or PPT resources to in-app storage with per-student progress visibility.',
   activity: 'Collect traditional student work with Drive-backed file submissions and teacher submission controls.',
   quiz: 'Build custom question sets and choose randomized or sequential delivery.',
   exam: 'Configure order mode, chapter pools, and integrity defaults for exam delivery.',
@@ -131,7 +132,7 @@ const QUIZ_QUESTION_TYPE_OPTIONS: Array<{ value: QuizQuestionType; label: string
 
 const TASK_PAGE_INTRO: Record<TaskType, string> = {
   reading_material:
-    'Publish class references from institutional Google Drive and monitor who opened the material.',
+    'Publish class references to in-app storage and monitor who opened the material.',
   activity:
     'Create traditional work such as essays, group activities, or assignments with direct file submission.',
   quiz:
@@ -573,6 +574,10 @@ export function CreateAssignmentDialog({
       newErrors.dueDate = 'Due date is required for activity, quiz, and exam tasks';
     }
 
+    if (taskType === 'reading_material' && files.length === 0 && !materialFileUrl.trim()) {
+      newErrors.readingMaterialFile = 'Attach a file or provide a direct resource URL';
+    }
+
     if (taskType !== 'reading_material') {
       const parsedPoints = Number(points);
       if (!Number.isFinite(parsedPoints) || parsedPoints < 0) {
@@ -623,16 +628,30 @@ export function CreateAssignmentDialog({
     const selectedFiles = e.target.files;
     if (!selectedFiles) return;
 
-    Array.from(selectedFiles).forEach((file) => {
+    const nextFiles = Array.from(selectedFiles).map((file) => {
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-      const newFile: AttachedFile = {
+      return {
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         size: `${fileSizeMB} MB`,
         type: file.type,
+        file,
       };
-      setFiles((prev) => [...prev, newFile]);
     });
+
+    if (taskType === 'reading_material' && readingSingleResourceMode) {
+      setFiles(nextFiles.slice(-1));
+      clearFieldError('readingMaterialFile');
+      if (nextFiles.length > 1 || files.length > 0) {
+        toast({
+          title: 'Single file mode enabled',
+          description: 'Only the latest selected file will be attached for this reading material.',
+        });
+      }
+    } else {
+      setFiles((prev) => [...prev, ...nextFiles]);
+      clearFieldError('readingMaterialFile');
+    }
 
     // Reset input
     e.target.value = '';
@@ -1141,10 +1160,13 @@ export function CreateAssignmentDialog({
         const resolvedMaterialType: MaterialType =
           readingResourceType === 'pdf' ? 'pdf' : 'document';
 
+        const attachedMaterialFile = files[0]?.file;
+
         await materialsService.create(classId, {
           title: title.trim(),
           type: resolvedMaterialType,
-          file_url: materialFileUrl.trim() || undefined,
+          file_url: attachedMaterialFile ? undefined : materialFileUrl.trim() || undefined,
+          file: attachedMaterialFile,
         });
       } else {
         const assignmentType =
@@ -1570,10 +1592,10 @@ export function CreateAssignmentDialog({
               </div>
 
               <div>
-                <label className="text-sm font-semibold">Resource URL (Google Drive share link)</label>
+                <label className="text-sm font-semibold">Resource URL (optional fallback)</label>
                 <Input
                   type="url"
-                  placeholder="https://drive.google.com/..."
+                  placeholder="https://example.com/material.pdf"
                   value={materialFileUrl}
                   onChange={(e) => setMaterialFileUrl(e.target.value)}
                   className="mt-2 rounded-lg bg-background"
@@ -1607,12 +1629,19 @@ export function CreateAssignmentDialog({
 
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="rounded-full text-xs bg-background">
-                Source storage: Institutional Google Drive
+                Source storage: In-app secured storage
               </Badge>
               <Badge variant="outline" className="rounded-full text-xs bg-background">
                 Progress tracking: {readingProgressTracking ? 'Enabled' : 'Disabled'}
               </Badge>
             </div>
+
+            {errors.readingMaterialFile && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                {errors.readingMaterialFile}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -2467,7 +2496,9 @@ export function CreateAssignmentDialog({
   const attachmentsSectionContent = (
     <div>
       <p className="text-sm text-muted-foreground mb-4">
-        Attach supporting files such as PDFs, documents, images, or presentations.
+        {taskType === 'reading_material'
+          ? 'Attach the reading file that students will open inside the app.'
+          : 'Attach supporting files such as PDFs, documents, images, or presentations.'}
       </p>
 
       {/* File Upload Area */}

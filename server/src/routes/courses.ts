@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as courseController from '../controllers/courses.js';
 import * as enrollmentController from '../controllers/enrollments.js';
 import { authenticate, authorize } from '../middleware/auth.js';
+import { materialUpload } from '../middleware/upload.js';
 import { validate } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
 import {
@@ -99,6 +100,7 @@ router.post(
   '/:courseId/materials',
   authenticate,
   authorize(UserRole.ADMIN, UserRole.TEACHER),
+  materialUpload.single('file'),
   validate({ params: courseMaterialsParamSchema, body: createMaterialSchema }),
   courseController.createMaterial
 );

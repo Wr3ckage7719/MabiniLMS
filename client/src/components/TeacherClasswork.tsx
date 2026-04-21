@@ -23,6 +23,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useMaterials } from '@/hooks-api/useMaterials';
+import { materialsService } from '@/services/materials.service';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,9 +70,67 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
   const [activeTab, setActiveTab] = useState('assignments');
   const [assignmentSort, setAssignmentSort] = useState<'due-soon' | 'due-latest' | 'title' | 'points'>('due-soon');
   const [materialSort, setMaterialSort] = useState<'title' | 'newest' | 'downloads'>('newest');
+  const [deletingMaterialIds, setDeletingMaterialIds] = useState<string[]>([]);
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: classAssignments = [], isLoading: assignmentsLoading } = useAssignments(classId);
-  const { data: classMaterials = [], isLoading: materialsLoading } = useMaterials(classId);
+  const {
+    data: classMaterials = [],
+    isLoading: materialsLoading,
+    refetch: refetchMaterials,
+  } = useMaterials(classId);
+
+  const handleOpenMaterial = (url?: string) => {
+    if (!url) {
+      toast({
+        title: 'Material link unavailable',
+        description: 'This material does not have a valid file URL yet.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDeleteMaterial = (materialId: string) => {
+    if (deletingMaterialIds.includes(materialId)) {
+      return;
+    }
+
+    void (async () => {
+      setDeletingMaterialIds((previous) => [...previous, materialId]);
+
+      try {
+        await materialsService.delete(materialId);
+        await refetchMaterials();
+        await queryClient.invalidateQueries({ queryKey: ['materials', classId] });
+
+        toast({
+          title: 'Material deleted',
+          description: 'The selected material was removed successfully.',
+        });
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || 'Failed to delete material';
+
+        toast({
+          title: 'Delete failed',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setDeletingMaterialIds((previous) =>
+          previous.filter((id) => id !== materialId)
+        );
+      }
+    })();
+  };
 
   if (assignmentsLoading || materialsLoading) {
     return (
@@ -453,7 +514,11 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="rounded-lg">
-                            <DropdownMenuItem className="cursor-pointer gap-2">
+                            <DropdownMenuItem
+                              className="cursor-pointer gap-2"
+                              disabled={!material.url}
+                              onClick={() => handleOpenMaterial(material.url)}
+                            >
                               <Download className="h-4 w-4" />
                               Download
                             </DropdownMenuItem>
@@ -461,9 +526,13 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="cursor-pointer text-destructive gap-2">
+                            <DropdownMenuItem
+                              className="cursor-pointer text-destructive gap-2"
+                              disabled={deletingMaterialIds.includes(material.id)}
+                              onClick={() => handleDeleteMaterial(material.id)}
+                            >
                               <Trash2 className="h-4 w-4" />
-                              Delete
+                              {deletingMaterialIds.includes(material.id) ? 'Deleting...' : 'Delete'}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

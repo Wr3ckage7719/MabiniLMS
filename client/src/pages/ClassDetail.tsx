@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
 import { AnnouncementCard } from '@/components/AnnouncementCard';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
+import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 import { StudentClassStream } from '@/components/StudentClassStream';
 import {
   DropdownMenu,
@@ -107,6 +108,7 @@ export default function ClassDetail() {
   const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] = useState<ClassAnnouncement | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
   const [discussionOpen, setDiscussionOpen] = useState(false);
+  const [previewMaterial, setPreviewMaterial] = useState<LearningMaterial | null>(null);
   const classId = id || '';
 
   const classQuery = useClass(classId);
@@ -286,7 +288,12 @@ export default function ClassDetail() {
   };
 
   const handleOpenMaterial = (material: LearningMaterial) => {
-    const didOpen = openMaterialWithTracking(material);
+    const didOpen = openMaterialWithTracking(material, {
+      openUrl: () => {
+        setPreviewMaterial(material);
+      },
+    });
+
     if (!didOpen) {
       showMaterialUnavailableToast();
     }
@@ -893,6 +900,17 @@ export default function ClassDetail() {
           </div>
         </div>
       )}
+
+      <MaterialPreviewDialog
+        open={Boolean(previewMaterial)}
+        material={previewMaterial}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewMaterial(null);
+          }
+        }}
+        onDownload={handleDownloadMaterial}
+      />
 
       {selectedAnnouncementForComments && (
         <div
