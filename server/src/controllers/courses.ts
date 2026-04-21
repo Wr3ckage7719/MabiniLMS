@@ -6,6 +6,7 @@ import {
   PaginatedCourses,
   CourseMaterial,
   MaterialProgress,
+  MaterialEngagementSummary,
   MaterialProgressWithStudent,
   CreateCourseInput,
   UpdateCourseInput,
@@ -14,6 +15,10 @@ import {
   CreateMaterialInput,
   UpdateMaterialInput,
   UpdateMaterialProgressInput,
+  TrackMaterialViewStartInput,
+  TrackMaterialViewEndInput,
+  TrackMaterialDownloadInput,
+  TrackMaterialProgressInput,
 } from '../types/courses.js';
 import * as courseService from '../services/courses.js';
 
@@ -761,6 +766,135 @@ export const listMaterialProgress = async (
     const response: ApiResponse<MaterialProgressWithStudent[]> = {
       success: true,
       data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Track material view start for the current student.
+ */
+export const trackMaterialViewStart = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const input: TrackMaterialViewStartInput = req.body || {};
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.trackMaterialViewStart(id, input, userId, userRole);
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Track material view end for the current student.
+ */
+export const trackMaterialViewEnd = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const input: TrackMaterialViewEndInput = req.body;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.trackMaterialViewEnd(id, input, userId, userRole);
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Track material download for the current student.
+ */
+export const trackMaterialDownload = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const input: TrackMaterialDownloadInput = req.body || {};
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.trackMaterialDownload(id, input, userId, userRole);
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Track in-session material progress updates for the current student.
+ */
+export const trackMaterialProgress = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const input: TrackMaterialProgressInput = req.body;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const progress = await courseService.trackMaterialProgress(id, input, userId, userRole);
+
+    const response: ApiResponse<MaterialProgress> = {
+      success: true,
+      data: progress,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get engagement analytics for a material (teacher/admin only).
+ */
+export const getMaterialEngagement = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const engagement = await courseService.getMaterialEngagement(id, userId, userRole);
+
+    const response: ApiResponse<MaterialEngagementSummary[]> = {
+      success: true,
+      data: engagement,
     };
     res.json(response);
   } catch (error) {

@@ -5,6 +5,10 @@ import { validate } from '../middleware/validate.js';
 import { UserRole } from '../types/index.js';
 import {
   materialIdParamSchema,
+  trackMaterialDownloadSchema,
+  trackMaterialProgressSchema,
+  trackMaterialViewEndSchema,
+  trackMaterialViewStartSchema,
   updateMaterialProgressSchema,
   updateMaterialSchema,
 } from '../types/courses.js';
@@ -48,6 +52,51 @@ router.get(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: materialIdParamSchema }),
   courseController.listMaterialProgress
+);
+
+// Get engagement analytics for a material (teacher/admin)
+router.get(
+  '/:id/engagement',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: materialIdParamSchema }),
+  courseController.getMaterialEngagement
+);
+
+// Track view-start event (student)
+router.post(
+  '/:id/track/view-start',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema, body: trackMaterialViewStartSchema }),
+  courseController.trackMaterialViewStart
+);
+
+// Track view-end event (student)
+router.post(
+  '/:id/track/view-end',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema, body: trackMaterialViewEndSchema }),
+  courseController.trackMaterialViewEnd
+);
+
+// Track download event (student)
+router.post(
+  '/:id/track/download',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema, body: trackMaterialDownloadSchema }),
+  courseController.trackMaterialDownload
+);
+
+// Track scroll/page progress event (student)
+router.post(
+  '/:id/track/progress',
+  authenticate,
+  authorize(UserRole.STUDENT),
+  validate({ params: materialIdParamSchema, body: trackMaterialProgressSchema }),
+  courseController.trackMaterialProgress
 );
 
 // Update material
