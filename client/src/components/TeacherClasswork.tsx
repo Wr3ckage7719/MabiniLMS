@@ -4,6 +4,7 @@ import {
   FileText,
   Book,
   ClipboardList,
+  Eye,
   Download,
   Trash2,
   MoreVertical,
@@ -41,6 +42,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
+import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
+import type { LearningMaterial } from '@/lib/data';
 
 const TYPE_ICONS: Record<string, typeof FileText> = {
   assignment: FileText,
@@ -71,6 +74,7 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
   const [assignmentSort, setAssignmentSort] = useState<'due-soon' | 'due-latest' | 'title' | 'points'>('due-soon');
   const [materialSort, setMaterialSort] = useState<'title' | 'newest' | 'downloads'>('newest');
   const [deletingMaterialIds, setDeletingMaterialIds] = useState<string[]>([]);
+  const [selectedMaterial, setSelectedMaterial] = useState<LearningMaterial | null>(null);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -82,8 +86,8 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
     refetch: refetchMaterials,
   } = useMaterials(classId);
 
-  const handleOpenMaterial = (url?: string) => {
-    if (!url) {
+  const handleOpenMaterial = (material: LearningMaterial) => {
+    if (!material.url) {
       toast({
         title: 'Material link unavailable',
         description: 'This material does not have a valid file URL yet.',
@@ -92,7 +96,20 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
       return;
     }
 
-    window.open(url, '_blank', 'noopener,noreferrer');
+    setSelectedMaterial(material);
+  };
+
+  const handleDownloadMaterial = (material: LearningMaterial) => {
+    if (!material.url) {
+      toast({
+        title: 'Material link unavailable',
+        description: 'This material does not have a valid file URL yet.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    window.open(material.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteMaterial = (materialId: string) => {
@@ -517,7 +534,15 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                             <DropdownMenuItem
                               className="cursor-pointer gap-2"
                               disabled={!material.url}
-                              onClick={() => handleOpenMaterial(material.url)}
+                              onClick={() => handleOpenMaterial(material)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              Open
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="cursor-pointer gap-2"
+                              disabled={!material.url}
+                              onClick={() => handleDownloadMaterial(material)}
                             >
                               <Download className="h-4 w-4" />
                               Download
@@ -560,6 +585,17 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         classId={classId}
+      />
+
+      <MaterialPreviewDialog
+        open={Boolean(selectedMaterial)}
+        material={selectedMaterial}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedMaterial(null);
+          }
+        }}
+        onDownload={handleDownloadMaterial}
       />
     </div>
   );

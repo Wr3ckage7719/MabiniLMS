@@ -16,6 +16,7 @@ import {
   UpdateMaterialProgressInput,
   PaginatedCourses,
   CourseStatus,
+  MaterialType,
 } from '../types/courses.js';
 import { notifyMaterialAdded } from './websocket.js';
 import logger from '../utils/logger.js';
@@ -239,6 +240,24 @@ const uploadMaterialFile = async (
     objectPath,
     publicUrl: urlData.publicUrl,
   };
+};
+
+const inferMaterialTypeFromUpload = (file: MaterialUploadFile): MaterialType | null => {
+  const mimeType = (file.mimetype || '').trim().toLowerCase();
+
+  if (mimeType === 'application/pdf') {
+    return MaterialType.PDF;
+  }
+
+  if (mimeType === 'video/mp4' || mimeType === 'video/webm') {
+    return MaterialType.VIDEO;
+  }
+
+  if (MATERIALS_ALLOWED_MIME_TYPES.includes(mimeType)) {
+    return MaterialType.DOCUMENT;
+  }
+
+  return null;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -838,8 +857,21 @@ export const createMaterial = async (
   let fileUrl = input.file_url || null;
   let storageObjectPath: string | null = null;
   let storageProvider: string | null = null;
+  let resolvedType = input.type;
 
   if (uploadedFile) {
+    const inferredMaterialType = inferMaterialTypeFromUpload(uploadedFile);
+
+    if (!inferredMaterialType) {
+      throw new ApiError(
+        ErrorCode.VALIDATION_ERROR,
+        'Unsupported material file type uploaded.',
+        400
+      );
+    }
+
+    resolvedType = inferredMaterialType;
+
     const uploaded = await uploadMaterialFile(courseId, userId, input.title, uploadedFile);
     fileUrl = uploaded.publicUrl;
     storageObjectPath = uploaded.objectPath;
@@ -851,7 +883,7 @@ export const createMaterial = async (
     .insert({
       course_id: courseId,
       title: input.title,
-      type: input.type,
+      type: resolvedType,
       file_url: fileUrl,
       drive_file_id: storageObjectPath,
       drive_view_link: storageProvider,
@@ -875,7 +907,7 @@ export const createMaterial = async (
       title: String(data.title || input.title),
       courseId,
       courseName: course.title || 'Course',
-      materialType: String(data.type || input.type || 'reading_material'),
+      materialType: String(data.type || resolvedType || 'reading_material'),
       fileUrl: typeof fileUrl === 'string' ? fileUrl : null,
     });
   } catch (notifyError) {
