@@ -22,6 +22,7 @@ export function MaterialPreviewDialog({
   const hasUrl = Boolean(material.url);
   const isImage = material.fileType === 'image';
   const isVideo = material.fileType === 'video';
+
   const getUrlExtension = (url?: string): string => {
     if (!url) {
       return '';
@@ -39,9 +40,19 @@ export function MaterialPreviewDialog({
       return (extension || '').toLowerCase();
     }
   };
+
+  const toOfficeViewerUrl = (url: string): string => {
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  };
+
   const fileExtension = getUrlExtension(material.url);
   const isPdf = material.fileType === 'pdf' || fileExtension === 'pdf';
-  const canInlinePreview = isImage || isVideo || isPdf;
+  const isOfficeDocument =
+    material.fileType === 'doc'
+    || material.fileType === 'presentation'
+    || material.fileType === 'spreadsheet'
+    || ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(fileExtension);
+  const canInlinePreview = isImage || isVideo || isPdf || isOfficeDocument;
 
   const renderPreview = () => {
     if (!material.url) {
@@ -83,6 +94,18 @@ export function MaterialPreviewDialog({
         <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
           <iframe
             src={material.url}
+            title={material.title}
+            className="h-[65vh] w-full"
+          />
+        </div>
+      );
+    }
+
+    if (isOfficeDocument) {
+      return (
+        <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+          <iframe
+            src={toOfficeViewerUrl(material.url)}
             title={material.title}
             className="h-[65vh] w-full"
           />
