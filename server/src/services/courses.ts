@@ -40,6 +40,7 @@ type MaterialUploadFile = {
   buffer: Buffer;
   mimetype: string;
   originalname: string;
+  size: number;
 };
 
 // ============================================
@@ -117,6 +118,17 @@ const isStoragePermissionDeniedError = (message?: string): boolean => {
 const isStorageObjectMissingError = (message?: string): boolean => {
   const normalized = (message || '').toLowerCase();
   return normalized.includes('not found') || normalized.includes('no such file') || normalized.includes('does not exist');
+};
+
+const isMissingCourseMaterialMetadataColumnError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42703' && (message.includes('file_size') || message.includes('uploaded_by'))
+  ) || (
+    message.includes('column')
+    && (message.includes('file_size') || message.includes('uploaded_by'))
+    && message.includes('does not exist')
+  );
 };
 
 const toSafeStorageBaseName = (value: string): string => {
@@ -374,6 +386,32 @@ const computeAverageSessionDurationSeconds = (
 
   const totalSeconds = sessions.reduce((sum, value) => sum + value, 0);
   return Math.round((totalSeconds / sessions.length) * 100) / 100;
+};
+
+const computeTotalScanSeconds = (
+  events: MaterialEngagementEvent[]
+): number => {
+  const scrollActiveSeconds = events
+    .filter((event) => event.type === 'scroll')
+    .map((event) => {
+      const raw = event.data?.active_seconds;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    })
+    .reduce((sum, value) => sum + value, 0);
+
+  if (scrollActiveSeconds > 0) {
+    return Math.round(scrollActiveSeconds);
+  }
+
+  const viewEndSeconds = events
+    .filter((event) => event.type === 'view_end')
+    .map((event) => {
+      const raw = event.data?.time_spent_seconds;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    })
+    .reduce((sum, value) => sum + value, 0);
+
+  return Math.round(viewEndSeconds);
 };
 
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
@@ -948,7 +986,8 @@ export const createMaterial = async (
   input: CreateMaterialInput,
   userId: string,
   userRole: UserRole,
-  uploadedFile?: MaterialUploadFile
+  uploadedFile?: MaterialUploadFile,
+  uploadedBy?: string
 ): Promise<CourseMaterial> => {
   // Check course exists and user has permission
   const course = await getCourseById(courseId);
@@ -985,28 +1024,52 @@ export const createMaterial = async (
     storageProvider = MATERIALS_STORAGE_PROVIDER;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('course_materials')
-    .insert({
-      course_id: courseId,
-      title: input.title,
-      type: resolvedType,
-      file_url: fileUrl,
-      drive_file_id: storageObjectPath,
-      drive_view_link: storageProvider,
-      uploaded_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
+  const baseInsertPayload = {
+    course_id: courseId,
+    title: input.title,
+    type: resolvedType,
+    file_url: fileUrl,
+    drive_file_id: storageObjectPath,
+    drive_view_link: storageProvider,
+    uploaded_at: new Date().toISOString(),
+  };
 
-  if (error) {
-    logger.error('Failed to create material', { courseId, error: error.message });
+  const metadataInsertPayload = {
+    ...baseInsertPayload,
+    file_size: uploadedFile?.size ?? null,
+    uploaded_by: uploadedBy || userId,
+  };
+
+  let createdMaterial: unknown = null;
+  let insertError: DatabaseErrorShape | null = null;
+
+  const insertMaterial = async (payload: Record<string, unknown>) => {
+    const { data, error } = await supabaseAdmin
+      .from('course_materials')
+      .insert(payload)
+      .select()
+      .single();
+
+    createdMaterial = data;
+    insertError = error as DatabaseErrorShape | null;
+  };
+
+  await insertMaterial(metadataInsertPayload);
+
+  if (insertError && isMissingCourseMaterialMetadataColumnError(insertError)) {
+    await insertMaterial(baseInsertPayload);
+  }
+
+  if (insertError || !createdMaterial) {
+    logger.error('Failed to create material', { courseId, error: insertError?.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to create material',
       500
     );
   }
+
+  const data = createdMaterial as CourseMaterial;
 
   try {
     await notifyMaterialAdded(courseId, {
@@ -1515,6 +1578,9 @@ export const trackMaterialProgress = async (
       scroll_percent: scrollPercent,
       page_number: input.page_number ?? null,
       pages_viewed: mergedPages,
+      active_seconds: typeof input.active_seconds === 'number'
+        ? Math.max(0, Math.round(input.active_seconds))
+        : 0,
     }),
   ];
 
@@ -1706,6 +1772,7 @@ export const getMaterialEngagement = async (
       event_count: interactionEvents.length,
       view_count: countEventsByType(interactionEvents, 'view_start'),
       avg_session_duration_seconds: computeAverageSessionDurationSeconds(interactionEvents),
+      total_scan_seconds: computeTotalScanSeconds(interactionEvents),
       last_viewed_at: row.last_viewed_at,
       completed_at: row.completed_at,
       student: row.student,

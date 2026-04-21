@@ -13,6 +13,7 @@ interface MaterialProgressTrackingPayload {
   scrollPercent: number;
   pageNumber?: number;
   pagesViewed?: number[];
+  activeSeconds?: number;
 }
 
 interface MaterialViewEndTrackingPayload {
@@ -141,6 +142,7 @@ export const trackScrollProgress = async (
       scroll_percent: payload.scrollPercent,
       page_number: payload.pageNumber,
       pages_viewed: payload.pagesViewed,
+      active_seconds: payload.activeSeconds,
     });
   } catch {
     // Tracking is best effort only.
