@@ -122,6 +122,77 @@ const ACTIVITY_FILE_TYPE_OPTIONS = [
   { value: 'zip', label: 'ZIP' },
 ];
 
+const ALLOWED_READING_MATERIAL_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'video/mp4',
+  'video/webm',
+  'application/zip',
+  'application/x-zip-compressed',
+]);
+
+const ALLOWED_READING_MATERIAL_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'ppt',
+  'pptx',
+  'xls',
+  'xlsx',
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'mp4',
+  'webm',
+  'zip',
+]);
+
+const getFileExtension = (fileName: string): string => {
+  const segment = fileName.split('.').pop();
+  return (segment || '').trim().toLowerCase();
+};
+
+const inferMaterialTypeFromFile = (file: File): MaterialType | null => {
+  const mimeType = (file.type || '').trim().toLowerCase();
+
+  if (mimeType === 'application/pdf') {
+    return 'pdf';
+  }
+
+  if (mimeType === 'video/mp4' || mimeType === 'video/webm') {
+    return 'video';
+  }
+
+  if (ALLOWED_READING_MATERIAL_MIME_TYPES.has(mimeType)) {
+    return 'document';
+  }
+
+  const extension = getFileExtension(file.name);
+
+  if (extension === 'pdf') {
+    return 'pdf';
+  }
+
+  if (extension === 'mp4' || extension === 'webm') {
+    return 'video';
+  }
+
+  if (ALLOWED_READING_MATERIAL_EXTENSIONS.has(extension)) {
+    return 'document';
+  }
+
+  return null;
+};
+
 const QUIZ_QUESTION_TYPE_OPTIONS: Array<{ value: QuizQuestionType; label: string }> = [
   { value: 'multiple_choice', label: 'Multiple Choice' },
   { value: 'true_false', label: 'True or False' },
@@ -494,10 +565,8 @@ export function CreateAssignmentDialog({
   const [taskType, setTaskType] = useState<TaskType>(initialTaskType ?? 'activity');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [points, setPoints] = useState('100');
-  const [readingResourceType, setReadingResourceType] = useState<'pdf' | 'docx' | 'pptx'>('pdf');
   const [readingProgressTracking, setReadingProgressTracking] = useState(true);
   const [readingSingleResourceMode, setReadingSingleResourceMode] = useState(true);
-  const [materialFileUrl, setMaterialFileUrl] = useState('');
   const [activityMode, setActivityMode] = useState<ActivityMode>('assignment');
   const [activityAllowedFileTypes, setActivityAllowedFileTypes] = useState<string[]>(['pdf', 'docx', 'pptx']);
   const [submissionsOpen, setSubmissionsOpen] = useState(true);
@@ -574,8 +643,8 @@ export function CreateAssignmentDialog({
       newErrors.dueDate = 'Due date is required for activity, quiz, and exam tasks';
     }
 
-    if (taskType === 'reading_material' && files.length === 0 && !materialFileUrl.trim()) {
-      newErrors.readingMaterialFile = 'Attach a file or provide a direct resource URL';
+    if (taskType === 'reading_material' && files.length === 0) {
+      newErrors.readingMaterialFile = 'Attach a compatible file to continue';
     }
 
     if (taskType !== 'reading_material') {
@@ -628,28 +697,51 @@ export function CreateAssignmentDialog({
     const selectedFiles = e.target.files;
     if (!selectedFiles) return;
 
-    const nextFiles = Array.from(selectedFiles).map((file) => {
+    const acceptedFiles: AttachedFile[] = [];
+    const rejectedFileNames: string[] = [];
+
+    Array.from(selectedFiles).forEach((file) => {
+      if (!inferMaterialTypeFromFile(file)) {
+        rejectedFileNames.push(file.name);
+        return;
+      }
+
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-      return {
+      acceptedFiles.push({
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         size: `${fileSizeMB} MB`,
         type: file.type,
         file,
-      };
+      });
     });
 
+    if (rejectedFileNames.length > 0) {
+      const rejectedSummary = rejectedFileNames.slice(0, 3).join(', ');
+      const suffix = rejectedFileNames.length > 3 ? ` +${rejectedFileNames.length - 3} more` : '';
+      toast({
+        title: 'Unsupported file type rejected',
+        description: `${rejectedSummary}${suffix}. Allowed: PDF, Office files, images, MP4/WEBM, ZIP.`,
+        variant: 'destructive',
+      });
+    }
+
+    if (acceptedFiles.length === 0) {
+      e.target.value = '';
+      return;
+    }
+
     if (taskType === 'reading_material' && readingSingleResourceMode) {
-      setFiles(nextFiles.slice(-1));
+      setFiles(acceptedFiles.slice(-1));
       clearFieldError('readingMaterialFile');
-      if (nextFiles.length > 1 || files.length > 0) {
+      if (acceptedFiles.length > 1 || files.length > 0) {
         toast({
           title: 'Single file mode enabled',
           description: 'Only the latest selected file will be attached for this reading material.',
         });
       }
     } else {
-      setFiles((prev) => [...prev, ...nextFiles]);
+      setFiles((prev) => [...prev, ...acceptedFiles]);
       clearFieldError('readingMaterialFile');
     }
 
@@ -1157,15 +1249,30 @@ export function CreateAssignmentDialog({
 
     try {
       if (taskType === 'reading_material') {
-        const resolvedMaterialType: MaterialType =
-          readingResourceType === 'pdf' ? 'pdf' : 'document';
-
         const attachedMaterialFile = files[0]?.file;
+
+        if (!attachedMaterialFile) {
+          setErrors((prev) => ({
+            ...prev,
+            readingMaterialFile: 'Attach a compatible file to continue',
+          }));
+          return;
+        }
+
+        const resolvedMaterialType = inferMaterialTypeFromFile(attachedMaterialFile);
+
+        if (!resolvedMaterialType) {
+          toast({
+            title: 'Unsupported reading material file',
+            description: 'Allowed: PDF, Office files, images, MP4/WEBM, ZIP.',
+            variant: 'destructive',
+          });
+          return;
+        }
 
         await materialsService.create(classId, {
           title: title.trim(),
           type: resolvedMaterialType,
-          file_url: attachedMaterialFile ? undefined : materialFileUrl.trim() || undefined,
           file: attachedMaterialFile,
         });
       } else {
@@ -1338,10 +1445,8 @@ export function CreateAssignmentDialog({
     setTaskType(initialTaskType ?? 'activity');
     setDueDate(undefined);
     setPoints('100');
-    setReadingResourceType('pdf');
     setReadingProgressTracking(true);
     setReadingSingleResourceMode(true);
-    setMaterialFileUrl('');
     setActivityMode('assignment');
     setActivityAllowedFileTypes(['pdf', 'docx', 'pptx']);
     setSubmissionsOpen(true);
@@ -1573,34 +1678,9 @@ export function CreateAssignmentDialog({
       {taskType === 'reading_material' && (
         <Card className="border border-emerald-200 bg-emerald-50/60">
           <CardContent className="p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-semibold">Reading Resource Type</label>
-                <Select
-                  value={readingResourceType}
-                  onValueChange={(value) => setReadingResourceType(value as 'pdf' | 'docx' | 'pptx')}
-                >
-                  <SelectTrigger className="mt-2 rounded-lg bg-background">
-                    <SelectValue placeholder="Select file type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pdf">PDF</SelectItem>
-                    <SelectItem value="docx">DOCX</SelectItem>
-                    <SelectItem value="pptx">PPTX</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Resource URL (optional fallback)</label>
-                <Input
-                  type="url"
-                  placeholder="https://example.com/material.pdf"
-                  value={materialFileUrl}
-                  onChange={(e) => setMaterialFileUrl(e.target.value)}
-                  className="mt-2 rounded-lg bg-background"
-                />
-              </div>
+            <div className="rounded-lg border border-emerald-200/80 bg-background px-3 py-2">
+              <p className="text-sm font-medium">File type is auto-detected from your upload</p>
+              <p className="text-xs text-muted-foreground">Unsupported files are rejected automatically.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

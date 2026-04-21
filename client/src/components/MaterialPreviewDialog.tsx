@@ -22,6 +22,26 @@ export function MaterialPreviewDialog({
   const hasUrl = Boolean(material.url);
   const isImage = material.fileType === 'image';
   const isVideo = material.fileType === 'video';
+  const getUrlExtension = (url?: string): string => {
+    if (!url) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(url);
+      const segment = parsed.pathname.split('/').pop() || '';
+      const extension = segment.includes('.') ? segment.split('.').pop() : '';
+      return (extension || '').toLowerCase();
+    } catch {
+      const sanitized = url.split('?')[0].split('#')[0];
+      const segment = sanitized.split('/').pop() || '';
+      const extension = segment.includes('.') ? segment.split('.').pop() : '';
+      return (extension || '').toLowerCase();
+    }
+  };
+  const fileExtension = getUrlExtension(material.url);
+  const isPdf = material.fileType === 'pdf' || fileExtension === 'pdf';
+  const canInlinePreview = isImage || isVideo || isPdf;
 
   const renderPreview = () => {
     if (!material.url) {
@@ -58,13 +78,22 @@ export function MaterialPreviewDialog({
       );
     }
 
+    if (isPdf) {
+      return (
+        <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
+          <iframe
+            src={material.url}
+            title={material.title}
+            className="h-[65vh] w-full"
+          />
+        </div>
+      );
+    }
+
     return (
-      <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
-        <iframe
-          src={material.url}
-          title={material.title}
-          className="h-[65vh] w-full"
-        />
+      <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground space-y-2">
+        <p className="font-medium text-foreground">Inline preview is not available for this file type.</p>
+        <p>Use the Download button to view the file in your device app.</p>
       </div>
     );
   };
@@ -89,6 +118,12 @@ export function MaterialPreviewDialog({
                 Download
               </Button>
             </div>
+          ) : null}
+
+          {hasUrl && !canInlinePreview ? (
+            <p className="text-xs text-muted-foreground">
+              Open will no longer auto-download files. Download manually when needed.
+            </p>
           ) : null}
         </div>
       </DialogContent>

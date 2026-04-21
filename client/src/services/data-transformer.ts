@@ -231,9 +231,7 @@ export function transformUserToStudent(user: BackendUser): Student {
 }
 
 export function transformMaterial(material: BackendMaterial): LearningMaterial {
-  const materialType = material.type || material.file_type;
-
-  const fileTypeMap: Record<string, LearningMaterial['fileType']> = {
+  const fileTypeFromMimeMap: Record<string, LearningMaterial['fileType']> = {
     'application/pdf': 'pdf',
     'application/msword': 'doc',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'doc',
@@ -248,10 +246,63 @@ export function transformMaterial(material: BackendMaterial): LearningMaterial {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'spreadsheet',
     'application/zip': 'archive',
     'application/x-zip-compressed': 'archive',
+  };
+
+  const fileTypeFromSourceMap: Record<string, LearningMaterial['fileType']> = {
     pdf: 'pdf',
+    doc: 'doc',
+    docx: 'doc',
+    ppt: 'presentation',
+    pptx: 'presentation',
+    xls: 'spreadsheet',
+    xlsx: 'spreadsheet',
+    jpg: 'image',
+    jpeg: 'image',
+    png: 'image',
+    gif: 'image',
+    mp4: 'video',
+    webm: 'video',
+    zip: 'archive',
     video: 'video',
     document: 'doc',
     link: 'link',
+  };
+
+  const getUrlExtension = (url?: string): string => {
+    if (!url) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(url);
+      const segment = parsed.pathname.split('/').pop() || '';
+      const extension = segment.includes('.') ? segment.split('.').pop() : '';
+      return (extension || '').toLowerCase();
+    } catch {
+      const sanitized = url.split('?')[0].split('#')[0];
+      const segment = sanitized.split('/').pop() || '';
+      const extension = segment.includes('.') ? segment.split('.').pop() : '';
+      return (extension || '').toLowerCase();
+    }
+  };
+
+  const resolveMaterialFileType = (): LearningMaterial['fileType'] => {
+    const fileTypeKey = (material.file_type || '').toLowerCase();
+    if (fileTypeFromMimeMap[fileTypeKey]) {
+      return fileTypeFromMimeMap[fileTypeKey];
+    }
+
+    const extensionKey = getUrlExtension(material.file_url);
+    if (fileTypeFromSourceMap[extensionKey]) {
+      return fileTypeFromSourceMap[extensionKey];
+    }
+
+    const materialTypeKey = (material.type || '').toLowerCase();
+    if (fileTypeFromSourceMap[materialTypeKey]) {
+      return fileTypeFromSourceMap[materialTypeKey];
+    }
+
+    return 'doc';
   };
 
   const formatFileSize = (bytes?: number): string => {
@@ -269,7 +320,7 @@ export function transformMaterial(material: BackendMaterial): LearningMaterial {
     classId: material.course_id,
     title: material.title,
     description: material.description || '',
-    fileType: fileTypeMap[materialType] || 'pdf',
+    fileType: resolveMaterialFileType(),
     fileSize: formatFileSize(material.file_size),
     uploadedBy: material.uploaded_by || 'Unknown',
     uploadedDate: material.uploaded_at || material.created_at || new Date().toISOString(),
