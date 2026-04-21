@@ -48,6 +48,13 @@ export interface CourseStudent {
   };
 }
 
+export interface SubmissionStorageConsistencyIssue {
+  code: string;
+  message: string;
+  severity: 'warning' | 'error';
+  fallback_applied: boolean;
+}
+
 export interface Submission {
   id: string;
   assignment_id: string;
@@ -55,6 +62,19 @@ export interface Submission {
   content: string | null;
   drive_view_link: string | null;
   drive_file_name: string | null;
+  drive_file_id?: string | null;
+  file_url?: string | null;
+  storage_provider?: 'google_drive' | string | null;
+  provider_file_id?: string | null;
+  provider_file_name?: string | null;
+  provider_view_link?: string | null;
+  provider_revision_id?: string | null;
+  provider_mime_type?: string | null;
+  provider_size_bytes?: number | null;
+  provider_checksum?: string | null;
+  submission_snapshot_at?: string | null;
+  storage_metadata_complete?: boolean;
+  storage_consistency_issues?: SubmissionStorageConsistencyIssue[];
   submission_text: string | null;
   submission_url: string | null;
   submitted_at: string;

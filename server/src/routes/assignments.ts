@@ -208,6 +208,14 @@ router.get(
   assignmentController.listSubmissions
 );
 
+// GET /api/assignments/:assignmentId/submissions/storage-diagnostics - Submission metadata diagnostics
+router.get(
+  '/:assignmentId/submissions/storage-diagnostics',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentSubmissionsParamSchema }),
+  assignmentController.getSubmissionStorageDiagnostics
+);
+
 // GET /api/assignments/:assignmentId/comments - List comments
 router.get(
   '/:assignmentId/comments',

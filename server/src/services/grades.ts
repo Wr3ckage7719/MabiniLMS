@@ -28,6 +28,10 @@ import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
 import { AuditEventType } from './audit.js'
 import { notifyGradeReleased, notifyStandingUpdated } from './websocket.js'
+import {
+  normalizeSubmissionStorageSnapshotForRead,
+  summarizeSubmissionStorageConsistencyIssues,
+} from './submission-storage.js'
 import logger from '../utils/logger.js'
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js'
@@ -566,7 +570,21 @@ export const listAssignmentGrades = async (
       id, submission_id, points_earned, feedback, graded_by, graded_at,
       grader:profiles!grades_graded_by_fkey(id, email, first_name, last_name),
       submission:submissions!inner(
-        id, assignment_id, student_id, drive_file_id, drive_file_name, drive_view_link, submitted_at, status,
+        id,
+        assignment_id,
+        student_id,
+        drive_file_id,
+        drive_file_name,
+        drive_view_link,
+        storage_provider,
+        provider_file_id,
+        provider_revision_id,
+        provider_mime_type,
+        provider_size_bytes,
+        provider_checksum,
+        submission_snapshot_at,
+        submitted_at,
+        status,
         student:profiles!submissions_student_id_fkey(id, email, first_name, last_name)
       )
     `)
@@ -579,20 +597,43 @@ export const listAssignmentGrades = async (
   }
 
   // Transform data
-  return (data || []).map((item: any) => {
+  const transformed = (data || []).map((item: any) => {
     const grader = Array.isArray(item.grader) ? item.grader[0] : item.grader
     const submission = Array.isArray(item.submission) ? item.submission[0] : item.submission
     const student = submission?.student
       ? (Array.isArray(submission.student) ? submission.student[0] : submission.student)
       : null
+    const normalizedStorage = normalizeSubmissionStorageSnapshotForRead(submission || {})
 
     return {
       ...item,
       grader,
-      submission: { ...submission, student: undefined },
+      submission: {
+        ...submission,
+        ...normalizedStorage,
+        student: undefined,
+      },
       student,
     }
   }) as GradeWithSubmission[]
+
+  const issueBreakdown = summarizeSubmissionStorageConsistencyIssues(
+    transformed.map((item) => item.submission)
+  )
+  const inconsistentSubmissions = transformed.filter(
+    (item) => (item.submission.storage_consistency_issues || []).length > 0
+  ).length
+
+  if (inconsistentSubmissions > 0) {
+    logger.warn('Submission storage consistency issues detected in grade listing', {
+      assignmentId,
+      inconsistentSubmissions,
+      totalSubmissions: transformed.length,
+      issueBreakdown,
+    })
+  }
+
+  return transformed
 }
 
 /**

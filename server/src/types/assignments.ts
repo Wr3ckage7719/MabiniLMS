@@ -15,6 +15,19 @@ export enum SubmissionStatus {
 export const submissionStorageProviderSchema = z.enum(['google_drive']);
 export type SubmissionStorageProvider = z.infer<typeof submissionStorageProviderSchema>;
 
+export type SubmissionStorageConsistencyIssueCode =
+  | 'missing_storage_provider'
+  | 'invalid_storage_provider'
+  | 'missing_provider_file_id'
+  | 'missing_submission_snapshot_at';
+
+export interface SubmissionStorageConsistencyIssue {
+  code: SubmissionStorageConsistencyIssueCode;
+  severity: 'warning' | 'error';
+  message: string;
+  fallback_applied: boolean;
+}
+
 export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
 export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
 export const questionOrderModeSchema = z.enum(['sequence', 'random']);
@@ -270,6 +283,10 @@ export interface Submission {
   provider_size_bytes: number | null;
   provider_checksum: string | null;
   submission_snapshot_at: string | null;
+  provider_file_name?: string | null;
+  provider_view_link?: string | null;
+  storage_metadata_complete?: boolean;
+  storage_consistency_issues?: SubmissionStorageConsistencyIssue[];
   submitted_at: string;
   status: SubmissionStatus;
 }
@@ -315,6 +332,26 @@ export interface SubmissionWithGrade extends SubmissionWithStudent {
     graded_by: string;
     graded_at: string;
   };
+}
+
+export interface SubmissionStorageDiagnosticEntry {
+  submission_id: string;
+  student_id: string;
+  status: SubmissionStatus;
+  submitted_at: string;
+  storage_provider: SubmissionStorageProvider;
+  provider_file_id: string | null;
+  submission_snapshot_at: string | null;
+  issues: SubmissionStorageConsistencyIssue[];
+}
+
+export interface SubmissionStorageDiagnosticsReport {
+  assignment_id: string;
+  total_submissions: number;
+  consistent_submissions: number;
+  inconsistent_submissions: number;
+  issue_breakdown: Record<string, number>;
+  submissions: SubmissionStorageDiagnosticEntry[];
 }
 
 export interface AssignmentComment {
