@@ -106,6 +106,7 @@ export const trackMaterialProgressSchema = z.object({
   scroll_percent: z.number().min(0).max(100),
   page_number: z.number().int().min(1).optional(),
   pages_viewed: z.array(z.number().int().min(1)).max(500).optional(),
+  active_seconds: z.number().int().min(0).max(3600).optional(),
 });
 
 // ============================================
@@ -158,6 +159,8 @@ export interface CourseMaterial {
   title: string;
   type: MaterialType;
   file_url: string | null;
+  file_size?: number | null;
+  uploaded_by?: string | null;
   drive_file_id?: string | null;
   drive_view_link?: string | null;
   uploaded_at: string;
@@ -211,6 +214,7 @@ export interface MaterialEngagementSummary {
   event_count: number;
   view_count: number;
   avg_session_duration_seconds: number | null;
+  total_scan_seconds: number;
   last_viewed_at: string;
   completed_at: string | null;
   student: {

@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import type { AxiosProgressEvent } from 'axios';
 
 export type MaterialType = 'pdf' | 'video' | 'document' | 'link';
 
@@ -7,6 +8,10 @@ export interface CreateMaterialPayload {
   type: MaterialType;
   file_url?: string;
   file?: File;
+}
+
+export interface CreateMaterialRequestOptions {
+  onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
 }
 
 export interface UpdateMaterialPayload {
@@ -42,6 +47,7 @@ export interface MaterialTrackProgressPayload {
   scroll_percent: number;
   page_number?: number;
   pages_viewed?: number[];
+  active_seconds?: number;
 }
 
 export interface MaterialEngagementEvent {
@@ -64,6 +70,7 @@ export interface MaterialEngagementRecord {
   event_count: number;
   view_count: number;
   avg_session_duration_seconds: number | null;
+  total_scan_seconds: number;
   last_viewed_at: string;
   completed_at: string | null;
   student: {
@@ -81,6 +88,10 @@ export interface MaterialProgressRecord {
   user_id: string;
   progress_percent: number;
   completed: boolean;
+  download_count?: number;
+  current_scroll_position?: number;
+  pages_viewed?: number[];
+  interaction_events?: MaterialEngagementEvent[];
   last_viewed_at: string;
   completed_at: string | null;
   created_at: string;
@@ -92,7 +103,7 @@ export const materialsService = {
     return apiClient.get(`/courses/${courseId}/materials`);
   },
 
-  create(courseId: string, payload: CreateMaterialPayload) {
+  create(courseId: string, payload: CreateMaterialPayload, options: CreateMaterialRequestOptions = {}) {
     if (payload.file) {
       const formData = new FormData();
       formData.append('title', payload.title);
@@ -107,10 +118,13 @@ export const materialsService = {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        onUploadProgress: options.onUploadProgress,
       });
     }
 
-    return apiClient.post(`/courses/${courseId}/materials`, payload);
+    return apiClient.post(`/courses/${courseId}/materials`, payload, {
+      onUploadProgress: options.onUploadProgress,
+    });
   },
 
   getById(materialId: string) {

@@ -75,6 +75,7 @@ describe('Material progress schema', () => {
       scroll_percent: 64.2,
       page_number: 3,
       pages_viewed: [1, 2, 3],
+      active_seconds: 5,
     })
 
     expect(result.success).toBe(true)
@@ -87,6 +88,13 @@ describe('Material progress schema', () => {
     })
 
     expect(result.success).toBe(false)
+
+    const invalidActiveSeconds = trackMaterialProgressSchema.safeParse({
+      scroll_percent: 10,
+      active_seconds: -1,
+    })
+
+    expect(invalidActiveSeconds.success).toBe(false)
   })
 
   it('accepts download tracking metadata payloads', () => {

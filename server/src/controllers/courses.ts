@@ -494,6 +494,7 @@ export const createMaterial = async (
     const input: CreateMaterialInput = req.body;
     const file = req.file;
     const userId = req.user!.id;
+    const userEmail = req.user!.email;
     const userRole = req.user!.role;
 
     if (!file && !input.file_url) {
@@ -514,8 +515,10 @@ export const createMaterial = async (
             buffer: file.buffer,
             mimetype: file.mimetype,
             originalname: file.originalname,
+            size: file.size,
           }
-        : undefined
+        : undefined,
+      userEmail || userId
     );
 
     const response: ApiResponse<CourseMaterial> = {
