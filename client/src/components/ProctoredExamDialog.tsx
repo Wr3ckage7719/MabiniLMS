@@ -12,7 +12,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { examsService, ExamAttemptSession, ExamSubmissionResult, ProctorViolationType } from '@/services/exams.service'
 
@@ -46,6 +48,7 @@ export function ProctoredExamDialog({
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [answerMap, setAnswerMap] = useState<Record<string, number>>({})
+  const [textAnswerMap, setTextAnswerMap] = useState<Record<string, string>>({})
   const [savingAnswerQuestionId, setSavingAnswerQuestionId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<ExamSubmissionResult | null>(null)
@@ -64,6 +67,7 @@ export function ProctoredExamDialog({
     setSessionError(null)
     setStarted(false)
     setAnswerMap({})
+    setTextAnswerMap({})
     setSavingAnswerQuestionId(null)
     setSubmitting(false)
     setResult(null)
@@ -241,6 +245,35 @@ export function ProctoredExamDialog({
     [isAttemptActive, session, submitting, toast]
   )
 
+  const handleTextAnswer = useCallback(
+    async (questionId: string, text: string) => {
+      if (!session || !isAttemptActive || submitting || !text.trim()) {
+        return
+      }
+
+      setSavingAnswerQuestionId(questionId)
+      try {
+        await examsService.submitExamAnswer(session.attempt.id, {
+          question_id: questionId,
+          answer_text: text.trim(),
+        })
+      } catch (error: any) {
+        toast({
+          title: 'Answer not saved',
+          description:
+            error?.response?.data?.error?.message ||
+            error?.response?.data?.message ||
+            error?.message ||
+            'Please try again.',
+          variant: 'destructive',
+        })
+      } finally {
+        setSavingAnswerQuestionId((current) => (current === questionId ? null : current))
+      }
+    },
+    [isAttemptActive, session, submitting, toast]
+  )
+
   const submitAttempt = useCallback(
     async (reason: 'manual' | 'timeout' = 'manual') => {
       if (!session || submitting || result) {
@@ -362,10 +395,24 @@ export function ProctoredExamDialog({
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F12') {
+        event.preventDefault()
+        void reportViolation('devtools_open', { source: 'F12' })
+      }
       const metaKey = event.ctrlKey || event.metaKey
       if (session.policy.block_print_shortcut && metaKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         void reportViolation('print_shortcut', { source: 'keydown' })
+      }
+    }
+
+    const devToolsThreshold = 160
+    const onWindowResize = () => {
+      if (
+        window.outerWidth - window.innerWidth > devToolsThreshold ||
+        window.outerHeight - window.innerHeight > devToolsThreshold
+      ) {
+        void reportViolation('devtools_open', { source: 'resize_heuristic' })
       }
     }
 
@@ -376,6 +423,7 @@ export function ProctoredExamDialog({
     window.addEventListener('paste', onPaste)
     window.addEventListener('cut', onCut)
     window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onWindowResize)
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -385,15 +433,18 @@ export function ProctoredExamDialog({
       window.removeEventListener('paste', onPaste)
       window.removeEventListener('cut', onCut)
       window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onWindowResize)
     }
   }, [isAttemptActive, reportViolation, session, started])
 
   const answeredCount = useMemo(() => {
     if (!session) return 0
     return session.questions.reduce((total, question) => {
-      return answerMap[question.id] !== undefined ? total + 1 : total
+      const hasChoice = answerMap[question.id] !== undefined
+      const hasText = Boolean(textAnswerMap[question.id]?.trim())
+      return hasChoice || hasText ? total + 1 : total
     }, 0)
-  }, [answerMap, session])
+  }, [answerMap, textAnswerMap, session])
 
   const progress = useMemo(() => {
     if (!session || session.questions.length === 0) return 0
@@ -406,11 +457,13 @@ export function ProctoredExamDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-dvw sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="text-base sm:text-lg">Proctored Exam: {assignmentTitle}</DialogTitle>
+          <DialogTitle className="text-base sm:text-lg">
+            {session?.assignment.is_proctored ? 'Proctored Exam' : 'Quiz'}: {assignmentTitle}
+          </DialogTitle>
           <DialogDescription>
             {session?.assignment.is_proctored
               ? 'This exam is proctored. Fullscreen, visibility, and restricted interaction events are monitored.'
-              : 'Exam mode is active without strict proctoring restrictions.'}
+              : 'Answer each question. Your responses are saved automatically as you go.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -516,37 +569,86 @@ export function ProctoredExamDialog({
               <div className="space-y-3">
                 {session.questions.map((question, questionIndex) => {
                   const selectedChoice = answerMap[question.id]
+                  const textValue = textAnswerMap[question.id] ?? ''
                   const isSavingThisQuestion = savingAnswerQuestionId === question.id
+                  const itemType = question.item_type ?? 'multiple_choice'
 
                   return (
                     <Card key={question.id}>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">
-                          {questionIndex + 1}. {question.prompt}
-                        </CardTitle>
+                        <div className="flex items-start justify-between gap-2">
+                          <CardTitle className="text-sm leading-snug">
+                            {questionIndex + 1}. {question.prompt}
+                          </CardTitle>
+                          <span className="shrink-0 text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+                            {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                          </span>
+                        </div>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        {question.choices.map((choice) => {
-                          const isSelected = selectedChoice === choice.original_index
-                          return (
-                            <button
-                              key={`${question.id}-${choice.rendered_index}`}
-                              type="button"
-                              disabled={disableInteraction}
-                              onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
-                              className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
-                                isSelected
-                                  ? 'border-primary bg-primary/10'
-                                  : 'border-border hover:border-primary/50'
-                              } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
-                            >
-                              <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
-                              {choice.text}
-                            </button>
-                          )
-                        })}
+                        {itemType === 'true_false' && (
+                          <div className="grid grid-cols-2 gap-3">
+                            {question.choices.map((choice) => {
+                              const isSelected = selectedChoice === choice.original_index
+                              const isTrue = choice.text === 'True'
+                              return (
+                                <button
+                                  key={`${question.id}-${choice.rendered_index}`}
+                                  type="button"
+                                  disabled={disableInteraction}
+                                  onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                  className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                    isSelected
+                                      ? isTrue
+                                        ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                        : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                      : 'border-border hover:border-primary/50'
+                                  } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                >
+                                  {choice.text}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {itemType === 'short_answer' && (
+                          <Textarea
+                            value={textValue}
+                            onChange={(e) =>
+                              setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                            }
+                            onBlur={() => void handleTextAnswer(question.id, textValue)}
+                            placeholder="Type your answer here…"
+                            disabled={disableInteraction}
+                            className="resize-none min-h-[100px] text-sm"
+                          />
+                        )}
+
+                        {itemType === 'multiple_choice' && (
+                          question.choices.map((choice) => {
+                            const isSelected = selectedChoice === choice.original_index
+                            return (
+                              <button
+                                key={`${question.id}-${choice.rendered_index}`}
+                                type="button"
+                                disabled={disableInteraction}
+                                onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
+                                  isSelected
+                                    ? 'border-primary bg-primary/10'
+                                    : 'border-border hover:border-primary/50'
+                                } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                              >
+                                <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
+                                {choice.text}
+                              </button>
+                            )
+                          })
+                        )}
+
                         <div className="text-xs text-muted-foreground min-h-4">
-                          {isSavingThisQuestion ? 'Saving answer...' : ' '}
+                          {isSavingThisQuestion ? 'Saving answer…' : ' '}
                         </div>
                       </CardContent>
                     </Card>
@@ -556,17 +658,131 @@ export function ProctoredExamDialog({
             )}
 
             {result && (
-              <Card className="border-primary/30 bg-primary/5">
-                <CardContent className="p-4 space-y-2 text-sm">
-                  <p className="font-semibold">Exam submitted</p>
-                  <p>
-                    Score: {result.score.toFixed(2)} / {result.max_score.toFixed(2)} ({result.percentage.toFixed(2)}%)
-                  </p>
-                  <p>
-                    Answered: {result.answered_count}/{result.total_questions} • Violations: {result.violation_count}
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="space-y-4">
+                <Card className="border-primary/30 bg-primary/5">
+                  <CardContent className="p-4 space-y-2 text-sm">
+                    <p className="font-semibold text-base">
+                      {result.percentage >= 75 ? '🎉 ' : ''}Exam Submitted
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <Badge variant="outline" className="text-xs">
+                        Score: {result.score.toFixed(2)} / {result.max_score.toFixed(2)}
+                      </Badge>
+                      <Badge
+                        variant={result.percentage >= 75 ? 'default' : 'destructive'}
+                        className="text-xs"
+                      >
+                        {result.percentage.toFixed(1)}%
+                      </Badge>
+                      <Badge variant="secondary" className="text-xs">
+                        {result.answered_count}/{result.total_questions} answered
+                      </Badge>
+                      {result.violation_count > 0 && (
+                        <Badge variant="destructive" className="text-xs">
+                          {result.violation_count} violation{result.violation_count !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {result.question_results && result.question_results.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold">Answer Review</p>
+                    {result.question_results.map((qr, qi) => {
+                      const answered = qr.selected_choice_index !== null || Boolean(qr.answer_text?.trim())
+                      const correct = qr.is_correct === true
+                      const incorrect = qr.is_correct === false
+                      const pending = qr.is_correct === null && answered
+
+                      return (
+                        <Card
+                          key={qr.question_id}
+                          className={
+                            correct
+                              ? 'border-green-500/40 bg-green-500/5'
+                              : incorrect
+                                ? 'border-destructive/40 bg-destructive/5'
+                                : 'border-border'
+                          }
+                        >
+                          <CardContent className="p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium leading-snug">
+                                {qi + 1}. {qr.prompt}
+                              </p>
+                              <Badge
+                                variant={correct ? 'default' : incorrect ? 'destructive' : 'secondary'}
+                                className="shrink-0 text-xs"
+                              >
+                                {correct
+                                  ? `+${qr.points_awarded.toFixed(1)} pts`
+                                  : pending
+                                    ? 'Pending'
+                                    : !answered
+                                      ? 'Skipped'
+                                      : '0 pts'}
+                              </Badge>
+                            </div>
+
+                            {qr.item_type === 'short_answer' ? (
+                              <div className="space-y-1 text-xs">
+                                <p className="text-muted-foreground">
+                                  Your answer:{' '}
+                                  <span className="text-foreground font-medium">
+                                    {qr.answer_text?.trim() || '(no answer)'}
+                                  </span>
+                                </p>
+                                {qr.correct_answer_text && (
+                                  <p className="text-muted-foreground">
+                                    Accepted:{' '}
+                                    <span className="text-green-700 dark:text-green-400 font-medium">
+                                      {qr.correct_answer_text}
+                                    </span>
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {qr.choices.map((choiceText, ci) => {
+                                  const isCorrectAnswer = ci === qr.correct_choice_index
+                                  const isStudentAnswer = ci === qr.selected_choice_index
+                                  return (
+                                    <div
+                                      key={ci}
+                                      className={`flex items-center gap-2 rounded-md px-2 py-1 text-xs ${
+                                        isCorrectAnswer
+                                          ? 'bg-green-500/10 text-green-700 dark:text-green-400 font-medium'
+                                          : isStudentAnswer && !isCorrectAnswer
+                                            ? 'bg-destructive/10 text-destructive font-medium'
+                                            : 'text-muted-foreground'
+                                      }`}
+                                    >
+                                      <span className="shrink-0 w-4">
+                                        {isCorrectAnswer ? '✓' : isStudentAnswer && !isCorrectAnswer ? '✗' : ''}
+                                      </span>
+                                      <span>{choiceText}</span>
+                                      {isStudentAnswer && !isCorrectAnswer && (
+                                        <span className="ml-auto text-[10px] opacity-70">your answer</span>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {qr.explanation && (
+                              <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-1">
+                                {qr.explanation}
+                              </p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

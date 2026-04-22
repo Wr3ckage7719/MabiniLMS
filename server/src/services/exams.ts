@@ -8,6 +8,7 @@ import {
   ExamQuestionItemType,
   ExamQuestion,
   ExamQuestionForAttempt,
+  ExamQuestionResult,
   ExamSubmissionResult,
   ExamViolation,
   ListViolationsQuery,
@@ -356,10 +357,11 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
 }
 
 const assertExamAssignment = (assignment: AssignmentContext): void => {
-  if (assignment.assignment_type !== 'exam' && !assignment.is_proctored) {
+  const type = assignment.assignment_type
+  if (type !== 'exam' && type !== 'quiz' && !assignment.is_proctored) {
     throw new ApiError(
       ErrorCode.VALIDATION_ERROR,
-      'Exam endpoints are only available for exam assignments',
+      'This endpoint is only available for exam and quiz assignments',
       400
     )
   }
@@ -965,15 +967,6 @@ export const startExamAttempt = async (
     )
   }
 
-  const unsupportedQuestion = selectedQuestions.find((question) => question.item_type === 'short_answer')
-  if (unsupportedQuestion) {
-    throw new ApiError(
-      ErrorCode.VALIDATION_ERROR,
-      'This exam includes short-answer items that are not supported in the current live attempt player yet.',
-      400
-    )
-  }
-
   const questionOrderIndexes = assignment.question_order_mode === 'random'
     ? fisherYatesOrder(selectedQuestions.length, random)
     : Array.from({ length: selectedQuestions.length }, (_value, index) => index)
@@ -981,7 +974,9 @@ export const startExamAttempt = async (
 
   const renderedChoiceOrders: Record<string, number[]> = {}
   for (const question of selectedQuestions) {
-    renderedChoiceOrders[question.id] = fisherYatesOrder(question.choices.length, random)
+    renderedChoiceOrders[question.id] = question.choices.length > 0
+      ? fisherYatesOrder(question.choices.length, random)
+      : []
   }
 
   const now = new Date().toISOString()
@@ -1029,7 +1024,7 @@ export const submitExamAnswer = async (
   input: SubmitExamAnswerInput,
   userId: string,
   userRole: UserRole
-): Promise<{ attempt_id: string; question_id: string; is_correct: boolean; points_awarded: number }> => {
+): Promise<{ attempt_id: string; question_id: string; is_correct: boolean | null; points_awarded: number }> => {
   const context = await resolveAttemptContext(attemptId)
   assertAttemptAccess(context, userId, userRole)
 
@@ -1054,26 +1049,58 @@ export const submitExamAnswer = async (
 
   const question = parseExamQuestion(questionData as Record<string, unknown>)
 
-  if (input.selected_choice_index < 0 || input.selected_choice_index >= question.choices.length) {
-    throw new ApiError(ErrorCode.VALIDATION_ERROR, 'Selected choice index is out of range', 400)
-  }
+  let isCorrect: boolean | null = null
+  let pointsAwarded = 0
+  let upsertData: Record<string, unknown>
 
-  const isCorrect = input.selected_choice_index === question.correct_choice_index
-  const pointsAwarded = isCorrect ? question.points : 0
+  if (question.item_type === 'short_answer') {
+    const answerText = (input.answer_text ?? '').trim()
+    const acceptedAnswers: string[] = Array.isArray(question.answer_payload?.accepted_answers)
+      ? (question.answer_payload.accepted_answers as string[])
+      : []
+
+    if (acceptedAnswers.length > 0 && answerText) {
+      const caseSensitive = Boolean(question.answer_payload?.case_sensitive)
+      const normalized = caseSensitive ? answerText : answerText.toLowerCase()
+      const normalizedAccepted = acceptedAnswers.map((a) => (caseSensitive ? a : a.toLowerCase()))
+      isCorrect = normalizedAccepted.some((accepted) => normalized === accepted)
+      pointsAwarded = isCorrect ? question.points : 0
+    }
+
+    upsertData = {
+      attempt_id: attemptId,
+      question_id: input.question_id,
+      selected_choice_index: null,
+      answer_text: answerText || null,
+      is_correct: isCorrect,
+      points_awarded: pointsAwarded,
+      answered_at: new Date().toISOString(),
+    }
+  } else {
+    if (input.selected_choice_index === undefined || input.selected_choice_index === null) {
+      throw new ApiError(ErrorCode.VALIDATION_ERROR, 'selected_choice_index is required for this question type', 400)
+    }
+    if (input.selected_choice_index < 0 || input.selected_choice_index >= question.choices.length) {
+      throw new ApiError(ErrorCode.VALIDATION_ERROR, 'Selected choice index is out of range', 400)
+    }
+
+    isCorrect = input.selected_choice_index === question.correct_choice_index
+    pointsAwarded = isCorrect ? question.points : 0
+
+    upsertData = {
+      attempt_id: attemptId,
+      question_id: input.question_id,
+      selected_choice_index: input.selected_choice_index,
+      answer_text: null,
+      is_correct: isCorrect,
+      points_awarded: pointsAwarded,
+      answered_at: new Date().toISOString(),
+    }
+  }
 
   const { error: upsertError } = await supabaseAdmin
     .from('exam_attempt_answers')
-    .upsert(
-      {
-        attempt_id: attemptId,
-        question_id: input.question_id,
-        selected_choice_index: input.selected_choice_index,
-        is_correct: isCorrect,
-        points_awarded: pointsAwarded,
-        answered_at: new Date().toISOString(),
-      },
-      { onConflict: 'attempt_id,question_id' }
-    )
+    .upsert(upsertData, { onConflict: 'attempt_id,question_id' })
 
   if (upsertError) {
     logger.error('Failed to save exam answer', {
@@ -1305,7 +1332,7 @@ export const submitExamAttempt = async (
 
   const { data: answersData, error: answersError } = await supabaseAdmin
     .from('exam_attempt_answers')
-    .select('question_id, points_awarded, is_correct')
+    .select('question_id, points_awarded, is_correct, selected_choice_index, answer_text')
     .eq('attempt_id', attemptId)
 
   if (answersError) {
@@ -1496,6 +1523,33 @@ export const submitExamAttempt = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to finalize exam attempt', 500)
   }
 
+  const answerByQuestionId = new Map(
+    (answersData || []).map((a) => [a.question_id as string, a])
+  )
+
+  const questionResults: ExamQuestionResult[] = questions.map((question) => {
+    const answer = answerByQuestionId.get(question.id)
+    const acceptedAnswers: string[] = Array.isArray(question.answer_payload?.accepted_answers)
+      ? (question.answer_payload.accepted_answers as string[])
+      : []
+    const correctAnswerText = acceptedAnswers.length > 0 ? acceptedAnswers[0] : null
+
+    return {
+      question_id: question.id,
+      prompt: question.prompt,
+      item_type: question.item_type,
+      points_possible: question.points,
+      points_awarded: answer ? roundToTwo(toNumber(answer.points_awarded, 0)) : 0,
+      is_correct: answer ? (answer.is_correct as boolean | null) : null,
+      selected_choice_index: answer ? (answer.selected_choice_index as number | null) : null,
+      answer_text: answer ? (answer.answer_text as string | null) : null,
+      correct_choice_index: question.item_type !== 'short_answer' ? question.correct_choice_index : null,
+      correct_answer_text: correctAnswerText,
+      choices: question.choices,
+      explanation: question.explanation,
+    }
+  })
+
   return {
     attempt_id: attemptId,
     submission_id: submissionId,
@@ -1506,5 +1560,6 @@ export const submitExamAttempt = async (
     answered_count: answeredCount,
     total_questions: totalQuestions,
     violation_count: violationCount,
+    question_results: questionResults,
   }
 }

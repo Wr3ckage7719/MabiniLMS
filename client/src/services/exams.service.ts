@@ -72,9 +72,26 @@ export interface ExamRenderedChoice {
 export interface ExamQuestionForAttempt {
   id: string
   prompt: string
+  item_type: ExamQuestionItemType
+  answer_payload?: Record<string, unknown>
   points: number
   explanation?: string | null
   choices: ExamRenderedChoice[]
+}
+
+export interface ExamQuestionResult {
+  question_id: string
+  prompt: string
+  item_type: ExamQuestionItemType
+  points_possible: number
+  points_awarded: number
+  is_correct: boolean | null
+  selected_choice_index: number | null
+  answer_text: string | null
+  correct_choice_index: number | null
+  correct_answer_text: string | null
+  choices: string[]
+  explanation: string | null
 }
 
 export interface ExamAttempt {
@@ -114,6 +131,7 @@ export interface ExamSubmissionResult {
   answered_count: number
   total_questions: number
   violation_count: number
+  question_results: ExamQuestionResult[]
 }
 
 export interface ExamViolation {
@@ -182,11 +200,11 @@ export const examsService = {
 
   async submitExamAnswer(
     attemptId: string,
-    payload: { question_id: string; selected_choice_index: number }
-  ): Promise<{ attempt_id: string; question_id: string; is_correct: boolean; points_awarded: number }> {
+    payload: { question_id: string; selected_choice_index?: number; answer_text?: string }
+  ): Promise<{ attempt_id: string; question_id: string; is_correct: boolean | null; points_awarded: number }> {
     const response = await apiClient.post<{
       success: boolean
-      data: { attempt_id: string; question_id: string; is_correct: boolean; points_awarded: number }
+      data: { attempt_id: string; question_id: string; is_correct: boolean | null; points_awarded: number }
     }>(`/assignments/exam/attempts/${attemptId}/answers`, payload)
     return unwrapData(response)
   },

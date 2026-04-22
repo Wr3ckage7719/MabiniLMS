@@ -112,7 +112,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [postingComment, setPostingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
 
-  const isExamAssignment = assignment?.rawType === 'exam';
+  const isExamAssignment = assignment?.rawType === 'exam' || assignment?.rawType === 'quiz';
+  const isQuizAssignment = assignment?.rawType === 'quiz';
   const submissionsClosed = assignment?.submissionsOpen === false;
   const Icon = assignment ? TYPE_ICONS[assignment.type] || FileText : FileText;
 
@@ -401,20 +402,23 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
             <div className="pt-2">
               <h4 className="font-semibold text-xs sm:text-sm mb-2">
-                {isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
+                {isQuizAssignment ? 'Quiz' : isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
               </h4>
 
               {isExamAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
                   <p className="text-xs sm:text-sm text-muted-foreground">
-                    This is a proctored exam. Fullscreen, focus changes, and restricted interactions are monitored during your attempt.
+                    {isQuizAssignment
+                      ? 'Answer the quiz questions directly inside the app. Your answers are saved as you go.'
+                      : 'This is a proctored exam. Fullscreen, focus changes, and restricted interactions are monitored during your attempt.'}
                   </p>
                   <Button
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
                     onClick={() => setExamOpen(true)}
                   >
-                    <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
+                    <Send className="h-4 w-4 mr-1" />
+                    {isQuizAssignment ? 'Start Quiz' : 'Start Proctored Exam'}
                   </Button>
                 </div>
               ) : (
