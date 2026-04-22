@@ -12,10 +12,6 @@ import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import {
-  downloadAllMaterialsWithTracking,
-  downloadMaterialWithTracking,
-} from '@/lib/material-actions';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -295,27 +291,6 @@ export default function ClassDetail() {
     setPreviewMaterial(material);
   };
 
-  const handleDownloadMaterial = (material: LearningMaterial) => {
-    const didDownload = downloadMaterialWithTracking(material);
-    if (!didDownload) {
-      showMaterialUnavailableToast();
-    }
-  };
-
-  const handleDownloadAllMaterials = () => {
-    const downloadedCount = downloadAllMaterialsWithTracking(materials);
-
-    if (downloadedCount === 0) {
-      showMaterialUnavailableToast();
-      return;
-    }
-
-    toast({
-      title: downloadedCount === 1 ? '1 material opened for download' : `${downloadedCount} materials opened for download`,
-      description: 'Your browser may prompt for permission when opening multiple files.',
-    });
-  };
-
   const handleMaterialCardKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
     material: LearningMaterial
@@ -574,29 +549,17 @@ export default function ClassDetail() {
                           Added {formatShortDate(material.uploadedDate)}
                         </p>
                         {material.url ? (
-                          <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="mt-2">
                             <Button
                               type="button"
                               size="sm"
-                              className="h-8 text-[11px]"
+                              className="h-8 text-[11px] w-full"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 handleOpenMaterial(material);
                               }}
                             >
                               <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-[11px]"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDownloadMaterial(material);
-                              }}
-                            >
-                              <Download className="h-3.5 w-3.5 mr-1" /> Download
                             </Button>
                           </div>
                         ) : null}
@@ -616,16 +579,6 @@ export default function ClassDetail() {
           <TabsContent value="materials" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 mb-3 md:mb-4 lg:mb-6">
               <h3 className="font-semibold text-base md:text-lg">Learning Materials</h3>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-lg gap-2 w-full md:w-fit text-xs md:text-sm"
-                onClick={handleDownloadAllMaterials}
-              >
-                <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                Download All
-              </Button>
             </div>
             <div className="space-y-1 md:space-y-2 lg:space-y-3 animate-stagger">
               {materials.map((material, idx) => {
@@ -656,18 +609,6 @@ export default function ClassDetail() {
                             <p className="font-medium text-sm md:text-base truncate">{material.title}</p>
                             <p className="text-xs md:text-sm text-muted-foreground mt-0.5 line-clamp-2">{material.description}</p>
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="rounded-lg flex-shrink-0 h-8 w-8 md:h-9 md:w-9 hover:bg-primary/10"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleDownloadMaterial(material);
-                            }}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
                         </div>
                         <div className="flex items-center gap-1.5 md:gap-3 flex-wrap text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-md bg-secondary/50 text-xs">
@@ -905,7 +846,6 @@ export default function ClassDetail() {
             setPreviewMaterial(null);
           }
         }}
-        onDownload={handleDownloadMaterial}
       />
 
       {selectedAnnouncementForComments && (

@@ -175,13 +175,31 @@ const getEventLabel = (event: MaterialEngagementEvent): string => {
 };
 
 const getEventDetails = (event: MaterialEngagementEvent): string | null => {
+  if (event.type === 'view_start') {
+    const openCount = typeof event.data.open_count === 'number'
+      ? Math.max(1, Math.floor(event.data.open_count))
+      : 1;
+    return openCount > 1 ? `Opened ${openCount} times` : 'Opened once';
+  }
+
   if (event.type === 'view_end') {
     const seconds = typeof event.data.time_spent_seconds === 'number'
       ? Math.max(0, Math.round(event.data.time_spent_seconds))
       : 0;
+    const sessionCount = typeof event.data.session_count === 'number'
+      ? Math.max(1, Math.floor(event.data.session_count))
+      : 1;
+    const totalSeconds = typeof event.data.total_time_spent_seconds === 'number'
+      ? Math.max(0, Math.round(event.data.total_time_spent_seconds))
+      : seconds;
     const percent = typeof event.data.final_scroll_percent === 'number'
       ? clampPercent(event.data.final_scroll_percent)
       : 0;
+
+    if (sessionCount > 1) {
+      return `${sessionCount} sessions · ${formatDuration(totalSeconds)} total · ${percent.toFixed(2)}%`;
+    }
+
     return `${formatDuration(seconds)} · ${percent.toFixed(2)}%`;
   }
 
@@ -197,9 +215,12 @@ const getEventDetails = (event: MaterialEngagementEvent): string | null => {
     const activeSeconds = typeof event.data.active_seconds === 'number'
       ? Math.max(0, Math.round(event.data.active_seconds))
       : 0;
+    const heartbeatCount = typeof event.data.heartbeat_count === 'number'
+      ? Math.max(1, Math.floor(event.data.heartbeat_count))
+      : 1;
 
     if (activeSeconds > 0) {
-      return `${percent.toFixed(2)}% · +${formatDuration(activeSeconds)}`;
+      return `${percent.toFixed(2)}% · ${formatDuration(activeSeconds)} active · ${heartbeatCount} scans`;
     }
 
     return `${percent.toFixed(2)}%`;
@@ -1358,39 +1379,46 @@ export function MaterialPreviewDialog({
 
             <div className="min-h-0 flex-1 p-3 md:p-4">
               <TabsContent value="preview" className="mt-0 flex min-h-0 flex-1 flex-col gap-3">
-                <div
-                  ref={previewContainerRef}
-                  onScroll={handleScroll}
-                  className="min-h-0 flex-1 overflow-auto pr-1"
-                >
-                  {renderPreview()}
-                </div>
-
                 {hasUrl ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Scroll progress: {scrollPercent.toFixed(2)}%
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {!isTeacher ? (
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Scroll progress: {scrollPercent.toFixed(2)}%
+                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        {!isTeacher ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="w-full sm:w-auto gap-2"
+                            onClick={handleMarkAsDone}
+                            disabled={markingDone}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            {markingDone ? 'Saving...' : 'Mark as Done'}
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
-                          variant="secondary"
-                          className="gap-2"
-                          onClick={handleMarkAsDone}
-                          disabled={markingDone}
+                          variant={isTeacher ? 'default' : 'outline'}
+                          onClick={handleDownload}
+                          className="w-full sm:w-auto gap-2"
                         >
-                          <CheckCircle2 className="h-4 w-4" />
-                          {markingDone ? 'Saving...' : 'Done'}
+                          <Download className="h-4 w-4" />
+                          {isTeacher ? 'Download File' : 'Download'}
                         </Button>
-                      ) : null}
-                      <Button type="button" variant="outline" onClick={handleDownload} className="gap-2">
-                        <Download className="h-4 w-4" />
-                        Download
-                      </Button>
+                      </div>
                     </div>
                   </div>
                 ) : null}
+
+                <div
+                  ref={previewContainerRef}
+                  onScroll={handleScroll}
+                  className="min-h-0 flex-1 overflow-auto pr-1 pb-1"
+                >
+                  {renderPreview()}
+                </div>
 
                 {hasUrl && !canInlinePreview ? (
                   <p className="text-xs text-muted-foreground">
