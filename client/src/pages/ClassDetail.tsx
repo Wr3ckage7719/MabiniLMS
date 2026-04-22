@@ -495,6 +495,15 @@ export default function ClassDetail() {
                               <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-5">
                                 {a.points} pts
                               </Badge>
+                              {a.status === 'submitted' && (
+                                <Badge className="text-[10px] px-1.5 py-0.5 h-5 bg-blue-500 hover:bg-blue-500">Submitted</Badge>
+                              )}
+                              {a.status === 'graded' && (
+                                <Badge className="text-[10px] px-1.5 py-0.5 h-5 bg-green-600 hover:bg-green-600">Graded</Badge>
+                              )}
+                              {a.status === 'late' && (
+                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 h-5">Late</Badge>
+                              )}
                             </div>
                             <p className={`text-[11px] mt-1 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
                               Due {formatShortDate(a.dueDate)}
@@ -665,6 +674,15 @@ export default function ClassDetail() {
                             Due {new Date(a.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </p>
                         </div>
+                        {a.status === 'submitted' && (
+                          <Badge className="text-xs bg-blue-500 hover:bg-blue-500">Submitted</Badge>
+                        )}
+                        {a.status === 'graded' && (
+                          <Badge className="text-xs bg-green-600 hover:bg-green-600">Graded</Badge>
+                        )}
+                        {a.status === 'late' && (
+                          <Badge variant="destructive" className="text-xs">Late</Badge>
+                        )}
                         {a.attachments && (
                           <Badge variant="secondary" className="text-xs">
                             <Paperclip className="h-3 w-3 mr-1" /> {a.attachments}

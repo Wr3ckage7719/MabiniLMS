@@ -28,6 +28,7 @@ import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
 import { AuditEventType } from './audit.js'
 import { notifyGradeReleased, notifyStandingUpdated } from './websocket.js'
+import { sendGradeNotification } from './notifications.js'
 import {
   normalizeSubmissionStorageSnapshotForRead,
   summarizeSubmissionStorageConsistencyIssues,
@@ -240,6 +241,16 @@ export const createGrade = async (
     maxScore: assignment.max_points,
   });
 
+  void sendGradeNotification(
+    submission.student_id,
+    assignment.title || 'Assignment',
+    course?.title || 'Course',
+    input.points_earned,
+    assignment.max_points,
+    assignment.id,
+    false
+  ).catch((err: unknown) => logger.warn('Grade push notification failed', { err }))
+
   if (course?.id) {
     await notifyStandingUpdated(course.id, submission.student_id, {
       source: 'grade_created',
@@ -364,6 +375,16 @@ export const updateGrade = async (
         score: updated.points_earned,
         maxScore: assignment.max_points,
       });
+
+      void sendGradeNotification(
+        submissionData.student_id,
+        assignment.title || 'Assignment',
+        course?.title || 'Course',
+        updated.points_earned,
+        assignment.max_points,
+        assignment.id,
+        true
+      ).catch((err: unknown) => logger.warn('Grade push notification failed', { err }))
 
       if (course?.id) {
         await notifyStandingUpdated(course.id, submissionData.student_id, {
