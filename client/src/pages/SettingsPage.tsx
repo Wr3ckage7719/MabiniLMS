@@ -23,7 +23,7 @@ import {
 } from '@/lib/pwa-zoom-policy';
 import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
 import axios from 'axios';
-import { AlertCircle, CheckCircle2, Clock3, Link2, Loader2, Trash2, UserPlus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, Eye, EyeOff, Link2, Loader2, Trash2, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface LocalSettingsPreferences {
@@ -118,6 +118,9 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
   const [accountNameDrafts, setAccountNameDrafts] = useState<Record<string, string>>({});
@@ -267,14 +270,16 @@ export default function SettingsPage() {
   }, [user?.name]);
 
   const passwordRequirements = useMemo(() => ([
-    { label: 'At least 8 characters', met: newPassword.length >= 8 },
-    { label: 'Contains a number', met: /\d/.test(newPassword) },
-    { label: 'Contains uppercase letter', met: /[A-Z]/.test(newPassword) },
-    { label: 'Passwords match', met: newPassword === confirmPassword && newPassword.length > 0 },
+    { label: 'At least 8 characters', met: newPassword.length >= 8, required: true },
+    { label: 'Passwords match', met: newPassword === confirmPassword && newPassword.length > 0, required: true },
+    { label: 'Contains a number (recommended)', met: /\d/.test(newPassword), required: false },
+    { label: 'Contains uppercase letter (recommended)', met: /[A-Z]/.test(newPassword), required: false },
   ]), [newPassword, confirmPassword]);
 
+  const requiredPasswordChecks = passwordRequirements.filter((requirement) => requirement.required);
+
   const canSubmitPasswordChange =
-    currentPassword.length > 0 && passwordRequirements.every((requirement) => requirement.met);
+    currentPassword.length > 0 && requiredPasswordChecks.every((requirement) => requirement.met);
 
   const handleOpenAvatarPicker = () => {
     fileInputRef.current?.click();
@@ -787,41 +792,80 @@ export default function SettingsPage() {
 
           <div className="space-y-2">
             <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              className="rounded-xl"
-              disabled={isChangingPassword}
-            />
+            <div className="relative">
+              <Input
+                id="current-password"
+                type={showCurrentPassword ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowCurrentPassword((previous) => !previous)}
+                aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                disabled={isChangingPassword}
+              >
+                {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="new-password">New password</Label>
-            <Input
-              id="new-password"
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              autoComplete="new-password"
-              className="rounded-xl"
-              disabled={isChangingPassword}
-            />
+            <div className="relative">
+              <Input
+                id="new-password"
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowNewPassword((previous) => !previous)}
+                aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                disabled={isChangingPassword}
+              >
+                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="confirm-password">Confirm new password</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              className="rounded-xl"
-              disabled={isChangingPassword}
-            />
+            <div className="relative">
+              <Input
+                id="confirm-password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                autoComplete="new-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowConfirmPassword((previous) => !previous)}
+                aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                disabled={isChangingPassword}
+              >
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2 rounded-lg bg-muted/50 p-3">

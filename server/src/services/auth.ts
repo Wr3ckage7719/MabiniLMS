@@ -1646,14 +1646,30 @@ export const changePassword = async (
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> => {
-  // First verify current password by attempting to get user session
+  // Resolve account email for current-password verification.
+  // Some legacy profiles may not have email populated, so fall back to auth user.
   const { data: profile } = await supabaseAdmin
     .from('profiles')
     .select('email')
     .eq('id', userId)
     .single();
 
-  if (!profile?.email) {
+  let accountEmail = typeof profile?.email === 'string' ? profile.email.trim() : '';
+
+  if (!accountEmail) {
+    const { data: authUserResult, error: authUserError } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (authUserError) {
+      logger.error('Failed to resolve auth user while changing password', {
+        userId,
+        error: authUserError.message,
+      });
+    }
+
+    accountEmail = authUserResult?.user?.email?.trim() || '';
+  }
+
+  if (!accountEmail) {
     throw new ApiError(
       ErrorCode.NOT_FOUND,
       'User not found',
@@ -1664,7 +1680,7 @@ export const changePassword = async (
   // Verify current password
   const authClient = createIsolatedAuthClient();
   const { error: verifyError } = await authClient.auth.signInWithPassword({
-    email: profile.email,
+    email: accountEmail,
     password: currentPassword,
   });
 
