@@ -28,7 +28,9 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import {
+  CheckCircle2,
   FileText,
   Activity,
   BookOpen,
@@ -39,6 +41,7 @@ import {
   Plus,
   Trash2,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -593,6 +596,12 @@ export function CreateAssignmentDialog({
   const [topics, setTopics] = useState<Topic[]>([]);
   const [newTopic, setNewTopic] = useState('');
   const [showTopicInput, setShowTopicInput] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingMaterial, setIsUploadingMaterial] = useState(false);
+  const [materialUploadProgress, setMaterialUploadProgress] = useState(0);
+  const [uploadingMaterialName, setUploadingMaterialName] = useState<string | null>(null);
+  const [uploadingMaterialId, setUploadingMaterialId] = useState<string | null>(null);
+  const [completedMaterialId, setCompletedMaterialId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -694,6 +703,11 @@ export function CreateAssignmentDialog({
   };
 
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isSubmitting || isUploadingMaterial) {
+      e.target.value = '';
+      return;
+    }
+
     const selectedFiles = e.target.files;
     if (!selectedFiles) return;
 
@@ -731,6 +745,9 @@ export function CreateAssignmentDialog({
       return;
     }
 
+    setCompletedMaterialId(null);
+    setUploadingMaterialId(null);
+
     if (taskType === 'reading_material' && readingSingleResourceMode) {
       setFiles(acceptedFiles.slice(-1));
       clearFieldError('readingMaterialFile');
@@ -750,6 +767,18 @@ export function CreateAssignmentDialog({
   };
 
   const removeFile = (fileId: string) => {
+    if (isSubmitting || isUploadingMaterial) {
+      return;
+    }
+
+    if (completedMaterialId === fileId) {
+      setCompletedMaterialId(null);
+    }
+
+    if (uploadingMaterialId === fileId) {
+      setUploadingMaterialId(null);
+    }
+
     setFiles((prev) => prev.filter((f) => f.id !== fileId));
   };
 
@@ -1227,6 +1256,10 @@ export function CreateAssignmentDialog({
 
   const handleTaskTypeChange = (nextType: TaskType) => {
     setTaskType(nextType);
+    if (nextType !== 'reading_material') {
+      setUploadingMaterialId(null);
+      setCompletedMaterialId(null);
+    }
     clearFieldError('dueDate');
     clearFieldError('points');
     clearFieldError('activityFileTypes');
@@ -1236,6 +1269,10 @@ export function CreateAssignmentDialog({
   };
 
   const handleCreate = async () => {
+    if (isSubmitting || isUploadingMaterial) {
+      return;
+    }
+
     if (!validateForm()) return;
 
     if (!classId) {
@@ -1247,9 +1284,12 @@ export function CreateAssignmentDialog({
       return;
     }
 
+    setIsSubmitting(true);
+
     try {
       if (taskType === 'reading_material') {
-        const attachedMaterialFile = files[0]?.file;
+        const attachedMaterial = files[0];
+        const attachedMaterialFile = attachedMaterial?.file;
 
         if (!attachedMaterialFile) {
           setErrors((prev) => ({
@@ -1270,11 +1310,31 @@ export function CreateAssignmentDialog({
           return;
         }
 
+        setIsUploadingMaterial(true);
+        setMaterialUploadProgress(0);
+        setUploadingMaterialName(attachedMaterialFile.name);
+        setUploadingMaterialId(attachedMaterial?.id || null);
+        setCompletedMaterialId(null);
+
         await materialsService.create(classId, {
           title: title.trim(),
           type: resolvedMaterialType,
           file: attachedMaterialFile,
+        }, {
+          onUploadProgress: (progressEvent) => {
+            const totalBytes = progressEvent.total || attachedMaterialFile.size;
+            if (!totalBytes || totalBytes <= 0) {
+              return;
+            }
+
+            const percent = Math.round((progressEvent.loaded / totalBytes) * 100);
+            setMaterialUploadProgress(Math.min(100, Math.max(0, percent)));
+          },
         });
+
+        setMaterialUploadProgress(100);
+        setCompletedMaterialId(attachedMaterial?.id || null);
+        setUploadingMaterialId(null);
       } else {
         const assignmentType =
           taskType === 'quiz'
@@ -1436,6 +1496,12 @@ export function CreateAssignmentDialog({
         description: message,
         variant: 'destructive',
       });
+    } finally {
+      setIsSubmitting(false);
+      setIsUploadingMaterial(false);
+      setMaterialUploadProgress(0);
+      setUploadingMaterialName(null);
+      setUploadingMaterialId(null);
     }
   };
 
@@ -1473,10 +1539,20 @@ export function CreateAssignmentDialog({
     setTopics([]);
     setNewTopic('');
     setShowTopicInput(false);
+    setIsSubmitting(false);
+    setIsUploadingMaterial(false);
+    setMaterialUploadProgress(0);
+    setUploadingMaterialName(null);
+    setUploadingMaterialId(null);
+    setCompletedMaterialId(null);
     setErrors({});
   };
 
   const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen && (isSubmitting || isUploadingMaterial)) {
+      return;
+    }
+
     if (!newOpen) {
       resetForm();
     }
@@ -1511,13 +1587,19 @@ export function CreateAssignmentDialog({
   ];
 
   const createTaskButtonLabel =
-    taskType === 'reading_material'
-      ? 'Create Reading Material'
-      : taskType === 'activity'
-        ? 'Create Activity Task'
-        : taskType === 'quiz'
-          ? 'Create Quiz Task'
-          : 'Create Exam Task';
+    isUploadingMaterial
+      ? `Uploading ${Math.max(0, Math.min(100, Math.round(materialUploadProgress)))}%`
+      : isSubmitting
+        ? 'Creating...'
+        : taskType === 'reading_material'
+          ? 'Create Reading Material'
+          : taskType === 'activity'
+            ? 'Create Activity Task'
+            : taskType === 'quiz'
+              ? 'Create Quiz Task'
+              : 'Create Exam Task';
+
+  const isActionLocked = isSubmitting || isUploadingMaterial;
 
   const actionButtons = (
     <>
@@ -1525,11 +1607,16 @@ export function CreateAssignmentDialog({
         variant="outline"
         className="rounded-lg"
         onClick={() => handleOpenChange(false)}
+        disabled={isActionLocked}
       >
         Cancel
       </Button>
-      <Button className="rounded-lg gap-2" onClick={handleCreate}>
-        <FileText className="h-4 w-4" />
+      <Button className="rounded-lg gap-2" onClick={handleCreate} disabled={isActionLocked}>
+        {isActionLocked ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <FileText className="h-4 w-4" />
+        )}
         {createTaskButtonLabel}
       </Button>
     </>
@@ -2590,10 +2677,16 @@ export function CreateAssignmentDialog({
           className="hidden"
           id="file-input"
           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.mp4,.zip"
+          disabled={isActionLocked}
         />
         <label
           htmlFor="file-input"
-          className="block p-6 border-2 border-dashed border-border rounded-lg bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors text-center"
+          className={cn(
+            'block p-6 border-2 border-dashed border-border rounded-lg bg-muted/30 transition-colors text-center',
+            isActionLocked
+              ? 'cursor-not-allowed opacity-70 pointer-events-none'
+              : 'cursor-pointer hover:bg-muted/50'
+          )}
         >
           <div className="flex flex-col items-center gap-2">
             <div className="p-2 bg-primary/10 rounded-lg w-fit">
@@ -2618,6 +2711,16 @@ export function CreateAssignmentDialog({
               key={file.id}
               className="flex items-center justify-between p-3 bg-card border border-border rounded-lg group hover:bg-muted/30 transition-colors"
             >
+              {(() => {
+                const isFileUploading = taskType === 'reading_material'
+                  && isUploadingMaterial
+                  && uploadingMaterialId === file.id;
+                const isFileUploaded = taskType === 'reading_material'
+                  && !isUploadingMaterial
+                  && completedMaterialId === file.id;
+
+                return (
+                  <>
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="p-2 bg-primary/10 rounded flex-shrink-0">
                   <FileText className="h-4 w-4 text-primary" />
@@ -2631,16 +2734,64 @@ export function CreateAssignmentDialog({
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => removeFile(file.id)}
-                className="p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 rounded transition-all"
-              >
-                <X className="h-4 w-4 text-destructive" />
-              </button>
+              <div className="flex items-center gap-2">
+                {isFileUploading ? (
+                  <Badge variant="secondary" className="rounded-full h-5 px-2 py-0 text-[10px]">
+                    Uploading {Math.max(0, Math.min(100, Math.round(materialUploadProgress)))}%
+                  </Badge>
+                ) : null}
+                {isFileUploaded ? (
+                  <Badge className="rounded-full h-5 px-2 py-0 text-[10px] bg-emerald-600 hover:bg-emerald-600">
+                    Upload complete
+                  </Badge>
+                ) : null}
+                <button
+                  onClick={() => removeFile(file.id)}
+                  disabled={isActionLocked}
+                  className={cn(
+                    'p-1 rounded transition-all',
+                    isActionLocked
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'opacity-0 group-hover:opacity-100 hover:bg-destructive/10'
+                  )}
+                >
+                  <X className="h-4 w-4 text-destructive" />
+                </button>
+              </div>
+                  </>
+                );
+              })()}
             </div>
           ))}
         </div>
       )}
+
+      {taskType === 'reading_material' && !isUploadingMaterial && completedMaterialId ? (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          <span>Upload complete. File is ready to publish.</span>
+        </div>
+      ) : null}
+
+      {taskType === 'reading_material' && isUploadingMaterial ? (
+        <Card className="border border-primary/25 bg-primary/5 mt-4">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <p className="font-medium text-foreground flex items-center gap-2 min-w-0">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="truncate">Uploading {uploadingMaterialName || 'reading material'}...</span>
+              </p>
+              <span className="text-xs text-muted-foreground">
+                {Math.max(0, Math.min(100, Math.round(materialUploadProgress)))}%
+              </span>
+            </div>
+            <Progress value={Math.max(0, Math.min(100, Math.round(materialUploadProgress)))} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              Please keep this dialog open until the upload is complete.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* No files message */}
       {files.length === 0 && (

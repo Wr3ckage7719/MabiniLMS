@@ -9,9 +9,16 @@ import {
   UpdateCourseStatusInput,
   ListCoursesQuery,
   CourseMaterial,
+  MaterialEngagementEvent,
+  MaterialEngagementEventType,
+  MaterialEngagementSummary,
   MaterialProgress,
   MaterialProgressWithStudent,
   CreateMaterialInput,
+  TrackMaterialDownloadInput,
+  TrackMaterialProgressInput,
+  TrackMaterialViewEndInput,
+  TrackMaterialViewStartInput,
   UpdateMaterialInput,
   UpdateMaterialProgressInput,
   PaginatedCourses,
@@ -33,6 +40,7 @@ type MaterialUploadFile = {
   buffer: Buffer;
   mimetype: string;
   originalname: string;
+  size: number;
 };
 
 // ============================================
@@ -110,6 +118,17 @@ const isStoragePermissionDeniedError = (message?: string): boolean => {
 const isStorageObjectMissingError = (message?: string): boolean => {
   const normalized = (message || '').toLowerCase();
   return normalized.includes('not found') || normalized.includes('no such file') || normalized.includes('does not exist');
+};
+
+const isMissingCourseMaterialMetadataColumnError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42703' && (message.includes('file_size') || message.includes('uploaded_by'))
+  ) || (
+    message.includes('column')
+    && (message.includes('file_size') || message.includes('uploaded_by'))
+    && message.includes('does not exist')
+  );
 };
 
 const toSafeStorageBaseName = (value: string): string => {
@@ -267,6 +286,132 @@ const fixMaterialProgressStudentJoin = (row: any): MaterialProgressWithStudent =
     ...row,
     student,
   } as MaterialProgressWithStudent;
+};
+
+const normalizePercent = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(value * 100) / 100));
+};
+
+const toFiniteNumber = (value: unknown, fallback: number = 0): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizePagesViewed = (value: unknown): number[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const pageSet = new Set<number>();
+  for (const item of value) {
+    if (typeof item === 'number' && Number.isInteger(item) && item > 0) {
+      pageSet.add(item);
+    }
+  }
+
+  return Array.from(pageSet).sort((a, b) => a - b);
+};
+
+const normalizeInteractionEvents = (value: unknown): MaterialEngagementEvent[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: MaterialEngagementEvent[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+
+    const event = item as Partial<MaterialEngagementEvent>;
+    if (
+      (event.type !== 'view_start'
+        && event.type !== 'view_end'
+        && event.type !== 'download'
+        && event.type !== 'scroll')
+      || typeof event.timestamp !== 'string'
+    ) {
+      continue;
+    }
+
+    normalized.push({
+      type: event.type,
+      timestamp: event.timestamp,
+      data: event.data && typeof event.data === 'object'
+        ? event.data as Record<string, unknown>
+        : {},
+    });
+  }
+
+  return normalized;
+};
+
+const buildMaterialEngagementEvent = (
+  type: MaterialEngagementEventType,
+  data: Record<string, unknown>
+): MaterialEngagementEvent => {
+  return {
+    type,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+};
+
+const countEventsByType = (
+  events: MaterialEngagementEvent[],
+  type: MaterialEngagementEventType
+): number => {
+  return events.filter((event) => event.type === type).length;
+};
+
+const computeAverageSessionDurationSeconds = (
+  events: MaterialEngagementEvent[]
+): number | null => {
+  const sessions = events
+    .filter((event) => event.type === 'view_end')
+    .map((event) => {
+      const raw = event.data?.time_spent_seconds;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
+    })
+    .filter((value): value is number => value !== null);
+
+  if (sessions.length === 0) {
+    return null;
+  }
+
+  const totalSeconds = sessions.reduce((sum, value) => sum + value, 0);
+  return Math.round((totalSeconds / sessions.length) * 100) / 100;
+};
+
+const computeTotalScanSeconds = (
+  events: MaterialEngagementEvent[]
+): number => {
+  const scrollActiveSeconds = events
+    .filter((event) => event.type === 'scroll')
+    .map((event) => {
+      const raw = event.data?.active_seconds;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    })
+    .reduce((sum, value) => sum + value, 0);
+
+  if (scrollActiveSeconds > 0) {
+    return Math.round(scrollActiveSeconds);
+  }
+
+  const viewEndSeconds = events
+    .filter((event) => event.type === 'view_end')
+    .map((event) => {
+      const raw = event.data?.time_spent_seconds;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : 0;
+    })
+    .reduce((sum, value) => sum + value, 0);
+
+  return Math.round(viewEndSeconds);
 };
 
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
@@ -841,7 +986,8 @@ export const createMaterial = async (
   input: CreateMaterialInput,
   userId: string,
   userRole: UserRole,
-  uploadedFile?: MaterialUploadFile
+  uploadedFile?: MaterialUploadFile,
+  uploadedBy?: string
 ): Promise<CourseMaterial> => {
   // Check course exists and user has permission
   const course = await getCourseById(courseId);
@@ -878,28 +1024,52 @@ export const createMaterial = async (
     storageProvider = MATERIALS_STORAGE_PROVIDER;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('course_materials')
-    .insert({
-      course_id: courseId,
-      title: input.title,
-      type: resolvedType,
-      file_url: fileUrl,
-      drive_file_id: storageObjectPath,
-      drive_view_link: storageProvider,
-      uploaded_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
+  const baseInsertPayload = {
+    course_id: courseId,
+    title: input.title,
+    type: resolvedType,
+    file_url: fileUrl,
+    drive_file_id: storageObjectPath,
+    drive_view_link: storageProvider,
+    uploaded_at: new Date().toISOString(),
+  };
 
-  if (error) {
-    logger.error('Failed to create material', { courseId, error: error.message });
+  const metadataInsertPayload = {
+    ...baseInsertPayload,
+    file_size: uploadedFile?.size ?? null,
+    uploaded_by: uploadedBy || userId,
+  };
+
+  let createdMaterial: unknown = null;
+  let insertError: DatabaseErrorShape | null = null;
+
+  const insertMaterial = async (payload: Record<string, unknown>) => {
+    const { data, error } = await supabaseAdmin
+      .from('course_materials')
+      .insert(payload)
+      .select()
+      .single();
+
+    createdMaterial = data;
+    insertError = error as DatabaseErrorShape | null;
+  };
+
+  await insertMaterial(metadataInsertPayload);
+
+  if (insertError && isMissingCourseMaterialMetadataColumnError(insertError)) {
+    await insertMaterial(baseInsertPayload);
+  }
+
+  if (insertError || !createdMaterial) {
+    logger.error('Failed to create material', { courseId, error: insertError?.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to create material',
       500
     );
   }
+
+  const data = createdMaterial as CourseMaterial;
 
   try {
     await notifyMaterialAdded(courseId, {
@@ -1097,6 +1267,45 @@ export const deleteMaterial = async (
   }
 };
 
+const persistMaterialProgressUpdate = async (
+  current: MaterialProgress,
+  materialId: string,
+  userId: string,
+  patch: Record<string, unknown>,
+  errorContext: string
+): Promise<MaterialProgress> => {
+  const { data, error } = await supabaseAdmin
+    .from('material_progress')
+    .update(patch)
+    .eq('id', current.id)
+    .select('*')
+    .single();
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    logger.error(errorContext, {
+      materialId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update material progress', 500);
+  }
+
+  return data as MaterialProgress;
+};
+
 /**
  * Get the current student's progress for a material.
  */
@@ -1231,42 +1440,19 @@ export const updateMyMaterialProgress = async (
 
   const nowIso = new Date().toISOString();
 
-  const { data, error } = await supabaseAdmin
-    .from('material_progress')
-    .update({
+  return persistMaterialProgressUpdate(
+    current,
+    materialId,
+    userId,
+    {
       progress_percent: resolvedProgressPercent,
       completed: resolvedCompleted,
       last_viewed_at: input.last_viewed_at || nowIso,
       completed_at: resolvedCompleted ? current.completed_at || nowIso : null,
       updated_at: nowIso,
-    })
-    .eq('id', current.id)
-    .select('*')
-    .single();
-
-  if (error) {
-    if (isMissingRelationError(error)) {
-      throw new ApiError(
-        ErrorCode.INTERNAL_ERROR,
-        'Material progress tracking is unavailable. Run the latest migrations.',
-        503,
-        {
-          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
-          db_code: error.code,
-          db_message: error.message,
-        }
-      );
-    }
-
-    logger.error('Failed to update material progress', {
-      materialId,
-      userId,
-      error: error.message,
-    });
-    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update material progress', 500);
-  }
-
-  return data as MaterialProgress;
+    },
+    'Failed to update material progress'
+  );
 };
 
 /**
@@ -1329,6 +1515,269 @@ export const listMaterialProgress = async (
   }
 
   return (data || []).map(fixMaterialProgressStudentJoin);
+};
+
+/**
+ * Track material view start for the current student.
+ */
+export const trackMaterialViewStart = async (
+  materialId: string,
+  input: TrackMaterialViewStartInput,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  const current = await getMyMaterialProgress(materialId, userId, userRole);
+  const nowIso = new Date().toISOString();
+  const interactionEvents = [
+    ...normalizeInteractionEvents(current.interaction_events),
+    buildMaterialEngagementEvent('view_start', {
+      user_agent: input.user_agent ?? null,
+      device_type: input.device_type ?? 'unknown',
+    }),
+  ];
+
+  return persistMaterialProgressUpdate(
+    current,
+    materialId,
+    userId,
+    {
+      last_viewed_at: nowIso,
+      interaction_events: interactionEvents,
+      updated_at: nowIso,
+    },
+    'Failed to track material view start'
+  );
+};
+
+/**
+ * Track in-session scroll/page progress for the current student.
+ */
+export const trackMaterialProgress = async (
+  materialId: string,
+  input: TrackMaterialProgressInput,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  const current = await getMyMaterialProgress(materialId, userId, userRole);
+  const nowIso = new Date().toISOString();
+  const scrollPercent = normalizePercent(input.scroll_percent);
+  const progressPercent = Math.max(
+    normalizePercent(toFiniteNumber(current.progress_percent, 0)),
+    scrollPercent
+  );
+
+  const mergedPages = normalizePagesViewed([
+    ...normalizePagesViewed(current.pages_viewed),
+    ...normalizePagesViewed(input.pages_viewed),
+    ...(typeof input.page_number === 'number' ? [input.page_number] : []),
+  ]);
+
+  const interactionEvents = [
+    ...normalizeInteractionEvents(current.interaction_events),
+    buildMaterialEngagementEvent('scroll', {
+      scroll_percent: scrollPercent,
+      page_number: input.page_number ?? null,
+      pages_viewed: mergedPages,
+      active_seconds: typeof input.active_seconds === 'number'
+        ? Math.max(0, Math.round(input.active_seconds))
+        : 0,
+    }),
+  ];
+
+  const resolvedCompleted = Boolean(current.completed) || progressPercent >= 100;
+
+  return persistMaterialProgressUpdate(
+    current,
+    materialId,
+    userId,
+    {
+      progress_percent: progressPercent,
+      completed: resolvedCompleted,
+      completed_at: resolvedCompleted ? current.completed_at || nowIso : null,
+      current_scroll_position: scrollPercent,
+      pages_viewed: mergedPages,
+      interaction_events: interactionEvents,
+      last_viewed_at: nowIso,
+      updated_at: nowIso,
+    },
+    'Failed to track material progress'
+  );
+};
+
+/**
+ * Track material view end for the current student.
+ */
+export const trackMaterialViewEnd = async (
+  materialId: string,
+  input: TrackMaterialViewEndInput,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  const current = await getMyMaterialProgress(materialId, userId, userRole);
+  const nowIso = new Date().toISOString();
+  const finalScrollPercent = normalizePercent(input.final_scroll_percent);
+  const progressPercent = Math.max(
+    normalizePercent(toFiniteNumber(current.progress_percent, 0)),
+    finalScrollPercent
+  );
+  const mergedPages = normalizePagesViewed([
+    ...normalizePagesViewed(current.pages_viewed),
+    ...(typeof input.page_number === 'number' ? [input.page_number] : []),
+  ]);
+
+  const interactionEvents = [
+    ...normalizeInteractionEvents(current.interaction_events),
+    buildMaterialEngagementEvent('view_end', {
+      time_spent_seconds: input.time_spent_seconds,
+      final_scroll_percent: finalScrollPercent,
+      page_number: input.page_number ?? null,
+      completed: Boolean(input.completed),
+    }),
+  ];
+
+  const resolvedCompleted = Boolean(input.completed) || Boolean(current.completed) || progressPercent >= 100;
+
+  return persistMaterialProgressUpdate(
+    current,
+    materialId,
+    userId,
+    {
+      progress_percent: progressPercent,
+      completed: resolvedCompleted,
+      completed_at: resolvedCompleted ? current.completed_at || nowIso : null,
+      current_scroll_position: finalScrollPercent,
+      pages_viewed: mergedPages,
+      interaction_events: interactionEvents,
+      last_viewed_at: nowIso,
+      updated_at: nowIso,
+    },
+    'Failed to track material view end'
+  );
+};
+
+/**
+ * Track material download for the current student.
+ */
+export const trackMaterialDownload = async (
+  materialId: string,
+  input: TrackMaterialDownloadInput,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialProgress> => {
+  const current = await getMyMaterialProgress(materialId, userId, userRole);
+  const nowIso = new Date().toISOString();
+  const nextDownloadCount = Math.max(0, Math.floor(toFiniteNumber(current.download_count, 0))) + 1;
+  const interactionEvents = [
+    ...normalizeInteractionEvents(current.interaction_events),
+    buildMaterialEngagementEvent('download', {
+      file_name: input.file_name ?? null,
+      file_size: typeof input.file_size === 'number' ? input.file_size : null,
+    }),
+  ];
+
+  return persistMaterialProgressUpdate(
+    current,
+    materialId,
+    userId,
+    {
+      download_count: nextDownloadCount,
+      interaction_events: interactionEvents,
+      last_viewed_at: nowIso,
+      updated_at: nowIso,
+    },
+    'Failed to track material download'
+  );
+};
+
+/**
+ * List per-student engagement analytics for a material (teacher/admin view).
+ */
+export const getMaterialEngagement = async (
+  materialId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<MaterialEngagementSummary[]> => {
+  if (userRole !== UserRole.ADMIN && userRole !== UserRole.TEACHER) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'Only teachers and admins can view material engagement analytics',
+      403
+    );
+  }
+
+  const material = await getMaterialById(materialId, userId, userRole);
+  await getCourseById(material.course_id, false, userId, userRole);
+
+  const { data, error } = await supabaseAdmin
+    .from('material_progress')
+    .select(`
+      id,
+      material_id,
+      course_id,
+      user_id,
+      progress_percent,
+      completed,
+      download_count,
+      current_scroll_position,
+      pages_viewed,
+      interaction_events,
+      last_viewed_at,
+      completed_at,
+      updated_at,
+      student:profiles!material_progress_user_id_fkey(id, email, first_name, last_name)
+    `)
+    .eq('material_id', materialId)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Material progress tracking is unavailable. Run the latest migrations.',
+        503,
+        {
+          reason: 'MATERIAL_PROGRESS_SCHEMA_OUTDATED',
+          db_code: error.code,
+          db_message: error.message,
+        }
+      );
+    }
+
+    logger.error('Failed to fetch material engagement analytics', {
+      materialId,
+      userId,
+      error: error.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to fetch material engagement analytics', 500);
+  }
+
+  return (data || []).map((rawRow) => {
+    const row = fixMaterialProgressStudentJoin(rawRow);
+    const interactionEvents = normalizeInteractionEvents(row.interaction_events);
+    const pagesViewed = normalizePagesViewed(row.pages_viewed);
+    const progressPercent = normalizePercent(toFiniteNumber(row.progress_percent, 0));
+    const scrollPosition = normalizePercent(toFiniteNumber(row.current_scroll_position, 0));
+
+    return {
+      id: row.id,
+      material_id: row.material_id,
+      course_id: row.course_id,
+      user_id: row.user_id,
+      progress_percent: progressPercent,
+      completed: Boolean(row.completed),
+      download_count: Math.max(0, Math.floor(toFiniteNumber(row.download_count, 0))),
+      current_scroll_position: scrollPosition,
+      pages_viewed: pagesViewed,
+      interaction_events: interactionEvents,
+      event_count: interactionEvents.length,
+      view_count: countEventsByType(interactionEvents, 'view_start'),
+      avg_session_duration_seconds: computeAverageSessionDurationSeconds(interactionEvents),
+      total_scan_seconds: computeTotalScanSeconds(interactionEvents),
+      last_viewed_at: row.last_viewed_at,
+      completed_at: row.completed_at,
+      student: row.student,
+    };
+  });
 };
 
 // ============================================

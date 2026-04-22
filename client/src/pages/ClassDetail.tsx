@@ -12,9 +12,6 @@ import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import {
-  openMaterialWithTracking,
-} from '@/lib/material-actions';
 import { ArrowLeft, FileText, Zap, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -286,15 +283,12 @@ export default function ClassDetail() {
   };
 
   const handleOpenMaterial = (material: LearningMaterial) => {
-    const didOpen = openMaterialWithTracking(material, {
-      openUrl: () => {
-        setPreviewMaterial(material);
-      },
-    });
-
-    if (!didOpen) {
+    if (!material.url) {
       showMaterialUnavailableToast();
+      return;
     }
+
+    setPreviewMaterial(material);
   };
 
   const handleMaterialCardKeyDown = (

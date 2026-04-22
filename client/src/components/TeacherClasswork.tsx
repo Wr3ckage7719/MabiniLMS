@@ -590,6 +590,8 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
       <MaterialPreviewDialog
         open={Boolean(selectedMaterial)}
         material={selectedMaterial}
+        isTeacher
+        courseId={classId}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedMaterial(null);

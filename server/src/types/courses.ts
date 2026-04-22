@@ -85,6 +85,30 @@ export const updateMaterialProgressSchema = z
     message: 'At least one progress field is required',
   });
 
+export const trackMaterialViewStartSchema = z.object({
+  user_agent: z.string().max(512).optional(),
+  device_type: z.enum(['desktop', 'mobile', 'tablet', 'unknown']).optional(),
+});
+
+export const trackMaterialViewEndSchema = z.object({
+  time_spent_seconds: z.number().int().min(0),
+  final_scroll_percent: z.number().min(0).max(100),
+  completed: z.boolean().optional(),
+  page_number: z.number().int().min(1).optional(),
+});
+
+export const trackMaterialDownloadSchema = z.object({
+  file_name: z.string().max(255).optional(),
+  file_size: z.number().int().min(0).optional(),
+});
+
+export const trackMaterialProgressSchema = z.object({
+  scroll_percent: z.number().min(0).max(100),
+  page_number: z.number().int().min(1).optional(),
+  pages_viewed: z.array(z.number().int().min(1)).max(500).optional(),
+  active_seconds: z.number().int().min(0).max(3600).optional(),
+});
+
 // ============================================
 // Type Exports
 // ============================================
@@ -96,6 +120,10 @@ export type ListCoursesQuery = z.infer<typeof listCoursesQuerySchema>;
 export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
 export type UpdateMaterialInput = z.infer<typeof updateMaterialSchema>;
 export type UpdateMaterialProgressInput = z.infer<typeof updateMaterialProgressSchema>;
+export type TrackMaterialViewStartInput = z.infer<typeof trackMaterialViewStartSchema>;
+export type TrackMaterialViewEndInput = z.infer<typeof trackMaterialViewEndSchema>;
+export type TrackMaterialDownloadInput = z.infer<typeof trackMaterialDownloadSchema>;
+export type TrackMaterialProgressInput = z.infer<typeof trackMaterialProgressSchema>;
 
 // ============================================
 // Response Types
@@ -131,6 +159,8 @@ export interface CourseMaterial {
   title: string;
   type: MaterialType;
   file_url: string | null;
+  file_size?: number | null;
+  uploaded_by?: string | null;
   drive_file_id?: string | null;
   drive_view_link?: string | null;
   uploaded_at: string;
@@ -145,11 +175,48 @@ export interface MaterialProgress {
   completed: boolean;
   last_viewed_at: string;
   completed_at: string | null;
+  download_count?: number | null;
+  current_scroll_position?: number | null;
+  pages_viewed?: number[] | null;
+  interaction_events?: MaterialEngagementEvent[] | null;
   created_at: string;
   updated_at: string;
 }
 
+export type MaterialEngagementEventType = 'view_start' | 'view_end' | 'download' | 'scroll';
+
+export interface MaterialEngagementEvent {
+  type: MaterialEngagementEventType;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
 export interface MaterialProgressWithStudent extends MaterialProgress {
+  student: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
+}
+
+export interface MaterialEngagementSummary {
+  id: string;
+  material_id: string;
+  course_id: string;
+  user_id: string;
+  progress_percent: number;
+  completed: boolean;
+  download_count: number;
+  current_scroll_position: number;
+  pages_viewed: number[];
+  interaction_events: MaterialEngagementEvent[];
+  event_count: number;
+  view_count: number;
+  avg_session_duration_seconds: number | null;
+  total_scan_seconds: number;
+  last_viewed_at: string;
+  completed_at: string | null;
   student: {
     id: string;
     email: string;
