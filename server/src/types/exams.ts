@@ -133,10 +133,18 @@ export const startExamAttemptSchema = z.object({
   resume_active_attempt: z.boolean().default(true).optional(),
 })
 
-export const submitExamAnswerSchema = z.object({
-  question_id: z.string().uuid('Invalid question ID'),
-  selected_choice_index: z.number().int().min(0),
-})
+export const submitExamAnswerSchema = z
+  .object({
+    question_id: z.string().uuid('Invalid question ID'),
+    selected_choice_index: z.number().int().min(0).optional(),
+    answer_text: z.string().trim().max(10000).optional(),
+  })
+  .refine(
+    (data) =>
+      data.selected_choice_index !== undefined ||
+      (data.answer_text !== undefined && data.answer_text.trim().length > 0),
+    { message: 'Either selected_choice_index or answer_text must be provided' }
+  )
 
 export const reportExamViolationSchema = z.object({
   violation_type: proctorViolationTypeSchema,
@@ -243,6 +251,21 @@ export interface ExamViolation {
   created_at: string
 }
 
+export interface ExamQuestionResult {
+  question_id: string
+  prompt: string
+  item_type: ExamQuestionItemType
+  points_possible: number
+  points_awarded: number
+  is_correct: boolean | null
+  selected_choice_index: number | null
+  answer_text: string | null
+  correct_choice_index: number | null
+  correct_answer_text: string | null
+  choices: string[]
+  explanation: string | null
+}
+
 export interface ExamSubmissionResult {
   attempt_id: string
   submission_id: string
@@ -253,6 +276,7 @@ export interface ExamSubmissionResult {
   answered_count: number
   total_questions: number
   violation_count: number
+  question_results: ExamQuestionResult[]
 }
 
 export interface ReportExamViolationResult {

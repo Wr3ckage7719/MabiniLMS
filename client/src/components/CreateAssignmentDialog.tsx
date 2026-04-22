@@ -1430,15 +1430,18 @@ export function CreateAssignmentDialog({
             || ''
         );
 
-        if (taskType === 'exam' && createdAssignmentId) {
-          const candidateBuilderQuestions = examQuestions.filter(hasQuestionDraftContent);
+        if ((taskType === 'exam' || taskType === 'quiz') && createdAssignmentId) {
+          const sourceBuilderQuestions = taskType === 'quiz' ? quizQuestions : examQuestions;
+          const candidateBuilderQuestions = sourceBuilderQuestions.filter(hasQuestionDraftContent);
           const builderPayloads = candidateBuilderQuestions
             .map((question, index) => toExamBuilderPayload(question, index))
             .filter((payload): payload is CreateExamQuestionPayload => Boolean(payload));
 
-          const importedPayloads = examImportedQuestions
-            .map((question, index) => toExamImportPayload(question, builderPayloads.length + index))
-            .filter((payload): payload is CreateExamQuestionPayload => Boolean(payload));
+          const importedPayloads = taskType === 'exam'
+            ? examImportedQuestions
+                .map((question, index) => toExamImportPayload(question, builderPayloads.length + index))
+                .filter((payload): payload is CreateExamQuestionPayload => Boolean(payload))
+            : [];
 
           const mappedPayloads = [...builderPayloads, ...importedPayloads];
 
@@ -1448,13 +1451,13 @@ export function CreateAssignmentDialog({
             );
           }
 
-          const sourceQuestionCount = candidateBuilderQuestions.length + examImportedQuestions.length;
+          const sourceQuestionCount = candidateBuilderQuestions.length + (taskType === 'exam' ? examImportedQuestions.length : 0);
           const skippedOnSave = sourceQuestionCount - mappedPayloads.length;
 
           if (skippedOnSave > 0) {
             toast({
-              title: 'Exam questions partially applied',
-              description: `${mappedPayloads.length} questions saved. ${skippedOnSave} questions were skipped due to missing prompt, answer key, or choices.`,
+              title: `${TASK_LABELS[taskType]} questions partially applied`,
+              description: `${mappedPayloads.length} questions saved. ${skippedOnSave} skipped due to missing prompt, answer key, or choices.`,
             });
           }
         }
