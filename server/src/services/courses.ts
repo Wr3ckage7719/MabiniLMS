@@ -362,16 +362,70 @@ const buildMaterialEngagementEvent = (
   };
 };
 
+const upsertInteractionEvent = (
+  events: MaterialEngagementEvent[],
+  type: MaterialEngagementEventType,
+  dataBuilder: (previous: MaterialEngagementEvent | null) => Record<string, unknown>
+): MaterialEngagementEvent[] => {
+  const normalizedEvents = normalizeInteractionEvents(events);
+  const existingIndex = normalizedEvents.findIndex((event) => event.type === type);
+  const previousEvent = existingIndex >= 0 ? normalizedEvents[existingIndex] : null;
+  const nextEvent = buildMaterialEngagementEvent(type, dataBuilder(previousEvent));
+
+  if (existingIndex < 0) {
+    return [...normalizedEvents, nextEvent];
+  }
+
+  const updatedEvents = [...normalizedEvents];
+  updatedEvents[existingIndex] = nextEvent;
+  return updatedEvents;
+};
+
 const countEventsByType = (
   events: MaterialEngagementEvent[],
   type: MaterialEngagementEventType
 ): number => {
+  if (type === 'view_start') {
+    const viewStartEvent = events.find((event) => event.type === 'view_start');
+    if (viewStartEvent) {
+      const openCount = Math.floor(toFiniteNumber(viewStartEvent.data?.open_count, 0));
+      if (openCount > 0) {
+        return openCount;
+      }
+    }
+  }
+
   return events.filter((event) => event.type === type).length;
 };
 
 const computeAverageSessionDurationSeconds = (
   events: MaterialEngagementEvent[]
 ): number | null => {
+  const latestViewEndEvent = events.find((event) => event.type === 'view_end');
+  if (latestViewEndEvent) {
+    const sessionCount = Math.max(
+      1,
+      Math.floor(toFiniteNumber(latestViewEndEvent.data?.session_count, 0))
+    );
+    const totalTimeSpentSeconds = toFiniteNumber(
+      latestViewEndEvent.data?.total_time_spent_seconds,
+      NaN
+    );
+
+    if (Number.isFinite(totalTimeSpentSeconds) && totalTimeSpentSeconds >= 0) {
+      return Math.round((totalTimeSpentSeconds / sessionCount) * 100) / 100;
+    }
+
+    const latestSessionSeconds = toFiniteNumber(
+      latestViewEndEvent.data?.time_spent_seconds,
+      NaN
+    );
+
+    if (Number.isFinite(latestSessionSeconds) && latestSessionSeconds >= 0) {
+      return Math.round(latestSessionSeconds * 100) / 100;
+    }
+  }
+
   const sessions = events
     .filter((event) => event.type === 'view_end')
     .map((event) => {
@@ -391,6 +445,18 @@ const computeAverageSessionDurationSeconds = (
 const computeTotalScanSeconds = (
   events: MaterialEngagementEvent[]
 ): number => {
+  const latestScrollEvent = events.find((event) => event.type === 'scroll');
+  if (latestScrollEvent) {
+    const aggregatedActiveSeconds = toFiniteNumber(
+      latestScrollEvent.data?.active_seconds,
+      NaN
+    );
+
+    if (Number.isFinite(aggregatedActiveSeconds) && aggregatedActiveSeconds >= 0) {
+      return Math.round(aggregatedActiveSeconds);
+    }
+  }
+
   const scrollActiveSeconds = events
     .filter((event) => event.type === 'scroll')
     .map((event) => {
@@ -1061,7 +1127,8 @@ export const createMaterial = async (
   }
 
   if (insertError || !createdMaterial) {
-    logger.error('Failed to create material', { courseId, error: insertError?.message });
+    const insertErrorMessage = (insertError as DatabaseErrorShape | null)?.message;
+    logger.error('Failed to create material', { courseId, error: insertErrorMessage });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to create material',
@@ -1528,13 +1595,34 @@ export const trackMaterialViewStart = async (
 ): Promise<MaterialProgress> => {
   const current = await getMyMaterialProgress(materialId, userId, userRole);
   const nowIso = new Date().toISOString();
-  const interactionEvents = [
-    ...normalizeInteractionEvents(current.interaction_events),
-    buildMaterialEngagementEvent('view_start', {
-      user_agent: input.user_agent ?? null,
-      device_type: input.device_type ?? 'unknown',
-    }),
-  ];
+  const interactionEvents = upsertInteractionEvent(
+    normalizeInteractionEvents(current.interaction_events),
+    'view_start',
+    (previousEvent) => {
+      const previousData = previousEvent?.data || {};
+      const firstOpenedAt = typeof previousData.first_opened_at === 'string'
+        ? previousData.first_opened_at
+        : previousEvent?.timestamp || nowIso;
+      const previousOpenCount = Math.max(
+        0,
+        Math.floor(toFiniteNumber(previousData.open_count, previousEvent ? 1 : 0))
+      );
+      const persistedUserAgent = typeof previousData.user_agent === 'string'
+        ? previousData.user_agent
+        : null;
+      const persistedDeviceType = typeof previousData.device_type === 'string'
+        ? previousData.device_type
+        : 'unknown';
+
+      return {
+        first_opened_at: firstOpenedAt,
+        last_opened_at: nowIso,
+        open_count: previousOpenCount + 1,
+        user_agent: input.user_agent ?? persistedUserAgent,
+        device_type: input.device_type ?? persistedDeviceType,
+      };
+    }
+  );
 
   return persistMaterialProgressUpdate(
     current,
@@ -1572,17 +1660,41 @@ export const trackMaterialProgress = async (
     ...(typeof input.page_number === 'number' ? [input.page_number] : []),
   ]);
 
-  const interactionEvents = [
-    ...normalizeInteractionEvents(current.interaction_events),
-    buildMaterialEngagementEvent('scroll', {
-      scroll_percent: scrollPercent,
-      page_number: input.page_number ?? null,
-      pages_viewed: mergedPages,
-      active_seconds: typeof input.active_seconds === 'number'
+  const interactionEvents = upsertInteractionEvent(
+    normalizeInteractionEvents(current.interaction_events),
+    'scroll',
+    (previousEvent) => {
+      const previousData = previousEvent?.data || {};
+      const previousScrollPercent = normalizePercent(
+        toFiniteNumber(previousData.scroll_percent, 0)
+      );
+      const previousActiveSeconds = Math.max(
+        0,
+        Math.round(toFiniteNumber(previousData.active_seconds, 0))
+      );
+      const currentActiveSeconds = typeof input.active_seconds === 'number'
         ? Math.max(0, Math.round(input.active_seconds))
-        : 0,
-    }),
-  ];
+        : 0;
+      const previousHeartbeatCount = Math.max(
+        0,
+        Math.floor(toFiniteNumber(previousData.heartbeat_count, previousEvent ? 1 : 0))
+      );
+      const previousPageNumber =
+        typeof previousData.page_number === 'number'
+          && Number.isInteger(previousData.page_number)
+          && previousData.page_number > 0
+          ? previousData.page_number
+          : null;
+
+      return {
+        scroll_percent: Math.max(previousScrollPercent, scrollPercent),
+        page_number: input.page_number ?? previousPageNumber,
+        pages_viewed: mergedPages,
+        active_seconds: previousActiveSeconds + currentActiveSeconds,
+        heartbeat_count: previousHeartbeatCount + 1,
+      };
+    }
+  );
 
   const resolvedCompleted = Boolean(current.completed) || progressPercent >= 100;
 
@@ -1625,15 +1737,43 @@ export const trackMaterialViewEnd = async (
     ...(typeof input.page_number === 'number' ? [input.page_number] : []),
   ]);
 
-  const interactionEvents = [
-    ...normalizeInteractionEvents(current.interaction_events),
-    buildMaterialEngagementEvent('view_end', {
-      time_spent_seconds: input.time_spent_seconds,
-      final_scroll_percent: finalScrollPercent,
-      page_number: input.page_number ?? null,
-      completed: Boolean(input.completed),
-    }),
-  ];
+  const interactionEvents = upsertInteractionEvent(
+    normalizeInteractionEvents(current.interaction_events),
+    'view_end',
+    (previousEvent) => {
+      const previousData = previousEvent?.data || {};
+      const previousSessionCount = Math.max(
+        0,
+        Math.floor(toFiniteNumber(previousData.session_count, previousEvent ? 1 : 0))
+      );
+      const previousTotalSessionSeconds = Math.max(
+        0,
+        toFiniteNumber(
+          previousData.total_time_spent_seconds,
+          toFiniteNumber(previousData.time_spent_seconds, 0)
+        )
+      );
+      const currentSessionSeconds = Math.max(0, Math.round(input.time_spent_seconds));
+      const nextSessionCount = previousSessionCount + 1;
+      const nextTotalSessionSeconds = previousTotalSessionSeconds + currentSessionSeconds;
+      const previousPageNumber =
+        typeof previousData.page_number === 'number'
+          && Number.isInteger(previousData.page_number)
+          && previousData.page_number > 0
+          ? previousData.page_number
+          : null;
+
+      return {
+        session_count: nextSessionCount,
+        total_time_spent_seconds: nextTotalSessionSeconds,
+        average_time_spent_seconds: Math.round((nextTotalSessionSeconds / nextSessionCount) * 100) / 100,
+        time_spent_seconds: currentSessionSeconds,
+        final_scroll_percent: finalScrollPercent,
+        page_number: input.page_number ?? previousPageNumber,
+        completed: Boolean(input.completed) || Boolean(previousData.completed),
+      };
+    }
+  );
 
   const resolvedCompleted = Boolean(input.completed) || Boolean(current.completed) || progressPercent >= 100;
 
@@ -1667,13 +1807,25 @@ export const trackMaterialDownload = async (
   const current = await getMyMaterialProgress(materialId, userId, userRole);
   const nowIso = new Date().toISOString();
   const nextDownloadCount = Math.max(0, Math.floor(toFiniteNumber(current.download_count, 0))) + 1;
-  const interactionEvents = [
-    ...normalizeInteractionEvents(current.interaction_events),
-    buildMaterialEngagementEvent('download', {
-      file_name: input.file_name ?? null,
-      file_size: typeof input.file_size === 'number' ? input.file_size : null,
-    }),
-  ];
+  const interactionEvents = upsertInteractionEvent(
+    normalizeInteractionEvents(current.interaction_events),
+    'download',
+    (previousEvent) => {
+      const previousData = previousEvent?.data || {};
+      const previousFileName = typeof previousData.file_name === 'string'
+        ? previousData.file_name
+        : null;
+      const previousFileSize = typeof previousData.file_size === 'number' && Number.isFinite(previousData.file_size)
+        ? previousData.file_size
+        : null;
+
+      return {
+        file_name: input.file_name ?? previousFileName,
+        file_size: typeof input.file_size === 'number' ? input.file_size : previousFileSize,
+        download_count: nextDownloadCount,
+      };
+    }
+  );
 
   return persistMaterialProgressUpdate(
     current,
@@ -1757,6 +1909,29 @@ export const getMaterialEngagement = async (
     const pagesViewed = normalizePagesViewed(row.pages_viewed);
     const progressPercent = normalizePercent(toFiniteNumber(row.progress_percent, 0));
     const scrollPosition = normalizePercent(toFiniteNumber(row.current_scroll_position, 0));
+    const downloadCount = Math.max(0, Math.floor(toFiniteNumber(row.download_count, 0)));
+    const viewCount = countEventsByType(interactionEvents, 'view_start');
+    const latestScrollEvent = interactionEvents.find((event) => event.type === 'scroll');
+    const heartbeatCount = Math.max(
+      0,
+      Math.floor(
+        toFiniteNumber(
+          latestScrollEvent?.data?.heartbeat_count,
+          countEventsByType(interactionEvents, 'scroll')
+        )
+      )
+    );
+    const latestViewEndEvent = interactionEvents.find((event) => event.type === 'view_end');
+    const sessionCount = Math.max(
+      0,
+      Math.floor(
+        toFiniteNumber(
+          latestViewEndEvent?.data?.session_count,
+          countEventsByType(interactionEvents, 'view_end')
+        )
+      )
+    );
+    const eventCount = viewCount + downloadCount + heartbeatCount + sessionCount;
 
     return {
       id: row.id,
@@ -1765,12 +1940,12 @@ export const getMaterialEngagement = async (
       user_id: row.user_id,
       progress_percent: progressPercent,
       completed: Boolean(row.completed),
-      download_count: Math.max(0, Math.floor(toFiniteNumber(row.download_count, 0))),
+      download_count: downloadCount,
       current_scroll_position: scrollPosition,
       pages_viewed: pagesViewed,
       interaction_events: interactionEvents,
-      event_count: interactionEvents.length,
-      view_count: countEventsByType(interactionEvents, 'view_start'),
+      event_count: eventCount,
+      view_count: viewCount,
       avg_session_duration_seconds: computeAverageSessionDurationSeconds(interactionEvents),
       total_scan_seconds: computeTotalScanSeconds(interactionEvents),
       last_viewed_at: row.last_viewed_at,
