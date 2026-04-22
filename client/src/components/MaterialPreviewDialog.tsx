@@ -251,6 +251,7 @@ export function MaterialPreviewDialog({
   const [pptxError, setPptxError] = useState<string | null>(null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [pptPreviewMode, setPptPreviewMode] = useState<'true-content' | 'extracted'>('true-content');
+  const [docPreviewMode, setDocPreviewMode] = useState<'office' | 'extracted'>('office');
   const [markingDone, setMarkingDone] = useState(false);
   const [studentProgress, setStudentProgress] = useState<MaterialProgressRecord | null>(null);
   const [studentProgressLoading, setStudentProgressLoading] = useState(false);
@@ -466,6 +467,7 @@ export function MaterialPreviewDialog({
     setPptxLoading(false);
     setCurrentSlideIndex(0);
     setPptPreviewMode('true-content');
+    setDocPreviewMode('office');
     setMarkingDone(false);
     setStudentProgress(null);
     setStudentProgressLoading(false);
@@ -567,7 +569,7 @@ export function MaterialPreviewDialog({
   }, [material, open]);
 
   useEffect(() => {
-    if (!open || !material?.url || !isDoc) {
+    if (!open || !material?.url || !isDoc || docPreviewMode !== 'extracted') {
       return;
     }
 
@@ -1143,6 +1145,53 @@ export function MaterialPreviewDialog({
     }
 
     if (isDoc) {
+      const docOfficeEmbedUrl = material?.url
+        ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(material.url)}`
+        : null;
+
+      const modeToggle = (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { markInteraction(); setDocPreviewMode('office'); }}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${docPreviewMode === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+          >
+            Office View
+          </button>
+          <button
+            type="button"
+            onClick={() => { markInteraction(); setDocPreviewMode('extracted'); }}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${docPreviewMode === 'extracted' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+          >
+            Extracted
+          </button>
+        </div>
+      );
+
+      if (docPreviewMode === 'office') {
+        return (
+          <div className="rounded-lg border border-border bg-background p-4 space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs text-muted-foreground">Rendered via Microsoft Office Online</span>
+              {modeToggle}
+            </div>
+            {docOfficeEmbedUrl ? (
+              <div className="rounded-lg border border-border overflow-hidden bg-muted/20 h-[calc(100dvh-22rem)] min-h-[24rem]">
+                <iframe
+                  src={docOfficeEmbedUrl}
+                  title={`${material.title} (Office preview)`}
+                  className="h-full w-full"
+                />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                Office preview unavailable for this URL. Switch to Extracted view or use Download.
+              </div>
+            )}
+          </div>
+        );
+      }
+
       if (docxLoading) {
         return (
           <div className="rounded-lg border border-border p-6 bg-muted/20 text-sm text-muted-foreground">
@@ -1154,23 +1203,33 @@ export function MaterialPreviewDialog({
       if (docxError) {
         return (
           <div className="rounded-lg border border-dashed border-border p-6 bg-muted/20 space-y-2 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">DOCX preview could not be rendered.</p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-medium text-foreground">DOCX extraction failed.</p>
+              {modeToggle}
+            </div>
             <p>{docxError}</p>
-            <p>Use Download to open this document in your office app.</p>
+            <p>Switch to Office View or use Download to open in your office app.</p>
           </div>
         );
       }
 
       if (!docxHtml) {
         return (
-          <div className="rounded-lg border border-dashed border-border p-6 bg-muted/20 text-sm text-muted-foreground">
-            No DOCX content was detected for inline preview.
+          <div className="rounded-lg border border-dashed border-border p-6 bg-muted/20 space-y-2 text-sm text-muted-foreground">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>No DOCX content detected for extracted preview.</span>
+              {modeToggle}
+            </div>
           </div>
         );
       }
 
       return (
-        <div className="rounded-lg border border-border bg-background p-4 md:p-6">
+        <div className="rounded-lg border border-border bg-background p-4 md:p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Extracted text</span>
+            {modeToggle}
+          </div>
           <article
             className="prose prose-sm max-w-none dark:prose-invert"
             dangerouslySetInnerHTML={{ __html: docxHtml }}
@@ -1369,42 +1428,67 @@ export function MaterialPreviewDialog({
             }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="border-b border-border p-3 md:p-4">
-              <TabsList className={`grid w-full ${isTeacher ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div className="border-b border-border px-3 py-2 md:p-4">
+              {/* Desktop tab list */}
+              <TabsList className={`hidden sm:grid w-full ${isTeacher ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <TabsTrigger value="preview">Preview</TabsTrigger>
                 {isTeacher ? <TabsTrigger value="engagement">Engagement</TabsTrigger> : null}
                 <TabsTrigger value="details">Details</TabsTrigger>
               </TabsList>
+              {/* Mobile compact tab row */}
+              <div className="flex sm:hidden gap-1">
+                {(['preview', 'details'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => { setActiveTab(tab); markInteraction(); }}
+                    className={`flex-1 rounded-md py-1 text-xs font-medium capitalize transition-colors ${activeTab === tab ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+                {isTeacher ? (
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('engagement'); markInteraction(); }}
+                    className={`flex-1 rounded-md py-1 text-xs font-medium capitalize transition-colors ${activeTab === 'engagement' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                  >
+                    Engage
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 p-3 md:p-4">
               <TabsContent value="preview" className="mt-0 flex min-h-0 flex-1 flex-col gap-3">
                 {hasUrl ? (
                   <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs text-muted-foreground">
-                        Scroll progress: {scrollPercent.toFixed(2)}%
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground shrink-0">
+                        {scrollPercent.toFixed(0)}% read
                       </p>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="flex items-center gap-2">
                         {!isTeacher ? (
                           <Button
                             type="button"
                             variant="secondary"
-                            className="w-full sm:w-auto gap-2"
+                            size="sm"
+                            className="gap-1.5 text-xs"
                             onClick={handleMarkAsDone}
                             disabled={markingDone}
                           >
-                            <CheckCircle2 className="h-4 w-4" />
+                            <CheckCircle2 className="h-3.5 w-3.5" />
                             {markingDone ? 'Saving...' : 'Mark as Done'}
                           </Button>
                         ) : null}
                         <Button
                           type="button"
                           variant={isTeacher ? 'default' : 'outline'}
+                          size="sm"
                           onClick={handleDownload}
-                          className="w-full sm:w-auto gap-2"
+                          className="gap-1.5 text-xs"
                         >
-                          <Download className="h-4 w-4" />
+                          <Download className="h-3.5 w-3.5" />
                           {isTeacher ? 'Download File' : 'Download'}
                         </Button>
                       </div>
