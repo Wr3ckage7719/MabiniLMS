@@ -203,6 +203,30 @@ export const exportGrades = async (
 }
 
 // ============================================
+// Registrar Export
+// ============================================
+
+export const exportRegistrarGrades = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params
+    const csv = await batchService.exportRegistrarGrades(
+      courseId,
+      req.user!.id,
+      req.user!.role as UserRole
+    )
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', `attachment; filename="registrar-grades-${courseId}.csv"`)
+    res.send(csv)
+  } catch (error) {
+    next(error)
+  }
+}
+
+// ============================================
 // Student Import
 // ============================================
 

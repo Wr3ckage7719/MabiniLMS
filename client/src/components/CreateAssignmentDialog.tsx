@@ -683,7 +683,7 @@ export function CreateAssignmentDialog({
       }
     }
 
-    if (taskType === 'exam' && examChapterPoolEnabled) {
+    if ((taskType === 'exam' || taskType === 'quiz') && examChapterPoolEnabled) {
       const parsedTags = examChapterTags
         .split(',')
         .map((tag) => tag.trim())
@@ -1355,7 +1355,7 @@ export function CreateAssignmentDialog({
             ? { take: Math.floor(perChapterCount) }
             : {}),
         }));
-        const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
+        const chapterPoolEnabled = (taskType === 'exam' || taskType === 'quiz') && examChapterPoolEnabled && chapterPoolRules.length > 0;
         const parsedExamMaxViolations = Number(examMaxViolations);
         const effectiveExamMaxViolations =
           Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0
@@ -1398,7 +1398,7 @@ export function CreateAssignmentDialog({
           exam_question_selection_mode:
             taskType === 'exam' ? examQuestionSelection : undefined,
           exam_chapter_pool:
-            taskType === 'exam'
+            (taskType === 'exam' || taskType === 'quiz')
               ? {
                   enabled: chapterPoolEnabled,
                   chapters: chapterPoolEnabled ? chapterPoolRules : [],
@@ -2188,7 +2188,7 @@ export function CreateAssignmentDialog({
         </Card>
       )}
 
-      {taskType === 'exam' && (
+      {(taskType === 'exam' || taskType === 'quiz') && (
         <Card className="border-0 bg-muted/30">
           <CardContent className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

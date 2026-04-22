@@ -20,6 +20,10 @@ export const batchService = {
     return apiClient.get(`/batch/export-grades/${courseId}`);
   },
 
+  exportRegistrarGrades(courseId: string) {
+    return apiClient.get<string>(`/batch/export-registrar/${courseId}`, { responseType: 'text' });
+  },
+
   importStudents(students: Array<{ email: string; first_name: string; last_name: string; role?: 'student' | 'teacher' }>) {
     return apiClient.post('/batch/import-students', { students });
   },

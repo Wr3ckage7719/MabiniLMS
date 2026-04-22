@@ -6,7 +6,16 @@
 
 import { supabaseAdmin } from '../lib/supabase.js'
 import { ApiError, ErrorCode, UserRole } from '../types/index.js'
-import { calculatePercentage, calculateLetterGrade } from '../types/grades.js'
+import {
+  calculatePercentage,
+  calculateLetterGrade,
+  calculateWeightedFinalGrade,
+  normalizeAssignmentCategory,
+  roundToTwoDecimals,
+  GradeCategory,
+} from '../types/grades.js'
+import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
+import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js'
 import { sendEnrollmentNotification } from './notifications.js'
 import { isActiveEnrollmentStatus } from '../utils/enrollmentStatus.js'
 import logger from '../utils/logger.js'
@@ -672,4 +681,173 @@ export const copyCourse = async (
     materials_copied: materialsCopied,
     assignments_copied: assignmentsCopied,
   }
+}
+
+// ============================================
+// Registrar Export
+// ============================================
+
+export interface RegistrarExportRow {
+  lrn: string
+  last_name: string
+  first_name: string
+  middle_initial: string
+  prelim: string
+  midterm: string
+  finals: string
+  final_grade: string
+  remarks: string
+}
+
+/**
+ * Export grades in Mabini Colleges registrar format.
+ * Maps: activity→Prelim (30%), quiz→Midterm (30%), exam→Finals (40%)
+ */
+export const exportRegistrarGrades = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<string> => {
+  const { data: course, error: courseError } = await supabaseAdmin
+    .from('courses')
+    .select('id, title, teacher_id')
+    .eq('id', courseId)
+    .single()
+
+  if (courseError || !course) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404)
+  }
+
+  if (userRole !== UserRole.ADMIN && (course as any).teacher_id !== userId) {
+    throw new ApiError(ErrorCode.FORBIDDEN, 'Not authorized', 403)
+  }
+
+  const { data: enrollments, error: enrollError } = await supabaseAdmin
+    .from('enrollments')
+    .select(`
+      student_id,
+      profile:profiles!enrollments_student_id_fkey(
+        id, first_name, last_name, email
+      )
+    `)
+    .eq('course_id', courseId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
+
+  if (enrollError) {
+    logger.error('Failed to fetch enrollments for registrar export', { error: enrollError.message })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to export grades', 500)
+  }
+
+  const hasTypeColumn = await supportsAssignmentTypeColumn()
+  const typeField = hasTypeColumn ? ', assignment_type' : ''
+
+  const { data: allGrades, error: gradesError } = await supabaseAdmin
+    .from('grades')
+    .select(`
+      points_earned,
+      submission:submissions!inner(
+        student_id,
+        assignment:assignments!inner(
+          id, max_points, course_id${typeField}
+        )
+      )
+    `)
+    .eq('submission.assignment.course_id', courseId)
+
+  if (gradesError) {
+    logger.error('Failed to fetch grades for registrar export', { error: gradesError.message })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to export grades', 500)
+  }
+
+  type CategoryAgg = { points_earned: number; points_possible: number }
+  const studentAggregates = new Map<string, Record<GradeCategory, CategoryAgg>>()
+
+  for (const row of allGrades || []) {
+    const submission = Array.isArray((row as any).submission)
+      ? (row as any).submission[0]
+      : (row as any).submission
+    const assignment = Array.isArray(submission?.assignment)
+      ? submission.assignment[0]
+      : submission?.assignment
+
+    if (!assignment || !submission?.student_id) continue
+
+    const studentId = submission.student_id as string
+    if (!studentAggregates.has(studentId)) {
+      studentAggregates.set(studentId, {
+        exam: { points_earned: 0, points_possible: 0 },
+        quiz: { points_earned: 0, points_possible: 0 },
+        activity: { points_earned: 0, points_possible: 0 },
+      })
+    }
+
+    const agg = studentAggregates.get(studentId)!
+    const category = normalizeAssignmentCategory(normalizeAssignmentType((assignment as any).assignment_type))
+    agg[category].points_earned += Number((row as any).points_earned || 0)
+    agg[category].points_possible += Number(assignment.max_points || 0)
+  }
+
+  const GRADE_CATEGORIES: GradeCategory[] = ['exam', 'quiz', 'activity']
+
+  const rows: RegistrarExportRow[] = []
+
+  for (const enrollment of enrollments || []) {
+    const profile = Array.isArray((enrollment as any).profile)
+      ? (enrollment as any).profile[0]
+      : (enrollment as any).profile
+
+    const studentId = enrollment.student_id as string
+    const agg = studentAggregates.get(studentId) || {
+      exam: { points_earned: 0, points_possible: 0 },
+      quiz: { points_earned: 0, points_possible: 0 },
+      activity: { points_earned: 0, points_possible: 0 },
+    }
+
+    const categoryPercentages: Partial<Record<GradeCategory, number | null>> = {}
+    for (const cat of GRADE_CATEGORIES) {
+      categoryPercentages[cat] = agg[cat].points_possible > 0
+        ? calculatePercentage(agg[cat].points_earned, agg[cat].points_possible)
+        : null
+    }
+
+    const finalPct = calculateWeightedFinalGrade(categoryPercentages)
+    const activityPct = categoryPercentages.activity ?? null
+    const quizPct = categoryPercentages.quiz ?? null
+    const examPct = categoryPercentages.exam ?? null
+
+    const lastName = profile?.last_name || ''
+    const firstName = profile?.first_name || ''
+    const middleName = ''
+
+    rows.push({
+      lrn: '',
+      last_name: lastName,
+      first_name: firstName,
+      middle_initial: middleName,
+      prelim: activityPct !== null ? roundToTwoDecimals(activityPct).toFixed(2) : 'N/A',
+      midterm: quizPct !== null ? roundToTwoDecimals(quizPct).toFixed(2) : 'N/A',
+      finals: examPct !== null ? roundToTwoDecimals(examPct).toFixed(2) : 'N/A',
+      final_grade: finalPct !== null ? roundToTwoDecimals(finalPct).toFixed(2) : 'INC',
+      remarks: finalPct !== null ? (finalPct >= 75 ? 'Passed' : 'Failed') : 'INC',
+    })
+  }
+
+  rows.sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name))
+
+  const header = 'LRN,Last Name,First Name,Middle Initial,Prelim (Activity 30%),Midterm (Quiz 30%),Finals (Exam 40%),Final Grade,Remarks'
+  const csvRows = rows.map((r) =>
+    [
+      r.lrn,
+      `"${r.last_name.replace(/"/g, '""')}"`,
+      `"${r.first_name.replace(/"/g, '""')}"`,
+      `"${r.middle_initial.replace(/"/g, '""')}"`,
+      r.prelim,
+      r.midterm,
+      r.finals,
+      r.final_grade,
+      r.remarks,
+    ].join(',')
+  )
+
+  return [header, ...csvRows].join('\n')
 }

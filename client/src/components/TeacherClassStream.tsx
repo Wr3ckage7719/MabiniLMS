@@ -69,6 +69,7 @@ import {
   serializeCourseMetadata,
 } from '@/services/course-metadata';
 import { teacherService } from '@/services/teacher.service';
+import { batchService } from '@/services/batch.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
@@ -346,6 +347,7 @@ export function TeacherClassStream({
   const [hidingDiscussionPostIds, setHidingDiscussionPostIds] = useState<string[]>([]);
   const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<LearningMaterial | null>(null);
+  const [exportingRegistrar, setExportingRegistrar] = useState(false);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateClassRouteState = (
@@ -764,6 +766,35 @@ export function TeacherClassStream({
         setDeletingMaterialIds((previous) =>
           previous.filter((materialId) => materialId !== material.id)
         );
+      }
+    })();
+  };
+
+  const handleExportRegistrar = () => {
+    if (exportingRegistrar) return;
+    void (async () => {
+      setExportingRegistrar(true);
+      try {
+        const csv = await batchService.exportRegistrarGrades(classId);
+        const blob = new Blob([csv as string], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `registrar-grades-${classId}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (error: any) {
+        toast({
+          title: 'Export failed',
+          description:
+            error?.response?.data?.error?.message ||
+            error?.response?.data?.message ||
+            error?.message ||
+            'Failed to export registrar grades',
+          variant: 'destructive',
+        });
+      } finally {
+        setExportingRegistrar(false);
       }
     })();
   };
@@ -2025,6 +2056,19 @@ export function TeacherClassStream({
           {/* Recent Submissions Tab Content */}
           {activeTab === 'submissions' && (
             <>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-muted-foreground">Recent Submissions</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg text-xs gap-1.5"
+                  onClick={handleExportRegistrar}
+                  disabled={exportingRegistrar}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {exportingRegistrar ? 'Exporting…' : 'Registrar CSV'}
+                </Button>
+              </div>
               {recentSubmissions.length > 0 ? (
                 <div className="space-y-3">
                   {recentSubmissions.map((submission) => (

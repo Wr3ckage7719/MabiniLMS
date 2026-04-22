@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Loader2, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, Clock, Flag, Loader2, ShieldAlert } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -56,10 +56,12 @@ export function ProctoredExamDialog({
   const [terminated, setTerminated] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
   const [agreementChecked, setAgreementChecked] = useState(false)
+  const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set())
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
   const lastViolationAtRef = useRef<Record<string, number>>({})
   const timeoutSubmitInFlightRef = useRef(false)
+  const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const resetDialogState = useCallback(() => {
     setSession(null)
@@ -75,8 +77,10 @@ export function ProctoredExamDialog({
     setTerminated(false)
     setSecondsLeft(null)
     setAgreementChecked(false)
+    setFlaggedQuestions(new Set())
     lastViolationAtRef.current = {}
     timeoutSubmitInFlightRef.current = false
+    questionRefs.current = {}
   }, [])
 
   const loadSession = useCallback(async () => {
@@ -437,6 +441,22 @@ export function ProctoredExamDialog({
     }
   }, [isAttemptActive, reportViolation, session, started])
 
+  const scrollToQuestion = useCallback((questionId: string) => {
+    questionRefs.current[questionId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
+  const toggleFlag = useCallback((questionId: string) => {
+    setFlaggedQuestions((prev) => {
+      const next = new Set(prev)
+      if (next.has(questionId)) {
+        next.delete(questionId)
+      } else {
+        next.add(questionId)
+      }
+      return next
+    })
+  }, [])
+
   const answeredCount = useMemo(() => {
     if (!session) return 0
     return session.questions.reduce((total, question) => {
@@ -567,22 +587,79 @@ export function ProctoredExamDialog({
 
             {started && !result && (
               <div className="space-y-3">
+                <div className="sticky top-0 z-10 rounded-xl border bg-background/95 backdrop-blur p-2">
+                  <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">Jump to question</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {session.questions.map((q, qi) => {
+                      const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
+                      const flagged = flaggedQuestions.has(q.id)
+                      return (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => scrollToQuestion(q.id)}
+                          className={`w-7 h-7 text-xs font-semibold rounded-md border transition ${
+                            flagged
+                              ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                              : answered
+                                ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                : 'border-border text-muted-foreground hover:border-primary/50'
+                          }`}
+                          title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
+                        >
+                          {qi + 1}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 px-0.5">
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-green-500/20 border border-green-500/60 inline-block" />
+                      Answered
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/60 inline-block" />
+                      Flagged
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="w-2.5 h-2.5 rounded-sm border border-border inline-block" />
+                      Unanswered
+                    </span>
+                  </div>
+                </div>
+
                 {session.questions.map((question, questionIndex) => {
                   const selectedChoice = answerMap[question.id]
                   const textValue = textAnswerMap[question.id] ?? ''
                   const isSavingThisQuestion = savingAnswerQuestionId === question.id
                   const itemType = question.item_type ?? 'multiple_choice'
+                  const isFlagged = flaggedQuestions.has(question.id)
 
                   return (
-                    <Card key={question.id}>
+                    <div
+                      key={question.id}
+                      ref={(el) => { questionRefs.current[question.id] = el }}
+                      className="scroll-mt-36"
+                    >
+                    <Card className={isFlagged ? 'border-amber-500/40' : ''}>
                       <CardHeader className="pb-2">
                         <div className="flex items-start justify-between gap-2">
                           <CardTitle className="text-sm leading-snug">
                             {questionIndex + 1}. {question.prompt}
                           </CardTitle>
-                          <span className="shrink-0 text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
-                            {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+                              {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleFlag(question.id)}
+                              className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
+                              title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                            >
+                              <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
+                            </button>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-2">
@@ -652,6 +729,7 @@ export function ProctoredExamDialog({
                         </div>
                       </CardContent>
                     </Card>
+                    </div>
                   )
                 })}
               </div>

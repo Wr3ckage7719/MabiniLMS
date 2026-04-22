@@ -89,6 +89,16 @@ router.get(
   batchController.exportGrades
 )
 
+/**
+ * GET /api/batch/export-registrar/:courseId - Export grades in Mabini Colleges registrar format
+ */
+router.get(
+  '/export-registrar/:courseId',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validateUUID('courseId'),
+  batchController.exportRegistrarGrades
+)
+
 // ============================================
 // Import Routes
 // ============================================

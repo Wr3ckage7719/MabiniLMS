@@ -204,6 +204,21 @@ export function TeacherExamManagementPanel({
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [violations]);
 
+  const studentViolationMap = useMemo(() => {
+    const map = new Map<string, { studentId: string; total: number; byType: Record<string, number> }>();
+    for (const violation of violations) {
+      const existing = map.get(violation.student_id) || {
+        studentId: violation.student_id,
+        total: 0,
+        byType: {},
+      };
+      existing.total += 1;
+      existing.byType[violation.violation_type] = (existing.byType[violation.violation_type] || 0) + 1;
+      map.set(violation.student_id, existing);
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [violations]);
+
   const resetDraft = () => {
     setDraft(DEFAULT_DRAFT);
     setEditingQuestionId(null);
@@ -520,25 +535,39 @@ export function TeacherExamManagementPanel({
                 ))}
               </div>
 
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">By Student</p>
               <div className="space-y-2">
-                {violations.map((violation) => (
-                  <Card key={violation.id} className="border border-border/70 shadow-none">
-                    <CardContent className="p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 text-amber-500" />
-                          {formatViolationType(violation.violation_type)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Attempt {violation.attempt_id.slice(0, 8)}... • Student {violation.student_id.slice(0, 8)}...
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(violation.created_at).toLocaleString()}
-                      </p>
-                    </CardContent>
-                  </Card>
-                ))}
+                {studentViolationMap.map(({ studentId, total, byType }) => {
+                  const isSuspicious = total >= 3;
+                  return (
+                    <Card
+                      key={studentId}
+                      className={`border shadow-none ${isSuspicious ? 'border-amber-500/50 bg-amber-500/5' : 'border-border/70'}`}
+                    >
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium flex items-center gap-2">
+                            {isSuspicious && <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />}
+                            Student <span className="font-mono text-xs">{studentId.slice(0, 8)}…</span>
+                          </p>
+                          <Badge
+                            variant={isSuspicious ? 'destructive' : 'secondary'}
+                            className="rounded-lg text-xs shrink-0"
+                          >
+                            {total} violation{total !== 1 ? 's' : ''}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(byType).map(([type, count]) => (
+                            <Badge key={type} variant="outline" className="rounded text-[10px]">
+                              {formatViolationType(type)}: {count}
+                            </Badge>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </>
           )}
