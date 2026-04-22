@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
 import { usersService } from '@/services/users.service';
 import { useToast } from '@/hooks/use-toast';
@@ -15,7 +16,7 @@ import {
 } from '@/lib/pwa-zoom-policy';
 import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
 import axios from 'axios';
-import { Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 interface LocalSettingsPreferences {
   darkMode: boolean;
@@ -46,6 +47,14 @@ export default function TeacherSettingsPage() {
   const [dueDateReminders, setDueDateReminders] = useState(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
   const [lockPwaMobileZoom, setLockPwaMobileZoom] = useState(false);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
 
   const settingsStorageKey = user?.id ? `mabini:settings:${user.id}` : null;
   const roleBasedDefaultZoomLock = useMemo(() => getRoleBasedDefaultZoomLock(user?.role || null), [user?.role]);
@@ -115,6 +124,18 @@ export default function TeacherSettingsPage() {
       .join('');
     return initials || user.name[0]?.toUpperCase() || 'T';
   }, [user?.name]);
+
+  const passwordRequirements = useMemo(() => ([
+    { label: 'At least 8 characters', met: newPassword.length >= 8, required: true },
+    { label: 'Passwords match', met: newPassword === confirmPassword && newPassword.length > 0, required: true },
+    { label: 'Contains a number (recommended)', met: /\d/.test(newPassword), required: false },
+    { label: 'Contains uppercase letter (recommended)', met: /[A-Z]/.test(newPassword), required: false },
+  ]), [newPassword, confirmPassword]);
+
+  const requiredPasswordChecks = passwordRequirements.filter((requirement) => requirement.required);
+
+  const canSubmitPasswordChange =
+    currentPassword.length > 0 && requiredPasswordChecks.every((requirement) => requirement.met);
 
   const handleOpenAvatarPicker = () => {
     fileInputRef.current?.click();
@@ -241,6 +262,47 @@ export default function TeacherSettingsPage() {
     setIsSavingProfile(false);
   };
 
+  const handleChangePassword = async () => {
+    if (!user) {
+      return;
+    }
+
+    setPasswordChangeError('');
+
+    if (!canSubmitPasswordChange) {
+      setPasswordChangeError('Please satisfy all required password checks before updating your password.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      await usersService.changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordChangeError('');
+
+      toast({
+        title: 'Password updated',
+        description: 'Your password has been changed successfully.',
+      });
+    } catch (error) {
+      const responseMessage = axios.isAxiosError(error)
+        ? error.response?.data?.error?.message || error.response?.data?.message
+        : undefined;
+      setPasswordChangeError(
+        responseMessage || (error instanceof Error ? error.message : 'Unable to change password.')
+      );
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -345,6 +407,124 @@ export default function TeacherSettingsPage() {
             </div>
             <Switch checked={dueDateReminders} onCheckedChange={setDueDateReminders} />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardHeader><CardTitle className="text-base">Security</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="teacher-current-password">Current password</Label>
+            <div className="relative">
+              <Input
+                id="teacher-current-password"
+                type={showCurrentPassword ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowCurrentPassword((previous) => !previous)}
+                aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+                disabled={isChangingPassword}
+              >
+                {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="teacher-new-password">New password</Label>
+            <div className="relative">
+              <Input
+                id="teacher-new-password"
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowNewPassword((previous) => !previous)}
+                aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                disabled={isChangingPassword}
+              >
+                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="teacher-confirm-password">Confirm new password</Label>
+            <div className="relative">
+              <Input
+                id="teacher-confirm-password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                autoComplete="new-password"
+                className="rounded-xl pr-11"
+                disabled={isChangingPassword}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                onClick={() => setShowConfirmPassword((previous) => !previous)}
+                aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                disabled={isChangingPassword}
+              >
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Password Requirements:</p>
+            {passwordRequirements.map((requirement) => (
+              <div key={requirement.label} className="flex items-center gap-2 text-sm">
+                {requirement.met ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                ) : (
+                  <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30" />
+                )}
+                <span className={requirement.met ? 'text-green-700' : 'text-muted-foreground'}>
+                  {requirement.label}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {passwordChangeError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{passwordChangeError}</AlertDescription>
+            </Alert>
+          )}
+
+          <Button
+            type="button"
+            className="rounded-xl"
+            onClick={() => {
+              void handleChangePassword();
+            }}
+            disabled={isChangingPassword || !canSubmitPasswordChange}
+          >
+            {isChangingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Update password
+          </Button>
         </CardContent>
       </Card>
 
