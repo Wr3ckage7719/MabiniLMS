@@ -128,6 +128,45 @@ const formatUploadedDate = (value?: string): string => {
   return parsed.toLocaleString();
 };
 
+const resolveApiErrorMessage = (error: unknown, fallback: string): string => {
+  const maybeError = error as {
+    message?: string;
+    response?: {
+      status?: number;
+      data?: {
+        error?: {
+          message?: string;
+          metadata?: {
+            reason?: string;
+          };
+        };
+      };
+    };
+  };
+
+  const apiMessage = maybeError?.response?.data?.error?.message;
+  const reason = maybeError?.response?.data?.error?.metadata?.reason;
+  const status = maybeError?.response?.status;
+
+  if (reason === 'MATERIAL_PROGRESS_SCHEMA_OUTDATED') {
+    return 'Material progress schema is outdated on the server. Apply the latest database migrations, then retry.';
+  }
+
+  if (status === 503) {
+    return 'Material progress service is temporarily unavailable. Please retry in a moment.';
+  }
+
+  if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+    return apiMessage;
+  }
+
+  if (typeof maybeError?.message === 'string' && maybeError.message.trim().length > 0) {
+    return maybeError.message;
+  }
+
+  return fallback;
+};
+
 const getUrlExtension = (url?: string): string => {
   if (!url) {
     return '';
@@ -260,6 +299,7 @@ export function MaterialPreviewDialog({
   const [resolvedFileSize, setResolvedFileSize] = useState('Unknown');
   const [engagementLoadingTimedOut, setEngagementLoadingTimedOut] = useState(false);
   const [selectedEngagementStudent, setSelectedEngagementStudent] = useState<(typeof engagementStats)[number] | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const pdfIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -323,6 +363,17 @@ export function MaterialPreviewDialog({
     const total = engagementStats.reduce((sum, item) => sum + (item.progress_percent || 0), 0);
     return Math.round((total / engagementStats.length) * 100) / 100;
   }, [engagementStats]);
+
+  const engagementErrorMessage = useMemo(() => {
+    if (!engagementError) {
+      return '';
+    }
+
+    return resolveApiErrorMessage(
+      engagementErrorDetails,
+      'Unable to load engagement analytics right now. Please try again.'
+    );
+  }, [engagementError, engagementErrorDetails]);
 
   const markInteraction = useCallback(() => {
     lastInteractionAtRef.current = Date.now();
@@ -476,6 +527,7 @@ export function MaterialPreviewDialog({
     setStudentProgressError(null);
     setResolvedFileSize(material.fileSize || 'Unknown');
     setEngagementLoadingTimedOut(false);
+    setDownloading(false);
 
     lastTrackedSlideRef.current = null;
     sessionStartRef.current = Date.now();
@@ -514,7 +566,7 @@ export function MaterialPreviewDialog({
           return;
         }
 
-        setStudentProgressError(error instanceof Error ? error.message : 'Unable to load your progress details.');
+        setStudentProgressError(resolveApiErrorMessage(error, 'Unable to load your progress details.'));
       })
       .finally(() => {
         if (!active) {
@@ -608,7 +660,7 @@ export function MaterialPreviewDialog({
   }, [open, isDoc, material?.id, material?.url]);
 
   useEffect(() => {
-    if (!open || !material?.url || !isPresentation || pptPreviewMode !== 'extracted') {
+    if (!open || !material?.url || !isPresentation || pptxSlides.length > 0 || pptxLoading || Boolean(pptxError)) {
       return;
     }
 
@@ -623,7 +675,13 @@ export function MaterialPreviewDialog({
         }
 
         setPptxSlides(slides);
-        setCurrentSlideIndex(0);
+        setCurrentSlideIndex((current) => {
+          if (slides.length === 0) {
+            return 0;
+          }
+
+          return Math.min(current, slides.length - 1);
+        });
       })
       .catch((error) => {
         if (!active) {
@@ -643,10 +701,10 @@ export function MaterialPreviewDialog({
     return () => {
       active = false;
     };
-  }, [open, isPresentation, material?.id, material?.url, pptPreviewMode]);
+  }, [isPresentation, material?.id, material?.url, open, pptxError, pptxLoading, pptxSlides.length]);
 
   useEffect(() => {
-    if (!open || !material || !isPresentation || pptPreviewMode !== 'extracted' || pptxSlides.length === 0) {
+    if (!open || !material || !isPresentation || pptxSlides.length === 0) {
       return;
     }
 
@@ -662,7 +720,7 @@ export function MaterialPreviewDialog({
     });
 
     lastTrackedSlideRef.current = slideNumber;
-  }, [currentSlideIndex, isPresentation, material, open, pptPreviewMode, pptxSlides.length, pushProgressEvent]);
+  }, [currentSlideIndex, isPresentation, material, open, pptxSlides.length, pushProgressEvent]);
 
   useEffect(() => {
     if (!open || !material || isTeacher) {
@@ -881,14 +939,33 @@ export function MaterialPreviewDialog({
       return;
     }
 
-    const anchor = document.createElement('a');
-    anchor.href = material.url;
-    anchor.target = '_blank';
-    anchor.rel = 'noopener noreferrer';
-    anchor.download = material.title;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+    // `anchor.download` is ignored for cross-origin URLs (e.g. Supabase storage).
+    // Fetch as a blob so the browser treats it as a local download.
+    setDownloading(true);
+    void fetch(material.url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = blobUrl;
+        anchor.download = material.title;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(blobUrl);
+      })
+      .catch(() => {
+        // Blob fetch failed (e.g. CORS not configured) — open in new tab as fallback.
+        window.open(material.url, '_blank', 'noopener,noreferrer');
+      })
+      .finally(() => {
+        setDownloading(false);
+      });
   }, [isTeacher, markInteraction, material, onDownload]);
 
   const goToPreviousSlide = useCallback(() => {
@@ -910,44 +987,64 @@ export function MaterialPreviewDialog({
 
     setMarkingDone(true);
 
-    const fallbackPageNumber = isPresentation && pptPreviewMode === 'extracted' && pptxSlidesCountRef.current > 0
-      ? Math.min(currentSlideRef.current + 1, pptxSlidesCountRef.current)
-      : pagesViewedRef.current[pagesViewedRef.current.length - 1];
+    const saveDoneStatus = async () => {
+      const fallbackPageNumber = isPresentation && pptxSlidesCountRef.current > 0
+        ? Math.min(currentSlideRef.current + 1, pptxSlidesCountRef.current)
+        : pagesViewedRef.current[pagesViewedRef.current.length - 1];
 
-    pushProgressEvent({
-      scrollPercent: 100,
-      pageNumber: fallbackPageNumber,
-      pages: pagesViewedRef.current,
-      force: true,
-    });
+      pushProgressEvent({
+        scrollPercent: 100,
+        pageNumber: fallbackPageNumber,
+        pages: pagesViewedRef.current,
+        force: true,
+      });
 
-    finalizeViewSession({
-      forceComplete: true,
-      forceScrollPercent: 100,
-    });
+      const nowIso = new Date().toISOString();
 
-    const nowIso = new Date().toISOString();
-    setStudentProgress((current) => {
-      if (!current) {
-        return current;
+      try {
+        await materialsService.updateMyProgress(material.id, {
+          progress_percent: 100,
+          completed: true,
+          last_viewed_at: nowIso,
+        });
+
+        finalizeViewSession({
+          forceComplete: true,
+          forceScrollPercent: 100,
+        });
+
+        setStudentProgress((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            completed: true,
+            progress_percent: Math.max(current.progress_percent, 100),
+            last_viewed_at: nowIso,
+            completed_at: current.completed_at || nowIso,
+          };
+        });
+
+        toast({
+          title: 'Marked as done',
+          description: 'Your reading progress was saved successfully.',
+        });
+
+        onOpenChange(false);
+      } catch (error) {
+        toast({
+          title: 'Unable to mark as done',
+          description: resolveApiErrorMessage(error, 'Please try again.'),
+          variant: 'destructive',
+        });
+      } finally {
+        setMarkingDone(false);
       }
+    };
 
-      return {
-        ...current,
-        completed: true,
-        progress_percent: Math.max(current.progress_percent, 100),
-        last_viewed_at: nowIso,
-        completed_at: current.completed_at || nowIso,
-      };
-    });
-
-    toast({
-      title: 'Marked as done',
-      description: 'Your reading progress was saved successfully.',
-    });
-
-    setMarkingDone(false);
-    onOpenChange(false);
+    void saveDoneStatus();
   }, [
     finalizeViewSession,
     isPresentation,
@@ -1124,9 +1221,16 @@ export function MaterialPreviewDialog({
         {engagementError ? (
           <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground space-y-3">
             <p className="font-medium text-foreground">Could not load engagement analytics.</p>
-            <p>{engagementErrorDetails instanceof Error ? engagementErrorDetails.message : 'Please try again.'}</p>
-            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => void refetchEngagement()}>
-              <RefreshCw className="h-4 w-4" /> Retry
+            <p>{engagementErrorMessage || 'Please try again.'}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              onClick={() => void refetchEngagement()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
             </Button>
           </div>
         ) : null}
@@ -1221,7 +1325,7 @@ export function MaterialPreviewDialog({
 
     if (isPdf) {
       return (
-        <div className="rounded-lg border border-border overflow-hidden bg-muted/20 h-[calc(100dvh-19rem)] min-h-[24rem]">
+        <div className="rounded-lg border border-border overflow-hidden bg-muted/20 h-[calc(100dvh-14rem)] min-h-[20rem] sm:h-[calc(100dvh-19rem)] sm:min-h-[24rem]">
           <iframe
             ref={pdfIframeRef}
             src={`${material.url}#view=FitH`}
@@ -1329,7 +1433,7 @@ export function MaterialPreviewDialog({
     if (isPresentation) {
       if (pptPreviewMode === 'true-content') {
         return (
-          <div className="rounded-lg border border-border bg-background p-4 space-y-4">
+          <div className="rounded-lg border border-border bg-background p-2 sm:p-4 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Badge variant="outline">True Slide View</Badge>
               <div className="flex items-center gap-2">
@@ -1359,7 +1463,7 @@ export function MaterialPreviewDialog({
             </div>
 
             {pptxOfficeEmbedUrl ? (
-              <div className="rounded-lg border border-border overflow-hidden bg-muted/20 h-[calc(100dvh-22rem)] min-h-[24rem]">
+              <div className="rounded-lg border border-border overflow-hidden bg-muted/20 h-[calc(100dvh-16rem)] min-h-[22rem] sm:h-[calc(100dvh-22rem)] sm:min-h-[24rem]">
                 <iframe
                   src={pptxOfficeEmbedUrl}
                   title={`${material.title} (True PPT preview)`}
@@ -1372,8 +1476,36 @@ export function MaterialPreviewDialog({
               </div>
             )}
 
+            {pptxSlides.length > 0 ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 p-3 space-y-2">
+                <p className="text-xs font-medium text-foreground">
+                  Slide activity: {Math.min(currentSlideIndex + 1, pptxSlides.length)} / {pptxSlides.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={goToPreviousSlide}
+                    disabled={currentSlideIndex === 0}
+                  >
+                    Previous Slide
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={goToNextSlide}
+                    disabled={currentSlideIndex >= pptxSlides.length - 1}
+                  >
+                    Next Slide
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             <p className="text-xs text-muted-foreground">
-              This mode preserves the real slide layout when the PPT URL is publicly reachable.
+              This mode preserves the real slide layout when the PPT URL is publicly reachable. Use slide activity buttons above to track reading progress.
             </p>
           </div>
         );
@@ -1461,7 +1593,7 @@ export function MaterialPreviewDialog({
               <img
                 src={currentPptxSlide.imageDataUrl}
                 alt={`Slide ${currentPptxSlide.slideNumber}`}
-                className="mb-5 max-h-[40vh] w-full rounded object-contain border border-border/70 bg-white"
+                className="mb-5 max-h-[56vh] w-full rounded object-contain border border-border/70 bg-white"
               />
             ) : null}
 
@@ -1575,9 +1707,10 @@ export function MaterialPreviewDialog({
                           size="sm"
                           onClick={handleDownload}
                           className="gap-1.5 text-xs"
+                          disabled={downloading}
                         >
                           <Download className="h-3.5 w-3.5" />
-                          {isTeacher ? 'Download File' : 'Download'}
+                          {downloading ? 'Downloading...' : isTeacher ? 'Download File' : 'Download'}
                         </Button>
                       </div>
                     </div>
@@ -1612,6 +1745,18 @@ export function MaterialPreviewDialog({
                     <>
                       <p className="text-sm"><span className="text-muted-foreground">Your Progress:</span> {studentProgressPercent.toFixed(2)}%</p>
                       <p className="text-sm"><span className="text-muted-foreground">Status:</span> {studentCompletionLabel}</p>
+                      {studentCompletionLabel !== 'Completed' ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="mt-2 gap-2"
+                          onClick={handleMarkAsDone}
+                          disabled={markingDone}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {markingDone ? 'Saving...' : 'Done Reading'}
+                        </Button>
+                      ) : null}
                       {studentProgressLoading ? (
                         <p className="text-xs text-muted-foreground">Syncing your latest reading status...</p>
                       ) : null}

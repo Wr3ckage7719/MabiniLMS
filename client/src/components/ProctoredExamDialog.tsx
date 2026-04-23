@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Flag, Loader2, ShieldAlert } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { AlertTriangle, Clock, Flag, Loader2, ShieldAlert, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -23,6 +15,7 @@ interface ProctoredExamDialogProps {
   assignmentTitle: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  mode?: 'quiz' | 'exam'
 }
 
 const throttleWindowMs = 1400
@@ -39,6 +32,7 @@ export function ProctoredExamDialog({
   assignmentTitle,
   open,
   onOpenChange,
+  mode = 'exam',
 }: ProctoredExamDialogProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -59,6 +53,7 @@ export function ProctoredExamDialog({
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set())
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
+  const isQuizMode = mode === 'quiz'
   const lastViolationAtRef = useRef<Record<string, number>>({})
   const timeoutSubmitInFlightRef = useRef(false)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -104,7 +99,7 @@ export function ProctoredExamDialog({
         error?.response?.data?.error?.message
         || error?.response?.data?.message
         || error?.message
-        || 'Failed to load exam session'
+        || 'Failed to load session'
 
       setSessionError(message)
     } finally {
@@ -120,6 +115,27 @@ export function ProctoredExamDialog({
 
     void loadSession()
   }, [loadSession, open, resetDialogState])
+
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    }
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [open])
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && open && !started) {
+        onOpenChange(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [open, started, onOpenChange])
 
   const enterFullscreen = useCallback(async () => {
     if (document.fullscreenElement) {
@@ -165,9 +181,7 @@ export function ProctoredExamDialog({
           setStarted(false)
           setTerminated(false)
           if (document.fullscreenElement) {
-            void document.exitFullscreen().catch(() => {
-              // Ignore fullscreen exit failures
-            })
+            void document.exitFullscreen().catch(() => {})
           }
           toast({
             title: 'Attempt auto-submitted',
@@ -208,12 +222,12 @@ export function ProctoredExamDialog({
       return
     }
 
-    if (session.assignment.is_proctored) {
+    if (!isQuizMode && session.assignment.is_proctored) {
       await enterFullscreen()
     }
 
     setStarted(true)
-  }, [agreementChecked, enterFullscreen, session, toast])
+  }, [agreementChecked, enterFullscreen, isQuizMode, session, toast])
 
   const handleSelectAnswer = useCallback(
     async (questionId: string, selectedChoiceIndex: number) => {
@@ -291,16 +305,14 @@ export function ProctoredExamDialog({
         setStarted(false)
 
         if (document.fullscreenElement) {
-          void document.exitFullscreen().catch(() => {
-            // Ignore fullscreen exit failures
-          })
+          void document.exitFullscreen().catch(() => {})
         }
 
         void queryClient.invalidateQueries({ queryKey: ['my-grades'] })
         void queryClient.invalidateQueries({ queryKey: ['weighted-course-grade'] })
 
         toast({
-          title: reason === 'timeout' ? 'Time expired' : 'Exam submitted',
+          title: reason === 'timeout' ? 'Time expired' : isQuizMode ? 'Quiz submitted' : 'Exam submitted',
           description: `Score: ${submitted.score.toFixed(2)} / ${submitted.max_score.toFixed(2)} (${submitted.percentage.toFixed(2)}%)`,
         })
       } catch (error: any) {
@@ -310,7 +322,7 @@ export function ProctoredExamDialog({
             error?.response?.data?.error?.message
             || error?.response?.data?.message
             || error?.message
-            || 'Failed to submit exam attempt',
+            || `Failed to submit ${isQuizMode ? 'quiz' : 'exam'} attempt`,
           variant: 'destructive',
         })
       } finally {
@@ -318,7 +330,7 @@ export function ProctoredExamDialog({
         timeoutSubmitInFlightRef.current = false
       }
     },
-    [queryClient, result, session, submitting, toast]
+    [isQuizMode, queryClient, result, session, submitting, toast]
   )
 
   useEffect(() => {
@@ -354,7 +366,7 @@ export function ProctoredExamDialog({
   }, [isAttemptActive, session, started, submitAttempt])
 
   useEffect(() => {
-    if (!session || !started || !isAttemptActive || !session.assignment.is_proctored) {
+    if (!session || !started || !isAttemptActive || isQuizMode || !session.assignment.is_proctored) {
       return
     }
 
@@ -439,7 +451,7 @@ export function ProctoredExamDialog({
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', onWindowResize)
     }
-  }, [isAttemptActive, reportViolation, session, started])
+  }, [isAttemptActive, isQuizMode, reportViolation, session, started])
 
   const scrollToQuestion = useCallback((questionId: string) => {
     questionRefs.current[questionId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -473,412 +485,483 @@ export function ProctoredExamDialog({
 
   const disableInteraction = !isAttemptActive || submitting || Boolean(result)
 
+  const label = isQuizMode ? 'Quiz' : 'Proctored Exam'
+
+  if (!open) return null
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-dvw sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
-        <DialogHeader>
-          <DialogTitle className="text-base sm:text-lg">
-            {session?.assignment.is_proctored ? 'Proctored Exam' : 'Quiz'}: {assignmentTitle}
-          </DialogTitle>
-          <DialogDescription>
-            {session?.assignment.is_proctored
-              ? 'This exam is proctored. Fullscreen, visibility, and restricted interaction events are monitored.'
-              : 'Answer each question. Your responses are saved automatically as you go.'}
-          </DialogDescription>
-        </DialogHeader>
+    <div className="fixed inset-0 z-[130] bg-background flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 md:px-6 md:py-4 flex-shrink-0">
+        <div className="min-w-0">
+          <h2 className="text-base md:text-lg font-semibold text-foreground truncate">
+            {label}: {assignmentTitle}
+          </h2>
+          {!isQuizMode && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {session?.assignment.is_proctored
+                ? 'Proctored — screen activity is monitored during your attempt.'
+                : 'Exam mode active without strict proctoring restrictions.'}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full flex-shrink-0"
+          onClick={() => onOpenChange(false)}
+          disabled={started && isAttemptActive}
+          title={started && isAttemptActive ? `Exit disabled while ${label.toLowerCase()} is active` : 'Close'}
+        >
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
 
-        {loadingSession && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        )}
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+        <div className="mx-auto max-w-3xl space-y-4">
 
-        {!loadingSession && sessionError && (
-          <Card className="border-destructive/40 bg-destructive/5">
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm text-destructive">{sessionError}</p>
-              <Button variant="outline" onClick={() => void loadSession()}>
-                Retry
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {!loadingSession && !sessionError && session && (
-          <div className="space-y-4">
-            <div className="flex flex-col gap-3 rounded-xl border p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs rounded-md bg-secondary px-2 py-1">
-                  Questions: {session.questions.length}
-                </span>
-                <span className="text-xs rounded-md bg-secondary px-2 py-1">
-                  Max score: {session.assignment.max_points}
-                </span>
-                <span className="text-xs rounded-md bg-secondary px-2 py-1">
-                  Violations: {violationCount}
-                </span>
-                {secondsLeft !== null && (
-                  <span className="text-xs rounded-md bg-secondary px-2 py-1 inline-flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5" />
-                    {formatTimer(secondsLeft)}
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Answered {answeredCount}/{session.questions.length}</span>
-                  <span>{Math.round(progress)}%</span>
-                </div>
-                <Progress value={progress} className="h-2" />
-              </div>
+          {loadingSession && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
+          )}
 
-            {session.assignment.is_proctored && started && (
-              <Card className="border-yellow-500/40 bg-yellow-500/10">
-                <CardContent className="p-3 text-xs text-yellow-100 flex items-start gap-2">
-                  <ShieldAlert className="h-4 w-4 mt-0.5" />
-                  <span>
-                    Restrictions are active only during this attempt. Right-click, clipboard actions, print shortcut,
-                    tab switch, and fullscreen exits are tracked.
+          {!loadingSession && sessionError && (
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardContent className="p-4 space-y-3">
+                <p className="text-sm text-destructive">{sessionError}</p>
+                <Button variant="outline" onClick={() => void loadSession()}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {!loadingSession && !sessionError && session && (
+            <div className="space-y-4">
+              {/* Stats bar */}
+              <div className="flex flex-col gap-3 rounded-xl border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs rounded-md bg-secondary px-2 py-1">
+                    Questions: {session.questions.length}
                   </span>
-                </CardContent>
-              </Card>
-            )}
-
-            {terminated && (
-              <Card className="border-destructive/40 bg-destructive/10">
-                <CardContent className="p-3 text-xs text-destructive flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 mt-0.5" />
-                  <span>This attempt was terminated due to policy violations. Submit now to finalize your current answers.</span>
-                </CardContent>
-              </Card>
-            )}
-
-            {!started && !result && (
-              <Card>
-                <CardContent className="p-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    When you begin, keep the exam in focus and remain in fullscreen mode to avoid violation events.
-                  </p>
-                  {Boolean(session.policy.require_agreement_before_start) && (
-                    <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-                      <Checkbox
-                        id="proctored-exam-agreement"
-                        checked={agreementChecked}
-                        onCheckedChange={(checked) => setAgreementChecked(Boolean(checked))}
-                      />
-                      <label htmlFor="proctored-exam-agreement" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
-                        I agree to stay in this exam tab, keep fullscreen active, and follow proctoring rules.
-                      </label>
-                    </div>
+                  <span className="text-xs rounded-md bg-secondary px-2 py-1">
+                    Max score: {session.assignment.max_points}
+                  </span>
+                  {!isQuizMode && (
+                    <span className="text-xs rounded-md bg-secondary px-2 py-1">
+                      Violations: {violationCount}
+                    </span>
                   )}
-                  <Button
-                    onClick={() => void handleBeginExam()}
-                    disabled={
-                      terminated
-                      || (Boolean(session.policy.require_agreement_before_start) && !agreementChecked)
-                    }
-                  >
-                    Begin Exam
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {started && !result && (
-              <div className="space-y-3">
-                <div className="sticky top-0 z-10 rounded-xl border bg-background/95 backdrop-blur p-2">
-                  <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">Jump to question</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {session.questions.map((q, qi) => {
-                      const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
-                      const flagged = flaggedQuestions.has(q.id)
-                      return (
-                        <button
-                          key={q.id}
-                          type="button"
-                          onClick={() => scrollToQuestion(q.id)}
-                          className={`w-7 h-7 text-xs font-semibold rounded-md border transition ${
-                            flagged
-                              ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                              : answered
-                                ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
-                                : 'border-border text-muted-foreground hover:border-primary/50'
-                          }`}
-                          title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
-                        >
-                          {qi + 1}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5 px-0.5">
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-green-500/20 border border-green-500/60 inline-block" />
-                      Answered
+                  {secondsLeft !== null && (
+                    <span className="text-xs rounded-md bg-secondary px-2 py-1 inline-flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {formatTimer(secondsLeft)}
                     </span>
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/60 inline-block" />
-                      Flagged
-                    </span>
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <span className="w-2.5 h-2.5 rounded-sm border border-border inline-block" />
-                      Unanswered
-                    </span>
-                  </div>
+                  )}
                 </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Answered {answeredCount}/{session.questions.length}</span>
+                    <span>{Math.round(progress)}%</span>
+                  </div>
+                  <Progress value={progress} className="h-2" />
+                </div>
+              </div>
 
-                {session.questions.map((question, questionIndex) => {
-                  const selectedChoice = answerMap[question.id]
-                  const textValue = textAnswerMap[question.id] ?? ''
-                  const isSavingThisQuestion = savingAnswerQuestionId === question.id
-                  const itemType = question.item_type ?? 'multiple_choice'
-                  const isFlagged = flaggedQuestions.has(question.id)
+              {/* Active proctoring warning (exam only) */}
+              {!isQuizMode && session.assignment.is_proctored && started && (
+                <Card className="border-yellow-500/40 bg-yellow-500/10">
+                  <CardContent className="p-3 text-xs text-yellow-100 flex items-start gap-2">
+                    <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <span>
+                      Proctoring is active. Right-click, clipboard, print shortcut, tab switch, and fullscreen
+                      exits are all tracked and recorded.
+                    </span>
+                  </CardContent>
+                </Card>
+              )}
 
-                  return (
-                    <div
-                      key={question.id}
-                      ref={(el) => { questionRefs.current[question.id] = el }}
-                      className="scroll-mt-36"
+              {/* Terminated notice */}
+              {terminated && (
+                <Card className="border-destructive/40 bg-destructive/10">
+                  <CardContent className="p-3 text-xs text-destructive flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <span>This attempt was terminated due to policy violations. Submit now to finalize your current answers.</span>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Pre-start instructions */}
+              {!started && !result && (
+                <Card>
+                  <CardContent className="p-4 space-y-4">
+                    {isQuizMode ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-foreground">Before you begin</p>
+                        <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-4">
+                          <li>Answer each question by selecting the best choice.</li>
+                          <li>Your answers are saved automatically as you go — no need to worry about losing progress.</li>
+                          <li>{session.assignment.exam_duration_minutes
+                            ? `You have ${session.assignment.exam_duration_minutes} minute${session.assignment.exam_duration_minutes !== 1 ? 's' : ''} to complete this quiz.`
+                            : 'There is no time limit for this quiz.'}</li>
+                          <li>Once you click <strong>Submit Quiz</strong>, your answers are final and cannot be changed.</li>
+                          <li>You can review your answers before submitting.</li>
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-foreground">Before you begin</p>
+                        <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-4">
+                          <li>This is a <strong>proctored exam</strong>. Your screen activity will be monitored.</li>
+                          <li>You will be placed in fullscreen mode when the exam starts — do not exit it.</li>
+                          <li>Switching tabs, copying text, right-clicking, or exiting fullscreen are all recorded as violations.</li>
+                          <li>Too many violations may automatically submit or terminate your attempt.</li>
+                          {session.assignment.exam_duration_minutes
+                            ? <li>You have <strong>{session.assignment.exam_duration_minutes} minute{session.assignment.exam_duration_minutes !== 1 ? 's' : ''}</strong> to complete this exam. It will auto-submit when time runs out.</li>
+                            : <li>There is no time limit, but you must stay in the exam window until you submit.</li>}
+                          <li>Once submitted, your answers are final.</li>
+                        </ul>
+                      </div>
+                    )}
+
+                    {Boolean(session.policy.require_agreement_before_start) && (
+                      <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+                        <Checkbox
+                          id="exam-agreement"
+                          checked={agreementChecked}
+                          onCheckedChange={(checked) => setAgreementChecked(Boolean(checked))}
+                        />
+                        <label htmlFor="exam-agreement" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
+                          {isQuizMode
+                            ? 'I understand the instructions above and am ready to begin the quiz.'
+                            : 'I agree to stay in this exam tab, keep fullscreen active, and follow all proctoring rules.'}
+                        </label>
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={() => void handleBeginExam()}
+                      disabled={
+                        terminated
+                        || (Boolean(session.policy.require_agreement_before_start) && !agreementChecked)
+                      }
                     >
-                    <Card className={isFlagged ? 'border-amber-500/40' : ''}>
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <CardTitle className="text-sm leading-snug">
-                            {questionIndex + 1}. {question.prompt}
-                          </CardTitle>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
-                              {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => toggleFlag(question.id)}
-                              className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
-                              title={isFlagged ? 'Remove flag' : 'Flag for review'}
-                            >
-                              <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
-                            </button>
+                      {isQuizMode ? 'Start Quiz' : 'Begin Exam'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Questions */}
+              {started && !result && (
+                <div className="space-y-3">
+                  <div className="sticky top-0 z-10 rounded-xl border bg-background/95 backdrop-blur p-2">
+                    <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">Jump to question</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {session.questions.map((q, qi) => {
+                        const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
+                        const flagged = flaggedQuestions.has(q.id)
+                        return (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => scrollToQuestion(q.id)}
+                            className={`w-7 h-7 text-xs font-semibold rounded-md border transition ${
+                              flagged
+                                ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                : answered
+                                  ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                  : 'border-border text-muted-foreground hover:border-primary/50'
+                            }`}
+                            title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
+                          >
+                            {qi + 1}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 px-0.5">
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-green-500/20 border border-green-500/60 inline-block" />
+                        Answered
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/60 inline-block" />
+                        Flagged
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className="w-2.5 h-2.5 rounded-sm border border-border inline-block" />
+                        Unanswered
+                      </span>
+                    </div>
+                  </div>
+
+                  {session.questions.map((question, questionIndex) => {
+                    const selectedChoice = answerMap[question.id]
+                    const textValue = textAnswerMap[question.id] ?? ''
+                    const isSavingThisQuestion = savingAnswerQuestionId === question.id
+                    const itemType = question.item_type ?? 'multiple_choice'
+                    const isFlagged = flaggedQuestions.has(question.id)
+
+                    return (
+                      <div
+                        key={question.id}
+                        ref={(el) => { questionRefs.current[question.id] = el }}
+                        className="scroll-mt-36"
+                      >
+                      <Card className={isFlagged ? 'border-amber-500/40' : ''}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <CardTitle className="text-sm leading-snug">
+                              {questionIndex + 1}. {question.prompt}
+                            </CardTitle>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+                                {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => toggleFlag(question.id)}
+                                className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
+                                title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                              >
+                                <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        {itemType === 'true_false' && (
-                          <div className="grid grid-cols-2 gap-3">
-                            {question.choices.map((choice) => {
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {itemType === 'true_false' && (
+                            <div className="grid grid-cols-2 gap-3">
+                              {question.choices.map((choice) => {
+                                const isSelected = selectedChoice === choice.original_index
+                                const isTrue = choice.text === 'True'
+                                return (
+                                  <button
+                                    key={`${question.id}-${choice.rendered_index}`}
+                                    type="button"
+                                    disabled={disableInteraction}
+                                    onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                    className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                      isSelected
+                                        ? isTrue
+                                          ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                          : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                        : 'border-border hover:border-primary/50'
+                                    } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                  >
+                                    {choice.text}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+
+                          {itemType === 'short_answer' && (
+                            <Textarea
+                              value={textValue}
+                              onChange={(e) =>
+                                setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                              }
+                              onBlur={() => void handleTextAnswer(question.id, textValue)}
+                              placeholder="Type your answer here…"
+                              disabled={disableInteraction}
+                              className="resize-none min-h-[100px] text-sm"
+                            />
+                          )}
+
+                          {itemType === 'multiple_choice' && (
+                            question.choices.map((choice) => {
                               const isSelected = selectedChoice === choice.original_index
-                              const isTrue = choice.text === 'True'
                               return (
                                 <button
                                   key={`${question.id}-${choice.rendered_index}`}
                                   type="button"
                                   disabled={disableInteraction}
                                   onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
-                                  className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                  className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
                                     isSelected
-                                      ? isTrue
-                                        ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
-                                        : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                      ? 'border-primary bg-primary/10'
                                       : 'border-border hover:border-primary/50'
                                   } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
                                 >
+                                  <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
                                   {choice.text}
                                 </button>
                               )
-                            })}
+                            })
+                          )}
+
+                          <div className="text-xs text-muted-foreground min-h-4">
+                            {isSavingThisQuestion ? 'Saving answer…' : ' '}
                           </div>
-                        )}
+                        </CardContent>
+                      </Card>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
-                        {itemType === 'short_answer' && (
-                          <Textarea
-                            value={textValue}
-                            onChange={(e) =>
-                              setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
-                            }
-                            onBlur={() => void handleTextAnswer(question.id, textValue)}
-                            placeholder="Type your answer here…"
-                            disabled={disableInteraction}
-                            className="resize-none min-h-[100px] text-sm"
-                          />
-                        )}
-
-                        {itemType === 'multiple_choice' && (
-                          question.choices.map((choice) => {
-                            const isSelected = selectedChoice === choice.original_index
-                            return (
-                              <button
-                                key={`${question.id}-${choice.rendered_index}`}
-                                type="button"
-                                disabled={disableInteraction}
-                                onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
-                                className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
-                                  isSelected
-                                    ? 'border-primary bg-primary/10'
-                                    : 'border-border hover:border-primary/50'
-                                } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
-                              >
-                                <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
-                                {choice.text}
-                              </button>
-                            )
-                          })
-                        )}
-
-                        <div className="text-xs text-muted-foreground min-h-4">
-                          {isSavingThisQuestion ? 'Saving answer…' : ' '}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {result && (
-              <div className="space-y-4">
-                <Card className="border-primary/30 bg-primary/5">
-                  <CardContent className="p-4 space-y-2 text-sm">
-                    <p className="font-semibold text-base">
-                      {result.percentage >= 75 ? '🎉 ' : ''}Exam Submitted
-                    </p>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">
-                        Score: {result.score.toFixed(2)} / {result.max_score.toFixed(2)}
-                      </Badge>
-                      <Badge
-                        variant={result.percentage >= 75 ? 'default' : 'destructive'}
-                        className="text-xs"
-                      >
-                        {result.percentage.toFixed(1)}%
-                      </Badge>
-                      <Badge variant="secondary" className="text-xs">
-                        {result.answered_count}/{result.total_questions} answered
-                      </Badge>
-                      {result.violation_count > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          {result.violation_count} violation{result.violation_count !== 1 ? 's' : ''}
+              {/* Result */}
+              {result && (
+                <div className="space-y-4">
+                  <Card className="border-primary/30 bg-primary/5">
+                    <CardContent className="p-4 space-y-2 text-sm">
+                      <p className="font-semibold text-base">
+                        {result.percentage >= 75 ? '🎉 ' : ''}{isQuizMode ? 'Quiz Submitted' : 'Exam Submitted'}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        <Badge variant="outline" className="text-xs">
+                          Score: {result.score.toFixed(2)} / {result.max_score.toFixed(2)}
                         </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {result.question_results && result.question_results.length > 0 && (
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold">Answer Review</p>
-                    {result.question_results.map((qr, qi) => {
-                      const answered = qr.selected_choice_index !== null || Boolean(qr.answer_text?.trim())
-                      const correct = qr.is_correct === true
-                      const incorrect = qr.is_correct === false
-                      const pending = qr.is_correct === null && answered
-
-                      return (
-                        <Card
-                          key={qr.question_id}
-                          className={
-                            correct
-                              ? 'border-green-500/40 bg-green-500/5'
-                              : incorrect
-                                ? 'border-destructive/40 bg-destructive/5'
-                                : 'border-border'
-                          }
+                        <Badge
+                          variant={result.percentage >= 75 ? 'default' : 'destructive'}
+                          className="text-xs"
                         >
-                          <CardContent className="p-3 space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-sm font-medium leading-snug">
-                                {qi + 1}. {qr.prompt}
-                              </p>
-                              <Badge
-                                variant={correct ? 'default' : incorrect ? 'destructive' : 'secondary'}
-                                className="shrink-0 text-xs"
-                              >
-                                {correct
-                                  ? `+${qr.points_awarded.toFixed(1)} pts`
-                                  : pending
-                                    ? 'Pending'
-                                    : !answered
-                                      ? 'Skipped'
-                                      : '0 pts'}
-                              </Badge>
-                            </div>
+                          {result.percentage.toFixed(1)}%
+                        </Badge>
+                        <Badge variant="secondary" className="text-xs">
+                          {result.answered_count}/{result.total_questions} answered
+                        </Badge>
+                        {!isQuizMode && result.violation_count > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            {result.violation_count} violation{result.violation_count !== 1 ? 's' : ''}
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                            {qr.item_type === 'short_answer' ? (
-                              <div className="space-y-1 text-xs">
-                                <p className="text-muted-foreground">
-                                  Your answer:{' '}
-                                  <span className="text-foreground font-medium">
-                                    {qr.answer_text?.trim() || '(no answer)'}
-                                  </span>
+                  {result.question_results && result.question_results.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-semibold">Answer Review</p>
+                      {result.question_results.map((qr, qi) => {
+                        const answered = qr.selected_choice_index !== null || Boolean(qr.answer_text?.trim())
+                        const correct = qr.is_correct === true
+                        const incorrect = qr.is_correct === false
+                        const pending = qr.is_correct === null && answered
+
+                        return (
+                          <Card
+                            key={qr.question_id}
+                            className={
+                              correct
+                                ? 'border-green-500/40 bg-green-500/5'
+                                : incorrect
+                                  ? 'border-destructive/40 bg-destructive/5'
+                                  : 'border-border'
+                            }
+                          >
+                            <CardContent className="p-3 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-sm font-medium leading-snug">
+                                  {qi + 1}. {qr.prompt}
                                 </p>
-                                {qr.correct_answer_text && (
+                                <Badge
+                                  variant={correct ? 'default' : incorrect ? 'destructive' : 'secondary'}
+                                  className="shrink-0 text-xs"
+                                >
+                                  {correct
+                                    ? `+${qr.points_awarded.toFixed(1)} pts`
+                                    : pending
+                                      ? 'Pending'
+                                      : !answered
+                                        ? 'Skipped'
+                                        : '0 pts'}
+                                </Badge>
+                              </div>
+
+                              {qr.item_type === 'short_answer' ? (
+                                <div className="space-y-1 text-xs">
                                   <p className="text-muted-foreground">
-                                    Accepted:{' '}
-                                    <span className="text-green-700 dark:text-green-400 font-medium">
-                                      {qr.correct_answer_text}
+                                    Your answer:{' '}
+                                    <span className="text-foreground font-medium">
+                                      {qr.answer_text?.trim() || '(no answer)'}
                                     </span>
                                   </p>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="space-y-1">
-                                {qr.choices.map((choiceText, ci) => {
-                                  const isCorrectAnswer = ci === qr.correct_choice_index
-                                  const isStudentAnswer = ci === qr.selected_choice_index
-                                  return (
-                                    <div
-                                      key={ci}
-                                      className={`flex items-center gap-2 rounded-md px-2 py-1 text-xs ${
-                                        isCorrectAnswer
-                                          ? 'bg-green-500/10 text-green-700 dark:text-green-400 font-medium'
-                                          : isStudentAnswer && !isCorrectAnswer
-                                            ? 'bg-destructive/10 text-destructive font-medium'
-                                            : 'text-muted-foreground'
-                                      }`}
-                                    >
-                                      <span className="shrink-0 w-4">
-                                        {isCorrectAnswer ? '✓' : isStudentAnswer && !isCorrectAnswer ? '✗' : ''}
+                                  {qr.correct_answer_text && (
+                                    <p className="text-muted-foreground">
+                                      Accepted:{' '}
+                                      <span className="text-green-700 dark:text-green-400 font-medium">
+                                        {qr.correct_answer_text}
                                       </span>
-                                      <span>{choiceText}</span>
-                                      {isStudentAnswer && !isCorrectAnswer && (
-                                        <span className="ml-auto text-[10px] opacity-70">your answer</span>
-                                      )}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            )}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  {qr.choices.map((choiceText, ci) => {
+                                    const isCorrectAnswer = ci === qr.correct_choice_index
+                                    const isStudentAnswer = ci === qr.selected_choice_index
+                                    return (
+                                      <div
+                                        key={ci}
+                                        className={`flex items-center gap-2 rounded-md px-2 py-1 text-xs ${
+                                          isCorrectAnswer
+                                            ? 'bg-green-500/10 text-green-700 dark:text-green-400 font-medium'
+                                            : isStudentAnswer && !isCorrectAnswer
+                                              ? 'bg-destructive/10 text-destructive font-medium'
+                                              : 'text-muted-foreground'
+                                        }`}
+                                      >
+                                        <span className="shrink-0 w-4">
+                                          {isCorrectAnswer ? '✓' : isStudentAnswer && !isCorrectAnswer ? '✗' : ''}
+                                        </span>
+                                        <span>{choiceText}</span>
+                                        {isStudentAnswer && !isCorrectAnswer && (
+                                          <span className="ml-auto text-[10px] opacity-70">your answer</span>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
 
-                            {qr.explanation && (
-                              <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-1">
-                                {qr.explanation}
-                              </p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="flex gap-2 sm:justify-between">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {result ? 'Close' : 'Exit'}
-          </Button>
-          {!result && (
-            <Button
-              onClick={() => void submitAttempt('manual')}
-              disabled={!session || (!started && !terminated) || submitting}
-            >
-              {submitting ? 'Submitting...' : terminated ? 'Submit Terminated Attempt' : 'Submit Exam'}
-            </Button>
+                              {qr.explanation && (
+                                <p className="text-xs text-muted-foreground border-t border-border/50 pt-2 mt-1">
+                                  {qr.explanation}
+                                </p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3 md:px-6 md:py-4 flex-shrink-0">
+        <Button
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={started && isAttemptActive}
+        >
+          {result ? 'Close' : 'Exit'}
+        </Button>
+        {!result && (
+          <Button
+            onClick={() => void submitAttempt('manual')}
+            disabled={!session || (!started && !terminated) || submitting}
+          >
+            {submitting
+              ? 'Submitting...'
+              : terminated
+              ? 'Submit Terminated Attempt'
+              : isQuizMode
+              ? 'Submit Quiz'
+              : 'Submit Exam'}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
