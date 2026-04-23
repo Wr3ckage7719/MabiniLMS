@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Download, RefreshCw, X } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, X, ArrowLeft, ChevronRight, Eye, Clock, FileDown, Activity, BarChart2, BookOpen } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -258,6 +259,7 @@ export function MaterialPreviewDialog({
   const [studentProgressError, setStudentProgressError] = useState<string | null>(null);
   const [resolvedFileSize, setResolvedFileSize] = useState('Unknown');
   const [engagementLoadingTimedOut, setEngagementLoadingTimedOut] = useState(false);
+  const [selectedEngagementStudent, setSelectedEngagementStudent] = useState<(typeof engagementStats)[number] | null>(null);
 
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const pdfIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -960,24 +962,147 @@ export function MaterialPreviewDialog({
   ]);
 
   const renderTeacherEngagement = () => {
-    if (!isTeacher) {
-      return null;
+    if (!isTeacher) return null;
+
+    const getInitials = (item: (typeof engagementStats)[number]) => {
+      const first = item.student?.first_name?.[0] ?? '';
+      const last = item.student?.last_name?.[0] ?? '';
+      return (first + last).toUpperCase() || '?';
+    };
+
+    const getFullName = (item: (typeof engagementStats)[number]) =>
+      [item.student?.first_name, item.student?.last_name].filter(Boolean).join(' ').trim()
+      || item.student?.email || 'Student';
+
+    const getEventIcon = (type: string) => {
+      switch (type) {
+        case 'view_start': return <Eye className="h-3.5 w-3.5 text-blue-500" />;
+        case 'view_end': return <Clock className="h-3.5 w-3.5 text-slate-500" />;
+        case 'download': return <FileDown className="h-3.5 w-3.5 text-emerald-600" />;
+        case 'scroll': return <Activity className="h-3.5 w-3.5 text-violet-500" />;
+        default: return <BarChart2 className="h-3.5 w-3.5 text-muted-foreground" />;
+      }
+    };
+
+    // Student detail view
+    if (selectedEngagementStudent) {
+      const item = selectedEngagementStudent;
+      const fullName = getFullName(item);
+      const allEvents = [...item.interaction_events].reverse();
+
+      return (
+        <TabsContent value="engagement" className="mt-0 flex min-h-0 flex-1 flex-col space-y-4">
+          <button
+            type="button"
+            onClick={() => setSelectedEngagementStudent(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            All Students
+          </button>
+
+          {/* Student header */}
+          <div className="flex items-center gap-3 p-4 rounded-xl border border-border bg-card">
+            <Avatar className="h-12 w-12 flex-shrink-0">
+              <AvatarFallback className="text-sm font-semibold bg-emerald-100 text-emerald-700">
+                {getInitials(item)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-base truncate">{fullName}</p>
+              <p className="text-xs text-muted-foreground">Last viewed {formatEventTime(item.last_viewed_at)}</p>
+            </div>
+            <Badge variant={item.completed ? 'default' : 'secondary'} className="shrink-0">
+              {item.completed ? 'Completed' : 'In Progress'}
+            </Badge>
+          </div>
+
+          {/* Progress */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Reading Progress</span>
+              <span className="font-semibold tabular-nums">{item.progress_percent.toFixed(1)}%</span>
+            </div>
+            <Progress value={item.progress_percent} className="h-2" />
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label: 'Views', value: item.view_count, icon: <Eye className="h-4 w-4 text-blue-500" /> },
+              { label: 'Downloads', value: item.download_count, icon: <FileDown className="h-4 w-4 text-emerald-600" /> },
+              { label: 'Avg Session', value: item.avg_session_duration_seconds ? formatDuration(item.avg_session_duration_seconds) : 'N/A', icon: <Clock className="h-4 w-4 text-slate-500" /> },
+              { label: 'Scan Time', value: formatDuration(item.total_scan_seconds), icon: <Activity className="h-4 w-4 text-violet-500" /> },
+              { label: 'Total Events', value: item.event_count, icon: <BarChart2 className="h-4 w-4 text-orange-500" /> },
+              { label: 'Pages Viewed', value: item.pages_viewed.length > 0 ? item.pages_viewed.join(', ') : 'N/A', icon: <BookOpen className="h-4 w-4 text-indigo-500" /> },
+            ].map(({ label, value, icon }) => (
+              <div key={label} className="rounded-lg border border-border bg-card p-3 flex items-start gap-2">
+                <div className="mt-0.5">{icon}</div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground">{label}</p>
+                  <p className="text-sm font-semibold">{value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Full interaction timeline */}
+          <div>
+            <p className="text-sm font-semibold mb-3">Interaction Timeline</p>
+            {allEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No interaction events captured yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {allEvents.map((event, index) => {
+                  const eventDetails = getEventDetails(event);
+                  return (
+                    <div key={`${item.id}-${event.type}-${event.timestamp}-${index}`} className="flex items-start gap-3 p-3 rounded-lg border border-border/70 bg-muted/20">
+                      <div className="mt-0.5 p-1.5 rounded-md bg-background border border-border/60">
+                        {getEventIcon(event.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{getEventLabel(event)}</p>
+                        {eventDetails && <p className="text-xs text-muted-foreground mt-0.5">{eventDetails}</p>}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground shrink-0 mt-0.5">{formatEventTime(event.timestamp)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      );
     }
 
+    // Student list view (Level 1)
     return (
       <TabsContent value="engagement" className="mt-0 flex min-h-0 flex-1 flex-col space-y-4">
-        <div className="rounded-lg border border-border p-4 space-y-3">
+        {/* Class summary banner */}
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-foreground">Class Engagement Summary</p>
-            <Badge variant="secondary">{engagementStats.length} students</Badge>
+            <p className="text-sm font-semibold">Class Engagement</p>
+            <Badge variant="secondary">{engagementStats.length} student{engagementStats.length !== 1 ? 's' : ''}</Badge>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Average Progress</span>
-              <span>{teacherAverageProgress.toFixed(2)}%</span>
+              <span className="font-semibold tabular-nums">{teacherAverageProgress.toFixed(1)}%</span>
             </div>
-            <Progress value={teacherAverageProgress} />
+            <Progress value={teacherAverageProgress} className="h-2" />
           </div>
+          {engagementStats.length > 0 && (
+            <div className="flex gap-4 text-xs text-muted-foreground pt-1">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                {engagementStats.filter(s => s.completed).length} completed
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+                {engagementStats.filter(s => !s.completed).length} in progress
+              </span>
+            </div>
+          )}
         </div>
 
         {engagementLoading && !engagementLoadingTimedOut ? (
@@ -989,18 +1114,9 @@ export function MaterialPreviewDialog({
         {engagementLoadingTimedOut ? (
           <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground space-y-3">
             <p>Engagement request is taking longer than expected.</p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-2"
-              onClick={() => {
-                setEngagementLoadingTimedOut(false);
-                void refetchEngagement();
-              }}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Retry
+            <Button type="button" size="sm" variant="outline" className="gap-2"
+              onClick={() => { setEngagementLoadingTimedOut(false); void refetchEngagement(); }}>
+              <RefreshCw className="h-4 w-4" /> Retry
             </Button>
           </div>
         ) : null}
@@ -1009,85 +1125,57 @@ export function MaterialPreviewDialog({
           <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground space-y-3">
             <p className="font-medium text-foreground">Could not load engagement analytics.</p>
             <p>{engagementErrorDetails instanceof Error ? engagementErrorDetails.message : 'Please try again.'}</p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-2"
-              onClick={() => void refetchEngagement()}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Retry
+            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => void refetchEngagement()}>
+              <RefreshCw className="h-4 w-4" /> Retry
             </Button>
           </div>
         ) : null}
 
         {!engagementLoading && !engagementError && engagementStats.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-            No engagement events yet for this material.
+          <div className="rounded-lg border border-dashed border-border p-4 text-center space-y-2">
+            <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">No students have opened this material yet.</p>
           </div>
         ) : null}
 
+        {/* Student list */}
         {!engagementLoading && !engagementError && engagementStats.length > 0 ? (
-          <div className="space-y-3 min-h-0 flex-1 overflow-auto pr-1">
+          <div className="space-y-2 min-h-0 flex-1 overflow-auto pr-1">
             {engagementStats.map((item) => {
-              const fullName = [item.student?.first_name, item.student?.last_name]
-                .filter(Boolean)
-                .join(' ')
-                .trim() || item.student?.email || 'Student';
-              const recentEvents = [...item.interaction_events].slice(-8).reverse();
-
+              const fullName = getFullName(item);
               return (
-                <div key={item.id} className="rounded-lg border border-border p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium text-sm text-foreground">{fullName}</p>
-                    <Badge variant={item.completed ? 'default' : 'secondary'}>
-                      {item.completed ? 'Completed' : 'In Progress'}
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
-                    <p>Views: {item.view_count}</p>
-                    <p>Downloads: {item.download_count}</p>
-                    <p>Downloaded: {item.download_count > 0 ? 'Yes' : 'No'}</p>
-                    <p>Events: {item.event_count}</p>
-                    <p>Avg Session: {item.avg_session_duration_seconds ? formatDuration(item.avg_session_duration_seconds) : 'N/A'}</p>
-                    <p>Scan Time: {formatDuration(item.total_scan_seconds)}</p>
-                    <p>Last Viewed: {formatEventTime(item.last_viewed_at)}</p>
-                    <p>Pages: {item.pages_viewed.length > 0 ? item.pages_viewed.join(', ') : 'N/A'}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Progress</span>
-                      <span>{item.progress_percent.toFixed(2)}%</span>
-                    </div>
-                    <Progress value={item.progress_percent} />
-                  </div>
-
-                  <div className="rounded-md border border-border/70 bg-muted/20 p-2.5 space-y-2">
-                    <p className="text-xs font-medium text-foreground">Recent Tracked Actions</p>
-                    {recentEvents.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No interaction events captured yet.</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {recentEvents.map((event, index) => {
-                          const eventDetails = getEventDetails(event);
-
-                          return (
-                            <div key={`${item.id}-${event.type}-${event.timestamp}-${index}`} className="rounded border border-border/60 bg-background px-2 py-1.5">
-                              <p className="text-xs font-medium text-foreground">{getEventLabel(event)}</p>
-                              {eventDetails ? (
-                                <p className="text-[11px] text-muted-foreground">{eventDetails}</p>
-                              ) : null}
-                              <p className="text-[11px] text-muted-foreground">{formatEventTime(event.timestamp)}</p>
-                            </div>
-                          );
-                        })}
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedEngagementStudent(item)}
+                  className="w-full text-left rounded-xl border border-border bg-card hover:border-primary/50 hover:shadow-sm transition-all p-4 group"
+                >
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10 flex-shrink-0">
+                      <AvatarFallback className="text-sm font-semibold bg-emerald-100 text-emerald-700">
+                        {getInitials(item)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{fullName}</p>
+                        <Badge variant={item.completed ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                          {item.completed ? 'Completed' : 'In Progress'}
+                        </Badge>
                       </div>
-                    )}
+                      <div className="flex items-center gap-3 mb-1.5">
+                        <Progress value={item.progress_percent} className="h-1.5 flex-1" />
+                        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{item.progress_percent.toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{item.view_count} views</span>
+                        {item.download_count > 0 && <span className="flex items-center gap-1"><FileDown className="h-3 w-3" />{item.download_count} dl</span>}
+                        <span>Last seen {formatEventTime(item.last_viewed_at)}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

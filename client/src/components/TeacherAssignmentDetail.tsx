@@ -40,7 +40,11 @@ import {
   CheckCircle2,
   Clock,
   Users,
+  Zap,
+  ShieldCheck,
+  ChevronRight,
 } from 'lucide-react';
+import { getTaskTypeMeta } from '@/lib/task-types';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/utils';
 import { useAssignmentSubmissions } from '@/hooks/useTeacherData';
@@ -387,6 +391,9 @@ export function TeacherAssignmentDetail({
   if (!assignment) return null;
 
   const isExamAssignment = assignment.rawType === 'exam';
+  const isQuizAssignment = assignment.rawType === 'quiz';
+  const isAutoGraded = isExamAssignment || isQuizAssignment;
+  const taskMeta = getTaskTypeMeta(assignment.rawType || assignment.type);
 
   const handleSaveChanges = async () => {
     if (!assignment?.id) return;
@@ -790,33 +797,34 @@ export function TeacherAssignmentDetail({
                 </div>
               ) : !isEditing ? (
                 <div>
-                  <DialogTitle className="text-2xl mb-2">
-                    {editedTitle}
-                  </DialogTitle>
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <div className={`p-2 rounded-lg ${taskMeta.iconBg} flex-shrink-0`}>
+                      <taskMeta.icon className={`h-5 w-5 ${taskMeta.iconText}`} />
+                    </div>
+                    <DialogTitle className="text-xl leading-tight">{editedTitle}</DialogTitle>
+                  </div>
                   <div className="flex flex-wrap gap-2 items-center">
-                    <Badge variant="secondary" className="rounded-lg">
-                      {editedPoints} points
+                    <Badge variant="outline" className={`rounded-lg border text-xs ${taskMeta.badgeClass}`}>
+                      {taskMeta.label}
                     </Badge>
-                    <Badge
-                      variant={
-                        assignment?.type === 'activity' ? 'default' : 'secondary'
-                      }
-                      className="rounded-lg"
-                    >
-                      {assignment?.type === 'activity' ? 'Activity' : 'Material'}
+                    <Badge variant="secondary" className="rounded-lg text-xs">
+                      {editedPoints} pts
                     </Badge>
+                    {isQuizAssignment && (
+                      <Badge variant="outline" className="rounded-lg text-xs bg-violet-50 text-violet-700 border-violet-200">
+                        <Zap className="h-3 w-3 mr-1" /> Auto-graded
+                      </Badge>
+                    )}
                     {isExamAssignment && (
-                      <Badge variant="outline" className="rounded-lg">
-                        Exam
+                      <Badge variant="outline" className="rounded-lg text-xs bg-amber-50 text-amber-700 border-amber-200">
+                        <ShieldCheck className="h-3 w-3 mr-1" /> Proctored
                       </Badge>
                     )}
                     <Badge
                       variant={acceptingSubmissions ? 'default' : 'destructive'}
-                      className="rounded-lg"
+                      className="rounded-lg text-xs"
                     >
-                      {acceptingSubmissions
-                        ? 'Accepting Submissions'
-                        : 'Closed'}
+                      {acceptingSubmissions ? 'Accepting Submissions' : 'Closed'}
                     </Badge>
                   </div>
                 </div>
@@ -1008,7 +1016,7 @@ export function TeacherAssignmentDetail({
                   Details
                 </TabsTrigger>
                 <TabsTrigger value="submissions" className="rounded-md">
-                  Submissions
+                  {isAutoGraded ? 'Results' : 'Submissions'}
                 </TabsTrigger>
                 <TabsTrigger value="comments" className="rounded-md">
                   Comments
@@ -1161,8 +1169,32 @@ export function TeacherAssignmentDetail({
                 )}
               </div>
 
-              {/* Submissions Settings */}
-              {assignment.type === 'activity' && (
+              {/* Type-specific info panel */}
+              {isQuizAssignment && (
+                <Card className="border border-violet-200 bg-violet-50/60">
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <Zap className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-violet-900">Auto-graded Quiz</p>
+                      <p className="text-xs text-violet-700">Students answer in-app. Scores are calculated automatically — no manual grading required.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              {isExamAssignment && (
+                <Card className="border border-amber-200 bg-amber-50/60">
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <ShieldCheck className="h-4 w-4 text-amber-700 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-amber-900">Proctored Exam</p>
+                      <p className="text-xs text-amber-700">Fullscreen + anti-cheat enforced. Violations are tracked per student. Use the Exam tab to view proctoring details.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Submissions Settings — activity only, not quiz/exam */}
+              {assignment.type === 'activity' && !isAutoGraded && (
                 <div>
                   <h3 className="font-semibold mb-2 flex items-center gap-2">
                     <Clock className="h-4 w-4" />
@@ -1206,37 +1238,58 @@ export function TeacherAssignmentDetail({
               )}
             </TabsContent>
 
-            {/* Submissions Tab */}
+            {/* Submissions / Results Tab */}
             <TabsContent value="submissions" className="space-y-5 mt-6">
               {/* Summary Cards */}
-              <div className="grid grid-cols-3 gap-3">
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-2xl font-bold">{submittedCount}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Submitted
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-2xl font-bold">{gradedCount}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Graded</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-2xl font-bold">{pendingCount}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Needs Grading</p>
-                  </CardContent>
-                </Card>
-              </div>
+              {isAutoGraded ? (
+                <div className="grid grid-cols-3 gap-3">
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{gradedCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Completed</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{submittedCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">In Progress</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{pendingCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Not Started</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{submittedCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Submitted</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{gradedCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Graded</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-0 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <p className="text-2xl font-bold">{pendingCount}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Needs Grading</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               {/* Student List */}
               <div>
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <Users className="h-4 w-4" />
-                  Student Work ({submissions.length})
+                  {isAutoGraded ? 'Student Results' : 'Student Work'} ({submissions.length})
                 </h3>
                 {submissionsLoading ? (
                   <Card className="border-0 shadow-sm">
@@ -1276,7 +1329,7 @@ export function TeacherAssignmentDetail({
                           <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <Avatar className="h-10 w-10 flex-shrink-0">
-                                <AvatarFallback className="bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                                <AvatarFallback className={`${taskMeta.iconBg} ${taskMeta.iconText} group-hover:bg-primary group-hover:text-primary-foreground transition-colors`}>
                                   {submission.avatar}
                                 </AvatarFallback>
                               </Avatar>
@@ -1291,10 +1344,11 @@ export function TeacherAssignmentDetail({
                             </div>
 
                             <div className="flex items-center gap-3 flex-shrink-0">
-                              {submission.status === 'graded' && submission.grade && (
+                              {submission.grade && (
                                 <div className="text-right">
-                                  <p className="font-semibold text-sm">
+                                  <p className="font-semibold text-sm tabular-nums">
                                     {getDisplayGrade(submission.grade)}
+                                    {isAutoGraded && <span className="text-xs font-normal text-muted-foreground"> / {assignment.points}</span>}
                                   </p>
                                 </div>
                               )}
@@ -1304,6 +1358,7 @@ export function TeacherAssignmentDetail({
                               >
                                 {STATUS_LABELS[submission.status]}
                               </Badge>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
                           </div>
                         </CardContent>
