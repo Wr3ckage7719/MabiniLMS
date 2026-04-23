@@ -1336,7 +1336,7 @@ export const submitExamAttempt = async (
 
   const { data: answersData, error: answersError } = await supabaseAdmin
     .from('exam_attempt_answers')
-    .select('question_id, points_awarded, is_correct, selected_choice_index, answer_text')
+    .select('*')
     .eq('attempt_id', attemptId)
 
   if (answersError) {
@@ -1421,7 +1421,7 @@ export const submitExamAttempt = async (
         content: submissionContent,
         submitted_at: now,
         status: submissionStatus,
-        is_proctored: true,
+        is_proctored: context.assignment.is_proctored,
         anti_cheat_violations: antiCheatViolations,
       })
       .eq('id', existingSubmission.id)
@@ -1445,7 +1445,7 @@ export const submitExamAttempt = async (
         content: submissionContent,
         submitted_at: now,
         status: submissionStatus,
-        is_proctored: true,
+        is_proctored: context.assignment.is_proctored,
         anti_cheat_violations: antiCheatViolations,
       })
       .select('id')

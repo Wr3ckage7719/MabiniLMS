@@ -129,6 +129,11 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   }, [loadMyInvitations, user]);
 
   const handleArchive = useCallback(async (classId: string) => {
+    const isStudent = (user?.role || '').toLowerCase() === 'student';
+    if (isStudent) {
+      setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
+      return;
+    }
     try {
       await coursesService.archiveCourse(classId);
       setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
@@ -137,7 +142,7 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
       console.error('Failed to archive class', error);
       throw error;
     }
-  }, [refreshClassQueries]);
+  }, [refreshClassQueries, user]);
 
   const handleUnenroll = useCallback(async (classId: string) => {
     try {

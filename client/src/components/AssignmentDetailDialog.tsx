@@ -330,8 +330,13 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
+      <DialogContent
+        className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6"
+        onPointerDownOutside={(e) => { if (examOpen) e.preventDefault(); }}
+        onInteractOutside={(e) => { if (examOpen) e.preventDefault(); }}
+      >
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
@@ -608,16 +613,17 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
           </TabsContent>
         </Tabs>
 
-        {assignment && classId && isExamAssignment && (
-          <ProctoredExamDialog
-            assignmentId={assignment.id}
-            assignmentTitle={assignment.title}
-            open={examOpen}
-            onOpenChange={setExamOpen}
-            mode={isQuizAssignment ? 'quiz' : 'exam'}
-          />
-        )}
       </DialogContent>
     </Dialog>
+    {assignment && classId && isExamAssignment && (
+      <ProctoredExamDialog
+        assignmentId={assignment.id}
+        assignmentTitle={assignment.title}
+        open={examOpen}
+        onOpenChange={setExamOpen}
+        mode={isQuizAssignment ? 'quiz' : 'exam'}
+      />
+    )}
+    </>
   );
 }
