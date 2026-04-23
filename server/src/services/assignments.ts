@@ -71,6 +71,7 @@ const DEFAULT_PROCTORING_POLICY: Record<string, unknown> = {
   block_clipboard: true,
   block_context_menu: true,
   block_print_shortcut: true,
+  one_question_at_a_time: false,
 };
 
 type AssignmentInputWithAliases = Partial<CreateAssignmentInput & UpdateAssignmentInput> & Record<string, unknown>;
@@ -186,6 +187,9 @@ const normalizeProctoringPolicyInput = (
   if (blockClipboard !== undefined) normalizedPolicy.block_clipboard = blockClipboard;
   if (blockContextMenu !== undefined) normalizedPolicy.block_context_menu = blockContextMenu;
   if (blockPrintShortcut !== undefined) normalizedPolicy.block_print_shortcut = blockPrintShortcut;
+
+  const oneQuestionAtATime = toBoolean(policy.one_question_at_a_time);
+  if (oneQuestionAtATime !== undefined) normalizedPolicy.one_question_at_a_time = oneQuestionAtATime;
 
   if (!options.withDefaults && Object.keys(normalizedPolicy).length === 0) {
     return {};

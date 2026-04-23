@@ -19,6 +19,7 @@ export interface ProctoringPolicy {
   block_clipboard: boolean
   block_context_menu: boolean
   block_print_shortcut: boolean
+  one_question_at_a_time: boolean
 }
 
 export type ExamQuestionItemType = 'multiple_choice' | 'true_false' | 'short_answer'

@@ -51,9 +51,11 @@ export function ProctoredExamDialog({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
   const [agreementChecked, setAgreementChecked] = useState(false)
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set())
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
   const isQuizMode = mode === 'quiz'
+  const isOneAtATime = Boolean(session?.policy.one_question_at_a_time)
   const lastViolationAtRef = useRef<Record<string, number>>({})
   const timeoutSubmitInFlightRef = useRef(false)
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -73,6 +75,7 @@ export function ProctoredExamDialog({
     setSecondsLeft(null)
     setAgreementChecked(false)
     setFlaggedQuestions(new Set())
+    setCurrentQuestionIndex(0)
     lastViolationAtRef.current = {}
     timeoutSubmitInFlightRef.current = false
     questionRefs.current = {}
@@ -656,153 +659,310 @@ export function ProctoredExamDialog({
 
               {/* Questions */}
               {started && !result && (
-                <div className="space-y-3">
-                  <div className="sticky top-0 z-10 rounded-xl border bg-background/95 backdrop-blur p-2">
-                    <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">Jump to question</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {session.questions.map((q, qi) => {
-                        const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
-                        const flagged = flaggedQuestions.has(q.id)
-                        return (
-                          <button
-                            key={q.id}
-                            type="button"
-                            onClick={() => scrollToQuestion(q.id)}
-                            className={`w-7 h-7 text-xs font-semibold rounded-md border transition ${
-                              flagged
-                                ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                : answered
+                isOneAtATime ? (
+                  /* ── One-at-a-time mode ── */
+                  <div className="space-y-3">
+                    {/* Progress header */}
+                    <div className="flex items-center justify-between rounded-xl border bg-background/95 px-3 py-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        Question {currentQuestionIndex + 1} <span className="font-normal text-muted-foreground">of {session.questions.length}</span>
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {session.questions.map((q, qi) => {
+                          const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
+                          const flagged = flaggedQuestions.has(q.id)
+                          const isCurrent = qi === currentQuestionIndex
+                          return (
+                            <button
+                              key={q.id}
+                              type="button"
+                              onClick={() => setCurrentQuestionIndex(qi)}
+                              className={`w-6 h-6 text-[10px] font-semibold rounded-md border transition ${
+                                isCurrent
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : flagged
+                                  ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                  : answered
                                   ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
                                   : 'border-border text-muted-foreground hover:border-primary/50'
-                            }`}
-                            title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
-                          >
-                            {qi + 1}
-                          </button>
-                        )
-                      })}
+                              }`}
+                              title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
+                            >
+                              {qi + 1}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 mt-1.5 px-0.5">
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <span className="w-2.5 h-2.5 rounded-sm bg-green-500/20 border border-green-500/60 inline-block" />
-                        Answered
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/60 inline-block" />
-                        Flagged
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <span className="w-2.5 h-2.5 rounded-sm border border-border inline-block" />
-                        Unanswered
-                      </span>
-                    </div>
-                  </div>
 
-                  {session.questions.map((question, questionIndex) => {
-                    const selectedChoice = answerMap[question.id]
-                    const textValue = textAnswerMap[question.id] ?? ''
-                    const isSavingThisQuestion = savingAnswerQuestionId === question.id
-                    const itemType = question.item_type ?? 'multiple_choice'
-                    const isFlagged = flaggedQuestions.has(question.id)
-
-                    return (
-                      <div
-                        key={question.id}
-                        ref={(el) => { questionRefs.current[question.id] = el }}
-                        className="scroll-mt-36"
-                      >
-                      <Card className={isFlagged ? 'border-amber-500/40' : ''}>
-                        <CardHeader className="pb-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <CardTitle className="text-sm leading-snug">
-                              {questionIndex + 1}. {question.prompt}
-                            </CardTitle>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
-                                {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => toggleFlag(question.id)}
-                                className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
-                                title={isFlagged ? 'Remove flag' : 'Flag for review'}
-                              >
-                                <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
-                              </button>
+                    {/* Single question card */}
+                    {(() => {
+                      const question = session.questions[currentQuestionIndex]
+                      if (!question) return null
+                      const selectedChoice = answerMap[question.id]
+                      const textValue = textAnswerMap[question.id] ?? ''
+                      const isSavingThisQuestion = savingAnswerQuestionId === question.id
+                      const itemType = question.item_type ?? 'multiple_choice'
+                      const isFlagged = flaggedQuestions.has(question.id)
+                      return (
+                        <Card className={isFlagged ? 'border-amber-500/40' : ''}>
+                          <CardHeader className="pb-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <CardTitle className="text-sm leading-snug">
+                                {currentQuestionIndex + 1}. {question.prompt}
+                              </CardTitle>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFlag(question.id)}
+                                  className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
+                                  title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                                >
+                                  <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-2">
-                          {itemType === 'true_false' && (
-                            <div className="grid grid-cols-2 gap-3">
-                              {question.choices.map((choice) => {
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {itemType === 'true_false' && (
+                              <div className="grid grid-cols-2 gap-3">
+                                {question.choices.map((choice) => {
+                                  const isSelected = selectedChoice === choice.original_index
+                                  const isTrue = choice.text === 'True'
+                                  return (
+                                    <button
+                                      key={`${question.id}-${choice.rendered_index}`}
+                                      type="button"
+                                      disabled={disableInteraction}
+                                      onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                      className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                        isSelected
+                                          ? isTrue
+                                            ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                            : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                          : 'border-border hover:border-primary/50'
+                                      } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                    >
+                                      {choice.text}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+                            {itemType === 'short_answer' && (
+                              <Textarea
+                                value={textValue}
+                                onChange={(e) =>
+                                  setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                                }
+                                onBlur={() => void handleTextAnswer(question.id, textValue)}
+                                placeholder="Type your answer here…"
+                                disabled={disableInteraction}
+                                className="resize-none min-h-[100px] text-sm"
+                              />
+                            )}
+                            {itemType === 'multiple_choice' && (
+                              question.choices.map((choice) => {
                                 const isSelected = selectedChoice === choice.original_index
-                                const isTrue = choice.text === 'True'
                                 return (
                                   <button
                                     key={`${question.id}-${choice.rendered_index}`}
                                     type="button"
                                     disabled={disableInteraction}
                                     onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
-                                    className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                    className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
                                       isSelected
-                                        ? isTrue
-                                          ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
-                                          : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                        ? 'border-primary bg-primary/10'
                                         : 'border-border hover:border-primary/50'
                                     } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
                                   >
+                                    <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
                                     {choice.text}
                                   </button>
                                 )
-                              })}
+                              })
+                            )}
+                            <div className="text-xs text-muted-foreground min-h-4">
+                              {isSavingThisQuestion ? 'Saving answer…' : ' '}
                             </div>
-                          )}
+                          </CardContent>
+                        </Card>
+                      )
+                    })()}
 
-                          {itemType === 'short_answer' && (
-                            <Textarea
-                              value={textValue}
-                              onChange={(e) =>
-                                setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
-                              }
-                              onBlur={() => void handleTextAnswer(question.id, textValue)}
-                              placeholder="Type your answer here…"
-                              disabled={disableInteraction}
-                              className="resize-none min-h-[100px] text-sm"
-                            />
-                          )}
-
-                          {itemType === 'multiple_choice' && (
-                            question.choices.map((choice) => {
-                              const isSelected = selectedChoice === choice.original_index
-                              return (
-                                <button
-                                  key={`${question.id}-${choice.rendered_index}`}
-                                  type="button"
-                                  disabled={disableInteraction}
-                                  onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
-                                  className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
-                                    isSelected
-                                      ? 'border-primary bg-primary/10'
-                                      : 'border-border hover:border-primary/50'
-                                  } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
-                                >
-                                  <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
-                                  {choice.text}
-                                </button>
-                              )
-                            })
-                          )}
-
-                          <div className="text-xs text-muted-foreground min-h-4">
-                            {isSavingThisQuestion ? 'Saving answer…' : ' '}
-                          </div>
-                        </CardContent>
-                      </Card>
+                    {/* Prev / Next navigation */}
+                    <div className="flex items-center justify-between gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentQuestionIndex === 0}
+                        onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))}
+                      >
+                        ← Previous
+                      </Button>
+                      {currentQuestionIndex < session.questions.length - 1 && (
+                        <Button
+                          size="sm"
+                          onClick={() => setCurrentQuestionIndex((i) => Math.min(session.questions.length - 1, i + 1))}
+                        >
+                          Next →
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* ── All-at-once mode ── */
+                  <div className="space-y-3">
+                    <div className="sticky top-0 z-10 rounded-xl border bg-background/95 backdrop-blur p-2">
+                      <p className="text-[10px] text-muted-foreground mb-1.5 px-0.5">Jump to question</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {session.questions.map((q, qi) => {
+                          const answered = answerMap[q.id] !== undefined || Boolean(textAnswerMap[q.id]?.trim())
+                          const flagged = flaggedQuestions.has(q.id)
+                          return (
+                            <button
+                              key={q.id}
+                              type="button"
+                              onClick={() => scrollToQuestion(q.id)}
+                              className={`w-7 h-7 text-xs font-semibold rounded-md border transition ${
+                                flagged
+                                  ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                  : answered
+                                    ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                    : 'border-border text-muted-foreground hover:border-primary/50'
+                              }`}
+                              title={`Q${qi + 1}${answered ? ' (answered)' : ''}${flagged ? ' (flagged)' : ''}`}
+                            >
+                              {qi + 1}
+                            </button>
+                          )
+                        })}
                       </div>
-                    )
-                  })}
-                </div>
+                      <div className="flex items-center gap-3 mt-1.5 px-0.5">
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-green-500/20 border border-green-500/60 inline-block" />
+                          Answered
+                        </span>
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-amber-500/20 border border-amber-500/60 inline-block" />
+                          Flagged
+                        </span>
+                        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <span className="w-2.5 h-2.5 rounded-sm border border-border inline-block" />
+                          Unanswered
+                        </span>
+                      </div>
+                    </div>
+
+                    {session.questions.map((question, questionIndex) => {
+                      const selectedChoice = answerMap[question.id]
+                      const textValue = textAnswerMap[question.id] ?? ''
+                      const isSavingThisQuestion = savingAnswerQuestionId === question.id
+                      const itemType = question.item_type ?? 'multiple_choice'
+                      const isFlagged = flaggedQuestions.has(question.id)
+
+                      return (
+                        <div
+                          key={question.id}
+                          ref={(el) => { questionRefs.current[question.id] = el }}
+                          className="scroll-mt-36"
+                        >
+                        <Card className={isFlagged ? 'border-amber-500/40' : ''}>
+                          <CardHeader className="pb-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <CardTitle className="text-sm leading-snug">
+                                {questionIndex + 1}. {question.prompt}
+                              </CardTitle>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFlag(question.id)}
+                                  className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
+                                  title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                                >
+                                  <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
+                                </button>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {itemType === 'true_false' && (
+                              <div className="grid grid-cols-2 gap-3">
+                                {question.choices.map((choice) => {
+                                  const isSelected = selectedChoice === choice.original_index
+                                  const isTrue = choice.text === 'True'
+                                  return (
+                                    <button
+                                      key={`${question.id}-${choice.rendered_index}`}
+                                      type="button"
+                                      disabled={disableInteraction}
+                                      onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                      className={`rounded-xl border-2 py-4 text-sm font-semibold transition ${
+                                        isSelected
+                                          ? isTrue
+                                            ? 'border-green-500 bg-green-500/10 text-green-700 dark:text-green-400'
+                                            : 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-400'
+                                          : 'border-border hover:border-primary/50'
+                                      } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                    >
+                                      {choice.text}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {itemType === 'short_answer' && (
+                              <Textarea
+                                value={textValue}
+                                onChange={(e) =>
+                                  setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                                }
+                                onBlur={() => void handleTextAnswer(question.id, textValue)}
+                                placeholder="Type your answer here…"
+                                disabled={disableInteraction}
+                                className="resize-none min-h-[100px] text-sm"
+                              />
+                            )}
+
+                            {itemType === 'multiple_choice' && (
+                              question.choices.map((choice) => {
+                                const isSelected = selectedChoice === choice.original_index
+                                return (
+                                  <button
+                                    key={`${question.id}-${choice.rendered_index}`}
+                                    type="button"
+                                    disabled={disableInteraction}
+                                    onClick={() => void handleSelectAnswer(question.id, choice.original_index)}
+                                    className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition ${
+                                      isSelected
+                                        ? 'border-primary bg-primary/10'
+                                        : 'border-border hover:border-primary/50'
+                                    } ${disableInteraction ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                  >
+                                    <span className="font-medium mr-2">{String.fromCharCode(65 + choice.rendered_index)}.</span>
+                                    {choice.text}
+                                  </button>
+                                )
+                              })
+                            )}
+
+                            <div className="text-xs text-muted-foreground min-h-4">
+                              {isSavingThisQuestion ? 'Saving answer…' : ' '}
+                            </div>
+                          </CardContent>
+                        </Card>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
               )}
 
               {/* Result */}

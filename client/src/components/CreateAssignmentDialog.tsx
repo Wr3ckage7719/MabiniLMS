@@ -576,6 +576,7 @@ export function CreateAssignmentDialog({
   const [autoCloseSubmissionsOnDueDate, setAutoCloseSubmissionsOnDueDate] = useState(true);
   const [customSubmissionCloseDate, setCustomSubmissionCloseDate] = useState<Date | undefined>(undefined);
   const [quizQuestionOrder, setQuizQuestionOrder] = useState<'sequence' | 'random'>('sequence');
+  const [quizOneQuestionAtATime, setQuizOneQuestionAtATime] = useState(false);
   const [quizQuestions, setQuizQuestions] = useState<QuizBuilderQuestion[]>([createQuizDraftQuestion()]);
   const [quizImportFileName, setQuizImportFileName] = useState<string | null>(null);
   const [examQuestionOrder, setExamQuestionOrder] = useState<'sequence' | 'random'>('random');
@@ -586,6 +587,7 @@ export function CreateAssignmentDialog({
   const [examAutoSubmitOnTabSwitch, setExamAutoSubmitOnTabSwitch] = useState(false);
   const [examAutoSubmitOnFullscreenExit, setExamAutoSubmitOnFullscreenExit] = useState(true);
   const [examMaxViolations, setExamMaxViolations] = useState('3');
+  const [examOneQuestionAtATime, setExamOneQuestionAtATime] = useState(false);
   const [examImportedQuestions, setExamImportedQuestions] = useState<ImportedQuestionDraft[]>([]);
   const [examImportFileName, setExamImportFileName] = useState<string | null>(null);
   const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
@@ -1429,7 +1431,10 @@ export function CreateAssignmentDialog({
                   block_clipboard: strictProctoring,
                   block_context_menu: strictProctoring,
                   block_print_shortcut: strictProctoring,
+                  one_question_at_a_time: examOneQuestionAtATime,
                 }
+              : taskType === 'quiz'
+              ? { one_question_at_a_time: quizOneQuestionAtATime }
               : undefined,
         });
 
@@ -2049,6 +2054,17 @@ export function CreateAssignmentDialog({
               </Select>
             </div>
 
+            <div className="flex items-center justify-between rounded-lg border border-violet-200/70 bg-background p-3">
+              <div>
+                <p className="text-sm font-medium">Show One Question at a Time</p>
+                <p className="text-xs text-muted-foreground">Students see questions one by one, navigating with Previous / Next.</p>
+              </div>
+              <Switch
+                checked={quizOneQuestionAtATime}
+                onCheckedChange={setQuizOneQuestionAtATime}
+              />
+            </div>
+
             <div className="rounded-lg border border-violet-200/70 bg-background p-4 space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2351,6 +2367,17 @@ export function CreateAssignmentDialog({
                   <Switch
                     checked={examAutoSubmitOnTabSwitch}
                     onCheckedChange={setExamAutoSubmitOnTabSwitch}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border/60 p-3 md:col-span-2">
+                  <div>
+                    <p className="text-sm font-medium">Show One Question at a Time</p>
+                    <p className="text-xs text-muted-foreground">Students see questions one by one, navigating with Previous / Next.</p>
+                  </div>
+                  <Switch
+                    checked={examOneQuestionAtATime}
+                    onCheckedChange={setExamOneQuestionAtATime}
                   />
                 </div>
 
