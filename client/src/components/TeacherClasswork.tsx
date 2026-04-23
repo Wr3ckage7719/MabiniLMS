@@ -8,15 +8,13 @@ import {
   Download,
   Trash2,
   MoreVertical,
-  Zap,
-  Calendar,
-  MessageSquare,
   Search,
   Folder,
   Upload,
   ListPlus,
   ArrowUpDown,
 } from 'lucide-react';
+import { getTaskTypeMeta } from '@/lib/task-types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,12 +43,6 @@ import { CreateAssignmentDialog } from '@/components/CreateAssignmentDialog';
 import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 import type { LearningMaterial } from '@/lib/data';
 
-const TYPE_ICONS: Record<string, typeof FileText> = {
-  assignment: FileText,
-  quiz: Zap,
-  project: Calendar,
-  discussion: MessageSquare,
-};
 
 const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
   pdf: FileText,
@@ -213,10 +205,6 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
     return new Date(b.uploadedDate || '').getTime() - new Date(a.uploadedDate || '').getTime();
   });
 
-  const getAssignmentIcon = (type: string) => {
-    const IconComponent = TYPE_ICONS[type] || FileText;
-    return IconComponent;
-  };
 
   const getAssignmentStatusColor = (status: string) => {
     switch (status) {
@@ -335,7 +323,8 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
           {filteredAssignments.length > 0 ? (
             <div className="space-y-3 animate-stagger">
               {filteredAssignments.map((assignment, idx) => {
-                const IconComponent = getAssignmentIcon(assignment.type);
+                const meta = getTaskTypeMeta(assignment.rawType || assignment.type);
+                const IconComponent = meta.icon;
                 return (
                   <Card
                     key={assignment.id}
@@ -348,8 +337,8 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                       <div className="flex items-start justify-between gap-4">
                         {/* Icon and Details */}
                         <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0 mt-1">
-                            <IconComponent className="h-4 w-4 text-primary" />
+                          <div className={`p-2 rounded-lg flex-shrink-0 mt-1 ${meta.iconBg}`}>
+                            <IconComponent className={`h-4 w-4 ${meta.iconText}`} />
                           </div>
                           <div className="min-w-0 flex-1">
                             <h4 className="font-semibold text-sm md:text-base line-clamp-1">
@@ -359,6 +348,9 @@ export function TeacherClasswork({ classId }: TeacherClassworkProps) {
                               {assignment.description}
                             </p>
                             <div className="flex flex-wrap gap-2 mt-2">
+                              <Badge variant="outline" className={`rounded-full text-xs border ${meta.badgeClass}`}>
+                                {meta.label}
+                              </Badge>
                               <Badge variant="outline" className="rounded-full text-xs">
                                 {assignment.points} pts
                               </Badge>

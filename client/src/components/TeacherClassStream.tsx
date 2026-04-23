@@ -19,6 +19,7 @@ import {
   Download,
   Trash2,
 } from 'lucide-react';
+import { getTaskTypeMeta } from '@/lib/task-types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -1815,6 +1816,7 @@ export function TeacherClassStream({
                   <DropdownMenuContent align="end" className="w-72 rounded-xl">
                     {CREATE_TASK_OPTIONS.map((taskOption) => {
                       const Icon = taskOption.icon;
+                      const optionMeta = getTaskTypeMeta(taskOption.id);
 
                       return (
                         <DropdownMenuItem
@@ -1823,7 +1825,7 @@ export function TeacherClassStream({
                           data-testid={`create-task-option-${taskOption.id}`}
                           onClick={() => openBuilder(taskOption.id)}
                         >
-                          <div className="mr-3 rounded-lg bg-primary/10 p-2 text-primary">
+                          <div className={`mr-3 rounded-lg p-2 ${optionMeta.iconBg} ${optionMeta.iconText}`}>
                             <Icon className="h-4 w-4" />
                           </div>
                           <div>
@@ -1840,7 +1842,10 @@ export function TeacherClassStream({
               {/* Classwork Items */}
               <div className="space-y-3">
                 {assignments.length > 0 ? (
-                  assignments.map((item, idx) => (
+                  assignments.map((item, idx) => {
+                    const itemMeta = getTaskTypeMeta(item.rawType);
+                    const ItemIcon = itemMeta.icon;
+                    return (
                     <Card
                       key={item.id}
                       className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group cursor-pointer"
@@ -1854,11 +1859,18 @@ export function TeacherClassStream({
                     >
                       <CardContent className="p-4 md:p-5">
                         <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <div className={`p-2 rounded-lg flex-shrink-0 mt-0.5 ${itemMeta.iconBg}`}>
+                              <ItemIcon className={`h-4 w-4 ${itemMeta.iconText}`} />
+                            </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex items-center gap-2 mb-1.5">
                               <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors truncate">
                                 {item.title}
                               </h3>
+                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border rounded-full shrink-0 ${itemMeta.badgeClass}`}>
+                                {itemMeta.label}
+                              </Badge>
                               {item.dueSoon && (
                                 <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs font-medium rounded-full">
                                   Due Soon
@@ -1898,6 +1910,7 @@ export function TeacherClassStream({
                               </div>
                             </div>
                           </div>
+                          </div>
 
                           {/* Action Menu */}
                           <DropdownMenu>
@@ -1935,7 +1948,7 @@ export function TeacherClassStream({
                         </div>
                       </CardContent>
                     </Card>
-                  ))
+                  );})
                 ) : (
                   <Card className="border-0 shadow-sm">
                     <CardContent className="p-12 text-center">
