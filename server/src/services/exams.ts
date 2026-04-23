@@ -1091,7 +1091,6 @@ export const submitExamAnswer = async (
       attempt_id: attemptId,
       question_id: input.question_id,
       selected_choice_index: input.selected_choice_index,
-      answer_text: null,
       is_correct: isCorrect,
       points_awarded: pointsAwarded,
       answered_at: new Date().toISOString(),
