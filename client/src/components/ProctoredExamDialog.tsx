@@ -520,9 +520,16 @@ export function ProctoredExamDialog({
           variant="ghost"
           size="icon"
           className="rounded-full flex-shrink-0"
-          onClick={() => onOpenChange(false)}
-          disabled={started && isAttemptActive}
-          title={started && isAttemptActive ? `Exit disabled while ${label.toLowerCase()} is active` : 'Close'}
+          onClick={() => {
+            if (started && isAttemptActive && !result) {
+              const ok = window.confirm(
+                `Leave ${label.toLowerCase()} without submitting? Your answers are saved automatically — you can resume later.`
+              )
+              if (!ok) return
+            }
+            onOpenChange(false)
+          }}
+          title="Close"
         >
           <X className="h-5 w-5" />
         </Button>
@@ -1110,8 +1117,15 @@ export function ProctoredExamDialog({
       <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3 md:px-6 md:py-4 flex-shrink-0">
         <Button
           variant="outline"
-          onClick={() => onOpenChange(false)}
-          disabled={started && isAttemptActive}
+          onClick={() => {
+            if (started && isAttemptActive && !result) {
+              const ok = window.confirm(
+                `Leave ${label.toLowerCase()} without submitting? Your answers are saved automatically — you can resume later.`
+              )
+              if (!ok) return
+            }
+            onOpenChange(false)
+          }}
         >
           {result ? 'Close' : 'Exit'}
         </Button>

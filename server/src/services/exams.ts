@@ -1417,7 +1417,14 @@ export const submitExamAttempt = async (
   const isMissingColumn = (err: { code?: string; message?: string } | null, column: string): boolean => {
     if (!err) return false
     const text = (err.message || '').toLowerCase()
-    return err.code === '42703' && text.includes(column.toLowerCase())
+    if (!text.includes(column.toLowerCase())) return false
+    // PostgreSQL: undefined_column (raw SQL error)
+    if (err.code === '42703') return true
+    // PostgREST: schema cache miss ("Could not find the 'X' column of 'Y' in the schema cache")
+    if (err.code === 'PGRST204') return true
+    if (text.includes('could not find') && text.includes('column')) return true
+    if (text.includes('schema cache')) return true
+    return false
   }
 
   type SubmissionWrite = {
