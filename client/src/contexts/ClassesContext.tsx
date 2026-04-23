@@ -162,6 +162,11 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   }, [refreshClassQueries]);
 
   const handleRestore = useCallback(async (classId: string) => {
+    const isStudent = (user?.role || '').toLowerCase() === 'student';
+    if (isStudent) {
+      setArchivedClasses((prev) => prev.filter((id) => id !== classId));
+      return;
+    }
     try {
       await coursesService.unarchiveCourse(classId);
       setArchivedClasses((prev) => prev.filter((id) => id !== classId));
@@ -170,7 +175,7 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
       console.error('Failed to restore class', error);
       throw error;
     }
-  }, [refreshClassQueries]);
+  }, [refreshClassQueries, user]);
 
   const directEnrollStudentsByEmail = useCallback(
     async (classId: string, studentEmails: string[]): Promise<BulkDirectEnrollmentResult> => {

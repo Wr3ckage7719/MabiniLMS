@@ -8,10 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { FileText, Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
+import { Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 import { assignmentsService } from '@/services/assignments.service';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -90,15 +89,15 @@ interface AssignmentDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   teacherName: string;
   classId: string;
+  onStartExam?: (assignment: Assignment) => void;
 }
 
-export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId }: AssignmentDetailDialogProps) {
+export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId, onStartExam }: AssignmentDetailDialogProps) {
   const { currentUserAvatar } = useRole();
   const { toast } = useToast();
   const [submissionText, setSubmissionText] = useState('');
   const [driveReference, setDriveReference] = useState('');
   const [driveFileName, setDriveFileName] = useState('');
-  const [examOpen, setExamOpen] = useState(false);
   const [submission, setSubmission] = useState<ApiSubmission | null>(null);
   const [loadingSubmission, setLoadingSubmission] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -203,7 +202,6 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
   useEffect(() => {
     if (!open) {
-      setExamOpen(false);
       return;
     }
     if (!assignment?.id) return;
@@ -329,14 +327,14 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     return null;
   }
 
+  const handleStartExam = () => {
+    if (!assignment || !onStartExam) return;
+    onStartExam(assignment);
+  };
+
   return (
-    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6"
-        onPointerDownOutside={(e) => { if (examOpen) e.preventDefault(); }}
-        onInteractOutside={(e) => { if (examOpen) e.preventDefault(); }}
-      >
+      <DialogContent className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
@@ -426,7 +424,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   <Button
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
-                    onClick={() => setExamOpen(true)}
+                    onClick={handleStartExam}
                   >
                     <Send className="h-4 w-4 mr-1" /> Start Quiz
                   </Button>
@@ -443,7 +441,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   <Button
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
-                    onClick={() => setExamOpen(true)}
+                    onClick={handleStartExam}
                   >
                     <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
                   </Button>
@@ -615,15 +613,5 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
       </DialogContent>
     </Dialog>
-    {assignment && classId && isExamAssignment && (
-      <ProctoredExamDialog
-        assignmentId={assignment.id}
-        assignmentTitle={assignment.title}
-        open={examOpen}
-        onOpenChange={setExamOpen}
-        mode={isQuizAssignment ? 'quiz' : 'exam'}
-      />
-    )}
-    </>
   );
 }
