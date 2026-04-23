@@ -406,20 +406,37 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 {isQuizAssignment ? 'Quiz' : isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
               </h4>
 
-              {isExamAssignment ? (
+              {isQuizAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
-                  <p className="text-xs sm:text-sm text-muted-foreground">
-                    {isQuizAssignment
-                      ? 'Answer the quiz questions directly inside the app. Your answers are saved as you go.'
-                      : 'This is a proctored exam. Fullscreen, focus changes, and restricted interactions are monitored during your attempt.'}
-                  </p>
+                  <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
+                    <li>Answer questions directly inside the app.</li>
+                    <li>Your answers are saved automatically as you go.</li>
+                    <li>You can review all questions before submitting.</li>
+                    <li>Once you submit, your answers are final.</li>
+                  </ul>
                   <Button
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
                     onClick={() => setExamOpen(true)}
                   >
-                    <Send className="h-4 w-4 mr-1" />
-                    {isQuizAssignment ? 'Start Quiz' : 'Start Proctored Exam'}
+                    <Send className="h-4 w-4 mr-1" /> Start Quiz
+                  </Button>
+                </div>
+              ) : isExamAssignment ? (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 sm:p-4 space-y-3">
+                  <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
+                    <li>This exam is <strong>proctored</strong> — your screen activity is monitored.</li>
+                    <li>You will enter fullscreen when the exam starts. Do not exit it.</li>
+                    <li>Tab switching, right-clicking, and clipboard use are tracked as violations.</li>
+                    <li>Exceeding the violation limit may auto-submit or terminate your attempt.</li>
+                    <li>Once submitted, answers cannot be changed.</li>
+                  </ul>
+                  <Button
+                    size="sm"
+                    className="rounded-xl text-xs sm:text-sm"
+                    onClick={() => setExamOpen(true)}
+                  >
+                    <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
                   </Button>
                 </div>
               ) : (
@@ -588,12 +605,13 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
         </Tabs>
       </DialogContent>
 
-      {assignment && classId && (
+      {assignment && classId && isExamAssignment && (
         <ProctoredExamDialog
           assignmentId={assignment.id}
           assignmentTitle={assignment.title}
           open={examOpen}
           onOpenChange={setExamOpen}
+          mode={isQuizAssignment ? 'quiz' : 'exam'}
         />
       )}
     </Dialog>
