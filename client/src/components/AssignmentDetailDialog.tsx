@@ -202,7 +202,11 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   }, [assignment?.id, mapApiComment, toast]);
 
   useEffect(() => {
-    if (!open || !assignment?.id) return;
+    if (!open) {
+      setExamOpen(false);
+      return;
+    }
+    if (!assignment?.id) return;
 
     setSubmissionText('');
     setDriveReference('');
@@ -603,17 +607,17 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             )}
           </TabsContent>
         </Tabs>
-      </DialogContent>
 
-      {assignment && classId && isExamAssignment && (
-        <ProctoredExamDialog
-          assignmentId={assignment.id}
-          assignmentTitle={assignment.title}
-          open={examOpen}
-          onOpenChange={setExamOpen}
-          mode={isQuizAssignment ? 'quiz' : 'exam'}
-        />
-      )}
+        {assignment && classId && isExamAssignment && (
+          <ProctoredExamDialog
+            assignmentId={assignment.id}
+            assignmentTitle={assignment.title}
+            open={examOpen}
+            onOpenChange={setExamOpen}
+            mode={isQuizAssignment ? 'quiz' : 'exam'}
+          />
+        )}
+      </DialogContent>
     </Dialog>
   );
 }

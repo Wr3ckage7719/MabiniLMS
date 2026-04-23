@@ -70,6 +70,7 @@ const defaultPolicy: ProctoringPolicy = {
   block_clipboard: true,
   block_context_menu: true,
   block_print_shortcut: true,
+  one_question_at_a_time: false,
 }
 
 const examHardPolicyAutoSubmitEnabled = process.env.FEATURE_EXAM_HARD_POLICY_AUTOSUBMIT !== 'false'
@@ -162,6 +163,10 @@ const toPolicy = (raw: unknown): ProctoringPolicy => {
         : typeof policy.blockPrintShortcut === 'boolean'
           ? policy.blockPrintShortcut
         : defaultPolicy.block_print_shortcut,
+    one_question_at_a_time:
+      typeof policy.one_question_at_a_time === 'boolean'
+        ? policy.one_question_at_a_time
+        : defaultPolicy.one_question_at_a_time,
   }
 }
 

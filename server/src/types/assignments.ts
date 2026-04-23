@@ -42,6 +42,7 @@ const proctoringPolicySchema = z.object({
   block_clipboard: z.boolean().optional(),
   block_context_menu: z.boolean().optional(),
   block_print_shortcut: z.boolean().optional(),
+  one_question_at_a_time: z.boolean().optional(),
   // Backward-compatible aliases
   maxViolations: z.number().int().min(1).max(20).optional(),
   terminateOnFullscreenExit: z.boolean().optional(),
