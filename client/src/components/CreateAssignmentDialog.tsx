@@ -202,7 +202,6 @@ const QUIZ_QUESTION_TYPE_OPTIONS: Array<{ value: QuizQuestionType; label: string
   { value: 'true_false', label: 'True or False' },
   { value: 'short_answer', label: 'Short Answer' },
   { value: 'fill_in_blank', label: 'Fill in the Blank' },
-  { value: 'essay', label: 'Essay' },
 ];
 
 const TASK_PAGE_INTRO: Record<TaskType, string> = {
@@ -1390,7 +1389,11 @@ export function CreateAssignmentDialog({
           description: description.trim() || undefined,
           assignment_type: assignmentType,
           due_date: toEndOfDayISOString(dueDate) || new Date().toISOString(),
-          max_points: Number(points) || 100,
+          max_points: (taskType === 'quiz')
+            ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0))
+            : (taskType === 'exam')
+              ? Math.max(1, examQuestions.reduce((s, q) => s + (q.points ?? 1), 0) + examImportedQuestions.reduce((s, q) => s + (q.points ?? 1), 0))
+              : (Number(points) || 100),
           submissions_open: submissionsOpen,
           submission_open_at: submissionOpenAt,
           submission_close_at: submissionCloseAt,
@@ -1578,13 +1581,13 @@ export function CreateAssignmentDialog({
     {
       id: 'activity' as const,
       label: 'Activity',
-      description: 'Drive submission task',
+      description: 'Submit files · Graded by teacher',
       icon: Activity,
     },
     {
       id: 'quiz' as const,
       label: 'Quiz',
-      description: 'Assessment with item builder',
+      description: 'In-app · Auto-graded · Instant results',
       icon: FileText,
     },
     {
@@ -1869,24 +1872,37 @@ export function CreateAssignmentDialog({
           {/* Points */}
           <div>
             <label className="text-sm font-semibold">Points</label>
-            <Input
-              type="number"
-              min="0"
-              value={points}
-              onChange={(e) => {
-                setPoints(e.target.value);
-                clearFieldError('points');
-              }}
-              className={cn(
-                'mt-2 rounded-lg',
-                errors.points && 'border-destructive'
-              )}
-            />
-            {errors.points && (
-              <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
-                {errors.points}
-              </p>
+            {(taskType === 'quiz' || taskType === 'exam') ? (
+              <div className="mt-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm flex items-center justify-between">
+                <span className="text-muted-foreground">Auto-sum from question points</span>
+                <span className="font-semibold tabular-nums">
+                  {taskType === 'quiz'
+                    ? quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0)
+                    : examQuestions.reduce((s, q) => s + (q.points ?? 1), 0) + examImportedQuestions.reduce((s, q) => s + (q.points ?? 1), 0)}
+                </span>
+              </div>
+            ) : (
+              <>
+                <Input
+                  type="number"
+                  min="0"
+                  value={points}
+                  onChange={(e) => {
+                    setPoints(e.target.value);
+                    clearFieldError('points');
+                  }}
+                  className={cn(
+                    'mt-2 rounded-lg',
+                    errors.points && 'border-destructive'
+                  )}
+                />
+                {errors.points && (
+                  <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {errors.points}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -2007,7 +2023,7 @@ export function CreateAssignmentDialog({
                 Storage: Institutional Google Drive
               </Badge>
               <Badge variant="outline" className="rounded-full text-xs bg-background">
-                Current API mapping: assignment_type = activity
+                Graded manually by teacher
               </Badge>
             </div>
           </CardContent>
@@ -2140,9 +2156,12 @@ export function CreateAssignmentDialog({
                         <Textarea
                           value={question.prompt}
                           onChange={(event) => updateQuizQuestion(question.id, { prompt: event.target.value })}
-                          placeholder="Type your question prompt"
+                          placeholder={question.type === 'fill_in_blank' ? 'e.g., The capital of the Philippines is ___.' : 'Type your question prompt'}
                           className="mt-2 min-h-20 rounded-lg resize-none"
                         />
+                        {question.type === 'fill_in_blank' && (
+                          <p className="text-xs text-muted-foreground mt-1">Use ___ (three underscores) to mark the blank in your prompt.</p>
+                        )}
                       </div>
 
                       {question.type === 'multiple_choice' && (
@@ -2230,7 +2249,7 @@ export function CreateAssignmentDialog({
 
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="rounded-full text-xs bg-background">
-                Supports: Multiple Choice · True/False · Short Answer
+                Supports: MCQ · True/False · Short Answer · Fill in the Blank
               </Badge>
               <Badge variant="outline" className="rounded-full text-xs bg-background">
                 Auto-graded · No proctoring required
@@ -2241,7 +2260,7 @@ export function CreateAssignmentDialog({
       )}
 
       {taskType === 'exam' && (
-        <Card className="border-0 bg-muted/30">
+        <Card className="border border-amber-200 bg-amber-50/60">
           <CardContent className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>

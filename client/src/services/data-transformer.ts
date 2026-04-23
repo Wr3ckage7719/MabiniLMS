@@ -194,6 +194,7 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
   const typeMap: Record<string, Assignment['type']> = {
     'exam': 'assignment',
     'activity': 'assignment',
+    'reading_material': 'assignment',
     'homework': 'assignment',
     'quiz': 'quiz',
     'project': 'project',

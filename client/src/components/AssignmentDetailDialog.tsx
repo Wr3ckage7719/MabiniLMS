@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { FileText, Zap, Calendar, MessageSquare, Paperclip, Send, Clock, CheckCircle2 } from 'lucide-react';
+import { FileText, Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
+import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 import { assignmentsService } from '@/services/assignments.service';
@@ -18,12 +19,6 @@ import {
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
 
-const TYPE_ICONS: Record<string, typeof FileText> = {
-  assignment: FileText,
-  quiz: Zap,
-  project: Calendar,
-  discussion: MessageSquare,
-};
 
 interface Submission {
   id: string;
@@ -115,7 +110,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const isExamAssignment = assignment?.rawType === 'exam' || assignment?.rawType === 'quiz';
   const isQuizAssignment = assignment?.rawType === 'quiz';
   const submissionsClosed = assignment?.submissionsOpen === false;
-  const Icon = assignment ? TYPE_ICONS[assignment.type] || FileText : FileText;
+  const taskMeta = getTaskTypeMeta(assignment?.rawType || assignment?.type);
+  const Icon = taskMeta.icon;
 
   const formatOptionalDateTime = (value?: string | null): string | null => {
     if (!value) return null;
@@ -334,11 +330,16 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
       <DialogContent className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : 'bg-primary/10'}`}>
-              <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${assignment.status === 'late' ? 'text-destructive' : 'text-primary'}`} />
+            <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
+              <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${assignment.status === 'late' ? 'text-destructive' : taskMeta.iconText}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <DialogTitle className="text-base sm:text-lg break-words">{assignment.title}</DialogTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-base sm:text-lg break-words">{assignment.title}</DialogTitle>
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border shrink-0 ${taskMeta.badgeClass}`}>
+                  {taskMeta.label}
+                </Badge>
+              </div>
               <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">{teacherName} • {assignment.points} points</p>
             </div>
           </div>
