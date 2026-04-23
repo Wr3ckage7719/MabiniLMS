@@ -1414,49 +1414,116 @@ export const submitExamAttempt = async (
 
   let submissionId: string
 
+  const isMissingColumn = (err: { code?: string; message?: string } | null, column: string): boolean => {
+    if (!err) return false
+    const text = (err.message || '').toLowerCase()
+    return err.code === '42703' && text.includes(column.toLowerCase())
+  }
+
+  type SubmissionWrite = {
+    content: string
+    submitted_at: string
+    status: string
+    is_proctored?: boolean
+    anti_cheat_violations?: typeof antiCheatViolations
+    assignment_id?: string
+    student_id?: string
+  }
+
+  const buildWritePayload = (forInsert: boolean): SubmissionWrite => {
+    const payload: SubmissionWrite = {
+      content: submissionContent,
+      submitted_at: now,
+      status: submissionStatus,
+      is_proctored: context.assignment.is_proctored,
+      anti_cheat_violations: antiCheatViolations,
+    }
+    if (forInsert) {
+      payload.assignment_id = context.assignment.id
+      payload.student_id = context.attempt.student_id
+    }
+    return payload
+  }
+
   if (existingSubmission?.id) {
-    const { error: submissionUpdateError } = await supabaseAdmin
+    let payload = buildWritePayload(false)
+    let { error: submissionUpdateError } = await supabaseAdmin
       .from('submissions')
-      .update({
-        content: submissionContent,
-        submitted_at: now,
-        status: submissionStatus,
-        is_proctored: context.assignment.is_proctored,
-        anti_cheat_violations: antiCheatViolations,
-      })
+      .update(payload)
       .eq('id', existingSubmission.id)
+
+    if (submissionUpdateError && isMissingColumn(submissionUpdateError, 'anti_cheat_violations')) {
+      logger.warn('submissions.anti_cheat_violations missing; retrying update without it', { attemptId })
+      delete payload.anti_cheat_violations
+      ;({ error: submissionUpdateError } = await supabaseAdmin
+        .from('submissions')
+        .update(payload)
+        .eq('id', existingSubmission.id))
+    }
+
+    if (submissionUpdateError && isMissingColumn(submissionUpdateError, 'is_proctored')) {
+      logger.warn('submissions.is_proctored missing; retrying update without it', { attemptId })
+      delete payload.is_proctored
+      ;({ error: submissionUpdateError } = await supabaseAdmin
+        .from('submissions')
+        .update(payload)
+        .eq('id', existingSubmission.id))
+    }
 
     if (submissionUpdateError) {
       logger.error('Failed to update existing exam submission', {
         attemptId,
         submissionId: existingSubmission.id,
         error: submissionUpdateError.message,
+        code: submissionUpdateError.code,
       })
-      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to finalize exam submission', 500)
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        `Failed to finalize exam submission: ${submissionUpdateError.message}`,
+        500
+      )
     }
 
     submissionId = existingSubmission.id
   } else {
-    const { data: createdSubmission, error: submissionCreateError } = await supabaseAdmin
+    let payload = buildWritePayload(true)
+    let { data: createdSubmission, error: submissionCreateError } = await supabaseAdmin
       .from('submissions')
-      .insert({
-        assignment_id: context.assignment.id,
-        student_id: context.attempt.student_id,
-        content: submissionContent,
-        submitted_at: now,
-        status: submissionStatus,
-        is_proctored: context.assignment.is_proctored,
-        anti_cheat_violations: antiCheatViolations,
-      })
+      .insert(payload)
       .select('id')
       .single()
+
+    if (submissionCreateError && isMissingColumn(submissionCreateError, 'anti_cheat_violations')) {
+      logger.warn('submissions.anti_cheat_violations missing; retrying insert without it', { attemptId })
+      delete payload.anti_cheat_violations
+      ;({ data: createdSubmission, error: submissionCreateError } = await supabaseAdmin
+        .from('submissions')
+        .insert(payload)
+        .select('id')
+        .single())
+    }
+
+    if (submissionCreateError && isMissingColumn(submissionCreateError, 'is_proctored')) {
+      logger.warn('submissions.is_proctored missing; retrying insert without it', { attemptId })
+      delete payload.is_proctored
+      ;({ data: createdSubmission, error: submissionCreateError } = await supabaseAdmin
+        .from('submissions')
+        .insert(payload)
+        .select('id')
+        .single())
+    }
 
     if (submissionCreateError || !createdSubmission) {
       logger.error('Failed to create exam submission', {
         attemptId,
         error: submissionCreateError?.message,
+        code: submissionCreateError?.code,
       })
-      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to finalize exam submission', 500)
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        `Failed to finalize exam submission: ${submissionCreateError?.message || 'unknown error'}`,
+        500
+      )
     }
 
     submissionId = String(createdSubmission.id)
