@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
+import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 import { AnnouncementCard } from '@/components/AnnouncementCard';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
@@ -79,6 +80,7 @@ export default function ClassDetail() {
   const { toast } = useToast();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [examAssignment, setExamAssignment] = useState<Assignment | null>(null);
   const [selectedAnnouncementForComments, setSelectedAnnouncementForComments] = useState<ClassAnnouncement | null>(null);
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
   const [discussionOpen, setDiscussionOpen] = useState(false);
@@ -886,7 +888,28 @@ export default function ClassDetail() {
         }}
         teacherName={cls.teacher}
         classId={cls.id}
+        onStartExam={(assignment) => {
+          setExamAssignment(assignment);
+          setSelectedAssignment(null);
+          if (searchParams.has('assignmentId')) {
+            const nextParams = new URLSearchParams(searchParams);
+            nextParams.delete('assignmentId');
+            setSearchParams(nextParams, { replace: true });
+          }
+        }}
       />
+
+      {examAssignment && (examAssignment.rawType === 'quiz' || examAssignment.rawType === 'exam') && (
+        <ProctoredExamDialog
+          assignmentId={examAssignment.id}
+          assignmentTitle={examAssignment.title}
+          open={!!examAssignment}
+          onOpenChange={(open) => {
+            if (!open) setExamAssignment(null);
+          }}
+          mode={examAssignment.rawType === 'quiz' ? 'quiz' : 'exam'}
+        />
+      )}
 
       <AlertDialog open={confirmAction !== null} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <AlertDialogContent className="rounded-xl">

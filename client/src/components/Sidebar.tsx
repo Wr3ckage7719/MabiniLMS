@@ -4,6 +4,7 @@ import { CLASS_COLORS } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useClasses } from '@/hooks-api/useClasses';
+import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 
 interface SidebarProps {
   open: boolean;
@@ -20,6 +21,14 @@ const navItems = [
 
 export function AppSidebar({ open, onClose }: SidebarProps) {
   const { data: classes = [], isLoading, error } = useClasses();
+  const { archivedClasses, unenrolledClasses } = useClassActions();
+
+  const activeClasses = classes.filter(
+    (cls) =>
+      !cls.archived &&
+      !archivedClasses.includes(cls.id) &&
+      !unenrolledClasses.includes(cls.id)
+  );
 
   return (
     <>
@@ -72,7 +81,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
               <div className="px-3 py-2 text-xs text-muted-foreground">Loading courses...</div>
             ) : error ? (
               <div className="px-3 py-2 text-xs text-destructive">Unable to load courses</div>
-            ) : classes.length === 0 ? (
+            ) : activeClasses.length === 0 ? (
               <div className="px-3 py-4 text-center">
                 <div className="inline-flex p-2 rounded-full bg-secondary/50 mb-2">
                   <GraduationCap className="h-5 w-5 text-muted-foreground" />
@@ -81,7 +90,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
                 <p className="text-xs text-muted-foreground/70 mt-1">Enroll in a course to get started</p>
               </div>
             ) : (
-              classes.map((cls) => (
+              activeClasses.map((cls) => (
                 <NavLink
                   key={cls.id}
                   to={`/class/${cls.id}`}
