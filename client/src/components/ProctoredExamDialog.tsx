@@ -52,6 +52,8 @@ export function ProctoredExamDialog({
   const [agreementChecked, setAgreementChecked] = useState(false)
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set())
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [confirmSubmit, setConfirmSubmit] = useState(false)
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
   const isQuizMode = mode === 'quiz'
@@ -76,6 +78,8 @@ export function ProctoredExamDialog({
     setAgreementChecked(false)
     setFlaggedQuestions(new Set())
     setCurrentQuestionIndex(0)
+    setSubmitError(null)
+    setConfirmSubmit(false)
     lastViolationAtRef.current = {}
     timeoutSubmitInFlightRef.current = false
     questionRefs.current = {}
@@ -302,10 +306,12 @@ export function ProctoredExamDialog({
       }
 
       setSubmitting(true)
+      setSubmitError(null)
       try {
         const submitted = await examsService.submitExamAttempt(session.attempt.id)
         setResult(submitted)
         setStarted(false)
+        setConfirmSubmit(false)
 
         if (document.fullscreenElement) {
           void document.exitFullscreen().catch(() => {})
@@ -319,13 +325,15 @@ export function ProctoredExamDialog({
           description: `Score: ${submitted.score.toFixed(2)} / ${submitted.max_score.toFixed(2)} (${submitted.percentage.toFixed(2)}%)`,
         })
       } catch (error: any) {
+        const message =
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || `Failed to submit ${isQuizMode ? 'quiz' : 'exam'} attempt`
+        setSubmitError(message)
         toast({
           title: 'Submission failed',
-          description:
-            error?.response?.data?.error?.message
-            || error?.response?.data?.message
-            || error?.message
-            || `Failed to submit ${isQuizMode ? 'quiz' : 'exam'} attempt`,
+          description: message,
           variant: 'destructive',
         })
       } finally {
@@ -1109,7 +1117,10 @@ export function ProctoredExamDialog({
         </Button>
         {!result && (
           <Button
-            onClick={() => void submitAttempt('manual')}
+            onClick={() => {
+              setSubmitError(null)
+              setConfirmSubmit(true)
+            }}
             disabled={!session || (!started && !terminated) || submitting}
           >
             {submitting
@@ -1122,6 +1133,65 @@ export function ProctoredExamDialog({
           </Button>
         )}
       </div>
+
+      {confirmSubmit && !result && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl border border-border">
+            <h3 className="text-base font-semibold mb-2">
+              {isQuizMode ? 'Submit Quiz?' : 'Submit Exam?'}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              You have answered <strong>{answeredCount}</strong> of <strong>{session?.questions.length ?? 0}</strong> questions.
+              {session && session.questions.length > answeredCount && (
+                <> {session.questions.length - answeredCount} unanswered.</>
+              )}
+            </p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Once submitted, your answers are final and cannot be changed.
+            </p>
+            {submitError && (
+              <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                {submitError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setConfirmSubmit(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void submitAttempt('manual')}
+                disabled={submitting}
+              >
+                {submitting ? 'Submitting...' : isQuizMode ? 'Submit Quiz' : 'Submit Exam'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submitError && !confirmSubmit && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[140] max-w-lg w-[92vw] rounded-xl border border-destructive/40 bg-destructive/10 p-3 shadow-lg">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+            <div className="flex-1 text-xs text-destructive">
+              <p className="font-semibold mb-0.5">Submission failed</p>
+              <p>{submitError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              className="text-destructive/70 hover:text-destructive text-xs"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -24,4 +24,12 @@ export const enrollmentsService = {
   async getMyCourses() {
     return apiClient.get('/enrollments/my-courses');
   },
+
+  async archiveMyEnrollment(courseId: string) {
+    return apiClient.patch(`/enrollments/course/${courseId}/archive`);
+  },
+
+  async unarchiveMyEnrollment(courseId: string) {
+    return apiClient.patch(`/enrollments/course/${courseId}/unarchive`);
+  },
 };

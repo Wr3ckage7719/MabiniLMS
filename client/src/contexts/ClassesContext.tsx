@@ -130,12 +130,12 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
 
   const handleArchive = useCallback(async (classId: string) => {
     const isStudent = (user?.role || '').toLowerCase() === 'student';
-    if (isStudent) {
-      setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
-      return;
-    }
     try {
-      await coursesService.archiveCourse(classId);
+      if (isStudent) {
+        await enrollmentsService.archiveMyEnrollment(classId);
+      } else {
+        await coursesService.archiveCourse(classId);
+      }
       setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
       await refreshClassQueries(classId);
     } catch (error) {
@@ -163,12 +163,12 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
 
   const handleRestore = useCallback(async (classId: string) => {
     const isStudent = (user?.role || '').toLowerCase() === 'student';
-    if (isStudent) {
-      setArchivedClasses((prev) => prev.filter((id) => id !== classId));
-      return;
-    }
     try {
-      await coursesService.unarchiveCourse(classId);
+      if (isStudent) {
+        await enrollmentsService.unarchiveMyEnrollment(classId);
+      } else {
+        await coursesService.unarchiveCourse(classId);
+      }
       setArchivedClasses((prev) => prev.filter((id) => id !== classId));
       await refreshClassQueries(classId);
     } catch (error) {

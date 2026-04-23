@@ -793,6 +793,7 @@ export const listCourses = async (
     .select(COURSE_BASE_SELECT, { count: 'exact' });
 
   // Role-based filtering
+  let studentArchivedByCourseId: Map<string, string | null> | null = null;
   if (userRole === UserRole.STUDENT) {
     if (!userId) {
       throw new ApiError(
@@ -802,11 +803,30 @@ export const listCourses = async (
       );
     }
 
-    const { data: enrollmentRows, error: enrollmentError } = await supabaseAdmin
-      .from('enrollments')
-      .select('course_id')
-      .eq('student_id', userId)
-      .in('status', ACTIVE_ENROLLMENT_STATUSES);
+    const selectWithArchive = 'course_id, archived_at';
+    let enrollmentRows: Array<{ course_id: string; archived_at?: string | null }> | null = null;
+    let enrollmentError: { code?: string; message?: string } | null = null;
+
+    {
+      const { data, error } = await supabaseAdmin
+        .from('enrollments')
+        .select(selectWithArchive)
+        .eq('student_id', userId)
+        .in('status', ACTIVE_ENROLLMENT_STATUSES);
+      enrollmentRows = (data || null) as typeof enrollmentRows;
+      enrollmentError = error;
+    }
+
+    if (enrollmentError && enrollmentError.code === '42703') {
+      // archived_at column missing (migration 031 not yet applied) — fall back silently.
+      const { data: fallbackRows, error: fallbackError } = await supabaseAdmin
+        .from('enrollments')
+        .select('course_id')
+        .eq('student_id', userId)
+        .in('status', ACTIVE_ENROLLMENT_STATUSES);
+      enrollmentRows = (fallbackRows || null) as typeof enrollmentRows;
+      enrollmentError = fallbackError;
+    }
 
     if (enrollmentError) {
       logger.error('Failed to resolve student course access scope', {
@@ -820,13 +840,14 @@ export const listCourses = async (
       );
     }
 
-    const enrolledCourseIds = Array.from(
-      new Set(
-        (enrollmentRows || [])
-          .map((row) => row.course_id)
-          .filter((courseId): courseId is string => Boolean(courseId))
-      )
-    );
+    studentArchivedByCourseId = new Map();
+    for (const row of (enrollmentRows || []) as Array<{ course_id: string; archived_at?: string | null }>) {
+      if (row.course_id) {
+        studentArchivedByCourseId.set(row.course_id, row.archived_at ?? null);
+      }
+    }
+
+    const enrolledCourseIds = Array.from(studentArchivedByCourseId.keys());
 
     if (enrolledCourseIds.length === 0) {
       return {
@@ -887,8 +908,15 @@ export const listCourses = async (
       ? await attachEnrollmentCountsToCourses(baseCourses)
       : baseCourses;
 
+  const coursesWithArchiveFlag = studentArchivedByCourseId
+    ? coursesWithStats.map((course) => ({
+        ...course,
+        archived_by_me: (studentArchivedByCourseId!.get(course.id) ?? null) !== null,
+      }))
+    : coursesWithStats;
+
   return {
-    courses: coursesWithStats,
+    courses: coursesWithArchiveFlag,
     total,
     page,
     limit,
