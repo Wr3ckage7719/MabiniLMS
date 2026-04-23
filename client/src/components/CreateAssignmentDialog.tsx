@@ -84,6 +84,7 @@ interface QuizBuilderQuestion {
   prompt: string;
   choices: string[];
   answerKey: string;
+  points?: number;
 }
 
 interface ImportedQuestionDraft {
@@ -110,10 +111,10 @@ const TASK_LABELS: Record<TaskType, string> = {
 };
 
 const TASK_HELP_TEXT: Record<TaskType, string> = {
-  reading_material: 'Upload PDF, DOCX, or PPT resources to in-app storage with per-student progress visibility.',
-  activity: 'Collect traditional student work with Drive-backed file submissions and teacher submission controls.',
-  quiz: 'Build custom question sets and choose randomized or sequential delivery.',
-  exam: 'Configure order mode, chapter pools, and integrity defaults for exam delivery.',
+  reading_material: 'Upload PDF, DOCX, or PPT resources students can view in-app with per-student reading progress.',
+  activity: 'Students submit files (PDF, DOCX, etc.) for teacher review and manual grading.',
+  quiz: 'Build MCQ, True/False, or Short Answer questions. Students answer in-app and get instant auto-graded results.',
+  exam: 'Proctored in-app exam with anti-cheat (fullscreen, tab-switch detection). Import questions or build inline.',
 };
 
 const ACTIVITY_FILE_TYPE_OPTIONS = [
@@ -272,7 +273,7 @@ const createQuizDraftQuestion = (
   type,
   prompt: '',
   choices: type === 'multiple_choice' ? ['', '', '', ''] : [],
-  answerKey: '',
+  answerKey: type === 'true_false' ? 'true' : type === 'multiple_choice' ? 'A' : '',
 });
 
 const normalizeQuestionImportType = (value: unknown): QuizQuestionType => {
@@ -683,7 +684,7 @@ export function CreateAssignmentDialog({
       }
     }
 
-    if ((taskType === 'exam' || taskType === 'quiz') && examChapterPoolEnabled) {
+    if (taskType === 'exam' && examChapterPoolEnabled) {
       const parsedTags = examChapterTags
         .split(',')
         .map((tag) => tag.trim())
@@ -834,18 +835,23 @@ export function CreateAssignmentDialog({
         }
 
         const nextType = update.type ?? question.type;
+        const typeChanged = update.type !== undefined && update.type !== question.type;
         const nextChoices =
           nextType === 'multiple_choice'
             ? question.choices.length >= 4
               ? question.choices
               : ['', '', '', '']
             : [];
+        const nextAnswerKey = typeChanged
+          ? nextType === 'true_false' ? 'true' : nextType === 'multiple_choice' ? 'A' : ''
+          : (update.answerKey ?? question.answerKey);
 
         return {
           ...question,
           ...update,
           type: nextType,
           choices: update.choices ?? nextChoices,
+          answerKey: nextAnswerKey,
         };
       })
     );
@@ -1161,7 +1167,7 @@ export function CreateAssignmentDialog({
     return toExamQuestionPayload(
       {
         ...question,
-        points: 1,
+        points: question.points && question.points > 0 ? question.points : 1,
       },
       orderIndex
     );
@@ -1355,7 +1361,7 @@ export function CreateAssignmentDialog({
             ? { take: Math.floor(perChapterCount) }
             : {}),
         }));
-        const chapterPoolEnabled = (taskType === 'exam' || taskType === 'quiz') && examChapterPoolEnabled && chapterPoolRules.length > 0;
+        const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
         const parsedExamMaxViolations = Number(examMaxViolations);
         const effectiveExamMaxViolations =
           Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0
@@ -1398,7 +1404,7 @@ export function CreateAssignmentDialog({
           exam_question_selection_mode:
             taskType === 'exam' ? examQuestionSelection : undefined,
           exam_chapter_pool:
-            (taskType === 'exam' || taskType === 'quiz')
+            taskType === 'exam'
               ? {
                   enabled: chapterPoolEnabled,
                   chapters: chapterPoolEnabled ? chapterPoolRules : [],
@@ -2097,23 +2103,36 @@ export function CreateAssignmentDialog({
                         </Button>
                       </div>
 
-                      <div>
-                        <label className="text-sm font-medium">Question Type</label>
-                        <Select
-                          value={question.type}
-                          onValueChange={(value) => updateQuizQuestion(question.id, { type: value as QuizQuestionType })}
-                        >
-                          <SelectTrigger className="mt-2 rounded-lg">
-                            <SelectValue placeholder="Select question type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {QUIZ_QUESTION_TYPE_OPTIONS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-2">
+                          <label className="text-sm font-medium">Question Type</label>
+                          <Select
+                            value={question.type}
+                            onValueChange={(value) => updateQuizQuestion(question.id, { type: value as QuizQuestionType })}
+                          >
+                            <SelectTrigger className="mt-2 rounded-lg">
+                              <SelectValue placeholder="Select question type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {QUIZ_QUESTION_TYPE_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">Points</label>
+                          <Input
+                            type="number"
+                            min="0.5"
+                            step="0.5"
+                            value={question.points ?? 1}
+                            onChange={(e) => updateQuizQuestion(question.id, { points: Number(e.target.value) || 1 })}
+                            className="mt-2 rounded-lg"
+                          />
+                        </div>
                       </div>
 
                       <div>
@@ -2127,37 +2146,70 @@ export function CreateAssignmentDialog({
                       </div>
 
                       {question.type === 'multiple_choice' && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Choices</label>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {question.choices.map((choice, choiceIndex) => (
-                              <Input
-                                key={`${question.id}-${choiceIndex}`}
-                                value={choice}
-                                onChange={(event) => updateQuizChoice(question.id, choiceIndex, event.target.value)}
-                                placeholder={`Choice ${String.fromCharCode(65 + choiceIndex)}`}
-                                className="rounded-lg"
-                              />
-                            ))}
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Choices</label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {question.choices.map((choice, choiceIndex) => (
+                                <Input
+                                  key={`${question.id}-${choiceIndex}`}
+                                  value={choice}
+                                  onChange={(event) => updateQuizChoice(question.id, choiceIndex, event.target.value)}
+                                  placeholder={`Choice ${String.fromCharCode(65 + choiceIndex)}`}
+                                  className="rounded-lg"
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Correct Answer</label>
+                            <Select
+                              value={question.answerKey || 'A'}
+                              onValueChange={(value) => updateQuizQuestion(question.id, { answerKey: value })}
+                            >
+                              <SelectTrigger className="mt-2 rounded-lg">
+                                <SelectValue placeholder="Select correct answer" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {question.choices.map((choice, choiceIndex) => (
+                                  <SelectItem key={choiceIndex} value={String.fromCharCode(65 + choiceIndex)}>
+                                    {String.fromCharCode(65 + choiceIndex)}{choice.trim() ? `. ${choice.trim()}` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       )}
 
                       {question.type === 'true_false' && (
-                        <p className="text-xs text-muted-foreground">
-                          Students will choose between True or False for this question.
-                        </p>
+                        <div>
+                          <label className="text-sm font-medium">Correct Answer</label>
+                          <Select
+                            value={question.answerKey || 'true'}
+                            onValueChange={(value) => updateQuizQuestion(question.id, { answerKey: value })}
+                          >
+                            <SelectTrigger className="mt-2 rounded-lg">
+                              <SelectValue placeholder="Select correct answer" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">True</SelectItem>
+                              <SelectItem value="false">False</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       )}
 
                       {question.type !== 'multiple_choice' && question.type !== 'true_false' && (
                         <div>
-                          <label className="text-sm font-medium">Answer Key (optional)</label>
+                          <label className="text-sm font-medium">Accepted Answer(s)</label>
                           <Input
                             value={question.answerKey}
                             onChange={(event) => updateQuizQuestion(question.id, { answerKey: event.target.value })}
-                            placeholder="Sample expected answer"
+                            placeholder="Use | to separate multiple accepted answers"
                             className="mt-2 rounded-lg"
                           />
+                          <p className="text-xs text-muted-foreground mt-1">e.g. photosynthesis | Photosynthesis</p>
                         </div>
                       )}
                     </CardContent>
@@ -2178,17 +2230,17 @@ export function CreateAssignmentDialog({
 
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="rounded-full text-xs bg-background">
-                Question types: MCQ, True/False, Short Answer, Fill in the Blank, Essay
+                Supports: Multiple Choice · True/False · Short Answer
               </Badge>
               <Badge variant="outline" className="rounded-full text-xs bg-background">
-                Current API mapping: assignment_type = quiz
+                Auto-graded · No proctoring required
               </Badge>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {(taskType === 'exam' || taskType === 'quiz') && (
+      {taskType === 'exam' && (
         <Card className="border-0 bg-muted/30">
           <CardContent className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2558,16 +2610,12 @@ export function CreateAssignmentDialog({
               )}
             </div>
 
-            <p className="text-xs text-muted-foreground">
-              Exam builder now stores order mode, selection mode, and chapter pool configuration for backend
-              selection logic.
-            </p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="rounded-full text-xs">
-                Question types: MCQ, True/False, Short Answer, Fill in the Blank, Essay
+                Supports: MCQ · True/False · Short Answer · Import from DOCX/JSON
               </Badge>
               <Badge variant="outline" className="rounded-full text-xs">
-                Current API mapping: assignment_type = exam
+                Proctored · Anti-cheat · Fullscreen enforced
               </Badge>
             </div>
           </CardContent>
