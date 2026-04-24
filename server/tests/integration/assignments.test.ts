@@ -167,10 +167,30 @@ describe('Assignment Schemas', () => {
       it('should reject unsupported assignment_type values', () => {
         const result = createAssignmentSchema.safeParse({
           title: 'Invalid Type',
-          assignment_type: 'project',
+          assignment_type: 'homework',
         })
 
         expect(result.success).toBe(false)
+      })
+
+      it('should accept Mabini component types', () => {
+        for (const type of ['recitation', 'attendance', 'project'] as const) {
+          const result = createAssignmentSchema.safeParse({
+            title: `T-${type}`,
+            assignment_type: type,
+          })
+          expect(result.success).toBe(true)
+        }
+      })
+
+      it('should accept grading_period values', () => {
+        for (const period of ['pre_mid', 'midterm', 'pre_final', 'final'] as const) {
+          const result = createAssignmentSchema.safeParse({
+            title: `P-${period}`,
+            grading_period: period,
+          })
+          expect(result.success).toBe(true)
+        }
       })
 
       it('should accept question order mode settings for quiz and exam', () => {

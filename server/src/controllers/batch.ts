@@ -226,6 +226,31 @@ export const exportRegistrarGrades = async (
   }
 }
 
+/**
+ * Student self-export: same Mabini 4-period registrar format,
+ * scoped to the authenticated student's row only.
+ */
+export const exportMyRegistrarGrades = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params
+    const csv = await batchService.exportRegistrarGrades(
+      courseId,
+      req.user!.id,
+      req.user!.role as UserRole,
+      req.user!.id
+    )
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', `attachment; filename="my-grade-${courseId}.csv"`)
+    res.send(csv)
+  } catch (error) {
+    next(error)
+  }
+}
+
 // ============================================
 // Student Import
 // ============================================

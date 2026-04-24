@@ -1,15 +1,49 @@
+import { useState } from 'react';
 import { CLASS_COLORS } from '@/lib/data';
 import { useClasses } from '@/hooks-api/useClasses';
 import { useGrades } from '@/hooks-api/useGrades';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, Download } from 'lucide-react';
+import { batchService } from '@/services/batch.service';
+import { useToast } from '@/hooks/use-toast';
 
 export default function GradesPage() {
   // Fetch real data from API
   const { data: classes = [], isLoading: classesLoading, error: classesError, refetch: refetchClasses } = useClasses();
   const { data: grades = [], isLoading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
+  const { toast } = useToast();
+  const [exportingCourseId, setExportingCourseId] = useState<string | null>(null);
+
+  const handleExportMyGrade = async (courseId: string, courseName: string) => {
+    if (exportingCourseId) return;
+    setExportingCourseId(courseId);
+    try {
+      const response: any = await batchService.exportMyGrade(courseId);
+      const csv = typeof response === 'string' ? response : (response?.data ?? '');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = courseName.replace(/[^a-z0-9-_]+/gi, '_');
+      a.download = `my-grade-${safeName}-${courseId.slice(0, 8)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast({
+        title: 'Export failed',
+        description:
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to export your grade',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingCourseId(null);
+    }
+  };
 
   const isLoading = classesLoading || gradesLoading;
   const classError = classesError;
@@ -96,8 +130,10 @@ export default function GradesPage() {
                 if (score >= 63) return 'D';
                 return 'F';
               };
-              
+
               const grade = averageGrade > 0 ? getLetterGrade(averageGrade) : '—';
+
+              const isExporting = exportingCourseId === cls.id;
 
               return (
                 <Card key={cls.id} className="border-0 shadow-sm card-interactive">
@@ -110,7 +146,24 @@ export default function GradesPage() {
                           <p className="text-sm text-muted-foreground">{cls.teacher}</p>
                         </div>
                       </div>
-                      <span className="text-2xl font-bold text-primary">{grade}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl font-bold text-primary">{grade}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl gap-2"
+                          disabled={isExporting}
+                          onClick={() => handleExportMyGrade(cls.id, cls.name)}
+                          title="Download my grade (Mabini registrar format)"
+                        >
+                          {isExporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
+                          <span className="hidden sm:inline">{isExporting ? 'Exporting…' : 'Export my grade'}</span>
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-sm text-muted-foreground">

@@ -40,9 +40,16 @@ export const supportsAssignmentTypeColumn = async (): Promise<boolean> => {
   throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load assignment schema metadata', 500);
 };
 
-export const normalizeAssignmentType = (value: unknown): 'exam' | 'quiz' | 'activity' => {
+export const normalizeAssignmentType = (value: unknown): 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project' => {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'exam' || normalized === 'quiz' || normalized === 'activity') {
+  if (
+    normalized === 'exam' ||
+    normalized === 'quiz' ||
+    normalized === 'activity' ||
+    normalized === 'recitation' ||
+    normalized === 'attendance' ||
+    normalized === 'project'
+  ) {
     return normalized;
   }
   return 'activity';

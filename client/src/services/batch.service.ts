@@ -24,6 +24,10 @@ export const batchService = {
     return apiClient.get<string>(`/batch/export-registrar/${courseId}`, { responseType: 'text' });
   },
 
+  exportMyGrade(courseId: string) {
+    return apiClient.get<string>(`/batch/export-my-grade/${courseId}`, { responseType: 'text' });
+  },
+
   importStudents(students: Array<{ email: string; first_name: string; last_name: string; role?: 'student' | 'teacher' }>) {
     return apiClient.post('/batch/import-students', { students });
   },

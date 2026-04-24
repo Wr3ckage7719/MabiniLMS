@@ -4,12 +4,16 @@ import {
   enqueueSubmission,
 } from './submission-queue.service';
 
+export type AssignmentType = 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project';
+export type GradingPeriod = 'pre_mid' | 'midterm' | 'pre_final' | 'final';
+
 export interface AssignmentData {
   title: string;
   description?: string;
   due_date: string;
   max_points: number;
-  assignment_type?: 'exam' | 'quiz' | 'activity';
+  assignment_type?: AssignmentType;
+  grading_period?: GradingPeriod | null;
   question_order_mode?: 'sequence' | 'random';
   exam_question_selection_mode?: 'sequence' | 'random';
   exam_chapter_pool?: {

@@ -1,6 +1,6 @@
 import { apiClient } from './api-client';
 
-export type WeightedGradeCategory = 'exam' | 'quiz' | 'activity';
+export type WeightedGradeCategory = 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project';
 
 export interface WeightedCategoryBreakdown {
   category: WeightedGradeCategory;

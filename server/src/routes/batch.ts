@@ -99,6 +99,16 @@ router.get(
   batchController.exportRegistrarGrades
 )
 
+/**
+ * GET /api/batch/export-my-grade/:courseId - Student self-export (own grade only, Mabini format)
+ */
+router.get(
+  '/export-my-grade/:courseId',
+  authorize(UserRole.STUDENT),
+  validateUUID('courseId'),
+  batchController.exportMyRegistrarGrades
+)
+
 // ============================================
 // Import Routes
 // ============================================

@@ -453,7 +453,7 @@ export const notifyAssignmentCreated = async (
     title: string;
     courseId?: string;
     courseName: string;
-    assignmentType?: 'activity' | 'quiz' | 'exam';
+    assignmentType?: 'activity' | 'quiz' | 'exam' | 'recitation' | 'attendance' | 'project';
     dueDate: string;
   }
 ): Promise<void> => {

@@ -23,7 +23,8 @@ export interface Assignment {
   points: number;
   status: 'assigned' | 'submitted' | 'graded' | 'late';
   type: 'assignment' | 'quiz' | 'project' | 'discussion';
-  rawType?: 'exam' | 'quiz' | 'activity' | string;
+  rawType?: 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project' | string;
+  gradingPeriod?: 'pre_mid' | 'midterm' | 'pre_final' | 'final' | null;
   submissionsOpen?: boolean;
   submissionOpenAt?: string | null;
   submissionCloseAt?: string | null;

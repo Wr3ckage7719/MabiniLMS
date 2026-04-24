@@ -1097,7 +1097,7 @@ export const sendAssignmentCreatedNotification = async (
   courseId: string,
   assignmentTitle: string,
   assignmentId: string,
-  assignmentType: 'activity' | 'quiz' | 'exam' = 'activity',
+  assignmentType: 'activity' | 'quiz' | 'exam' | 'recitation' | 'attendance' | 'project' = 'activity',
   actor?: NotificationActor
 ): Promise<void> => {
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
@@ -1106,10 +1106,13 @@ export const sendAssignmentCreatedNotification = async (
     return
   }
 
-  const assignmentLabelByType: Record<'activity' | 'quiz' | 'exam', string> = {
+  const assignmentLabelByType: Record<'activity' | 'quiz' | 'exam' | 'recitation' | 'attendance' | 'project', string> = {
     activity: 'Activity',
     quiz: 'Quiz',
     exam: 'Exam',
+    recitation: 'Recitation',
+    attendance: 'Attendance',
+    project: 'Project',
   }
 
   const assignmentLabel = assignmentLabelByType[assignmentType] || 'Assignment'

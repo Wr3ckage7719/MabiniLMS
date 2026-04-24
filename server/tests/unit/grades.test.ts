@@ -406,11 +406,13 @@ describe('Grade Helper Functions', () => {
       expect(normalizeAssignmentCategory('exam')).toBe('exam')
       expect(normalizeAssignmentCategory('quiz')).toBe('quiz')
       expect(normalizeAssignmentCategory('activity')).toBe('activity')
+      expect(normalizeAssignmentCategory('recitation')).toBe('recitation')
+      expect(normalizeAssignmentCategory('attendance')).toBe('attendance')
+      expect(normalizeAssignmentCategory('project')).toBe('project')
     })
 
-    it('should map legacy assignment types to activity', () => {
+    it('should map legacy assignment types to their canonical category', () => {
       expect(normalizeAssignmentCategory('homework')).toBe('activity')
-      expect(normalizeAssignmentCategory('project')).toBe('activity')
       expect(normalizeAssignmentCategory('discussion')).toBe('activity')
     })
 
