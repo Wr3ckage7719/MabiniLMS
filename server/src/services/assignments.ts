@@ -50,6 +50,7 @@ type DatabaseErrorShape = {
 
 const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'assignment_type',
+  'grading_period',
   'question_order_mode',
   'exam_question_selection_mode',
   'exam_chapter_pool',
@@ -794,6 +795,10 @@ export const createAssignment = async (
 
   if (hasAssignmentTypeColumn) {
     insertPayload.assignment_type = assignmentType;
+  }
+
+  if (input.grading_period) {
+    insertPayload.grading_period = input.grading_period;
   }
 
   if (questionOrderMode) {

@@ -9,10 +9,11 @@ import { ApiError, ErrorCode, UserRole } from '../types/index.js'
 import {
   calculatePercentage,
   calculateLetterGrade,
-  calculateWeightedFinalGrade,
   normalizeAssignmentCategory,
   roundToTwoDecimals,
-  GradeCategory,
+  MabiniGradingPeriod,
+  calculateMabiniPeriodGrade,
+  convertToMabiniGradePoint,
 } from '../types/grades.js'
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js'
@@ -692,21 +693,55 @@ export interface RegistrarExportRow {
   last_name: string
   first_name: string
   middle_initial: string
-  prelim: string
-  midterm: string
-  finals: string
+  pre_mid_grade: string
+  pre_mid_gp: string
+  midterm_grade: string
+  midterm_gp: string
+  pre_final_grade: string
+  pre_final_gp: string
   final_grade: string
+  final_gp: string
+  overall_grade: string
+  overall_gp: string
   remarks: string
 }
 
+type PeriodComponentAgg = {
+  exam: { earned: number; possible: number }
+  quiz: { earned: number; possible: number }
+  recitation: { earned: number; possible: number }
+  attendance: { earned: number; possible: number }
+  project: { earned: number; possible: number }
+  activity: { earned: number; possible: number }
+}
+
+const emptyPeriodAgg = (): PeriodComponentAgg => ({
+  exam: { earned: 0, possible: 0 },
+  quiz: { earned: 0, possible: 0 },
+  recitation: { earned: 0, possible: 0 },
+  attendance: { earned: 0, possible: 0 },
+  project: { earned: 0, possible: 0 },
+  activity: { earned: 0, possible: 0 },
+})
+
+const ALL_PERIODS: MabiniGradingPeriod[] = ['pre_mid', 'midterm', 'pre_final', 'final']
+
 /**
  * Export grades in Mabini Colleges registrar format.
- * Maps: activity→Prelim (30%), quiz→Midterm (30%), exam→Finals (40%)
+ * Uses 4-period model: Pre-Mid (25%), Midterm (25%), Pre-Final (25%), Final (25%).
+ * Each period: Major Exam (45%), Quiz (15%), Recitation (15%), Attendance (20%), Project (5%).
+ * Rating formula for exam/quiz: (raw/max) × 40 + 60.
+ * Overall = average of 4 period weighted grades.
+ * Grade points follow Philippine CHED scale (1.0–5.0).
+ *
+ * Teacher/admin: full class export.
+ * Student: pass `scopeStudentId` = own id to restrict output to one row.
  */
 export const exportRegistrarGrades = async (
   courseId: string,
   userId: string,
-  userRole: UserRole
+  userRole: UserRole,
+  scopeStudentId?: string
 ): Promise<string> => {
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
@@ -718,11 +753,27 @@ export const exportRegistrarGrades = async (
     throw new ApiError(ErrorCode.NOT_FOUND, 'Course not found', 404)
   }
 
-  if (userRole !== UserRole.ADMIN && (course as any).teacher_id !== userId) {
+  const isStudentScope = Boolean(scopeStudentId)
+
+  if (isStudentScope) {
+    // Students may only export their OWN grade and must be enrolled in the course
+    if (scopeStudentId !== userId) {
+      throw new ApiError(ErrorCode.FORBIDDEN, 'Students can only export their own grade', 403)
+    }
+    const { data: enrollment, error: enrollCheckErr } = await supabaseAdmin
+      .from('enrollments')
+      .select('student_id, status')
+      .eq('course_id', courseId)
+      .eq('student_id', scopeStudentId)
+      .maybeSingle()
+    if (enrollCheckErr || !enrollment || !ACTIVE_ENROLLMENT_STATUSES.includes(enrollment.status as any)) {
+      throw new ApiError(ErrorCode.FORBIDDEN, 'You are not enrolled in this course', 403)
+    }
+  } else if (userRole !== UserRole.ADMIN && (course as any).teacher_id !== userId) {
     throw new ApiError(ErrorCode.FORBIDDEN, 'Not authorized', 403)
   }
 
-  const { data: enrollments, error: enrollError } = await supabaseAdmin
+  const enrollmentsQuery = supabaseAdmin
     .from('enrollments')
     .select(`
       student_id,
@@ -733,6 +784,12 @@ export const exportRegistrarGrades = async (
     .eq('course_id', courseId)
     .in('status', ACTIVE_ENROLLMENT_STATUSES)
 
+  if (scopeStudentId) {
+    enrollmentsQuery.eq('student_id', scopeStudentId)
+  }
+
+  const { data: enrollments, error: enrollError } = await enrollmentsQuery
+
   if (enrollError) {
     logger.error('Failed to fetch enrollments for registrar export', { error: enrollError.message })
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to export grades', 500)
@@ -741,26 +798,48 @@ export const exportRegistrarGrades = async (
   const hasTypeColumn = await supportsAssignmentTypeColumn()
   const typeField = hasTypeColumn ? ', assignment_type' : ''
 
-  const { data: allGrades, error: gradesError } = await supabaseAdmin
+  // Try to select grading_period; fall back gracefully if column doesn't exist yet
+  let hasPeriodColumn = false
+  let periodField = ''
+  try {
+    const { error: probeErr } = await supabaseAdmin
+      .from('assignments')
+      .select('id, grading_period')
+      .limit(1)
+    if (!probeErr) {
+      hasPeriodColumn = true
+      periodField = ', grading_period'
+    }
+  } catch {
+    // column missing — all assignments treated as unpinned
+  }
+
+  const gradesQuery = supabaseAdmin
     .from('grades')
     .select(`
       points_earned,
       submission:submissions!inner(
         student_id,
         assignment:assignments!inner(
-          id, max_points, course_id${typeField}
+          id, max_points, course_id${typeField}${periodField}
         )
       )
     `)
     .eq('submission.assignment.course_id', courseId)
+
+  if (scopeStudentId) {
+    gradesQuery.eq('submission.student_id', scopeStudentId)
+  }
+
+  const { data: allGrades, error: gradesError } = await gradesQuery
 
   if (gradesError) {
     logger.error('Failed to fetch grades for registrar export', { error: gradesError.message })
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to export grades', 500)
   }
 
-  type CategoryAgg = { points_earned: number; points_possible: number }
-  const studentAggregates = new Map<string, Record<GradeCategory, CategoryAgg>>()
+  // studentPeriodAgg[studentId][period][componentType]
+  const studentPeriodAgg = new Map<string, Record<MabiniGradingPeriod, PeriodComponentAgg>>()
 
   for (const row of allGrades || []) {
     const submission = Array.isArray((row as any).submission)
@@ -773,21 +852,38 @@ export const exportRegistrarGrades = async (
     if (!assignment || !submission?.student_id) continue
 
     const studentId = submission.student_id as string
-    if (!studentAggregates.has(studentId)) {
-      studentAggregates.set(studentId, {
-        exam: { points_earned: 0, points_possible: 0 },
-        quiz: { points_earned: 0, points_possible: 0 },
-        activity: { points_earned: 0, points_possible: 0 },
+    if (!studentPeriodAgg.has(studentId)) {
+      studentPeriodAgg.set(studentId, {
+        pre_mid: emptyPeriodAgg(),
+        midterm: emptyPeriodAgg(),
+        pre_final: emptyPeriodAgg(),
+        final: emptyPeriodAgg(),
       })
     }
 
-    const agg = studentAggregates.get(studentId)!
-    const category = normalizeAssignmentCategory(normalizeAssignmentType((assignment as any).assignment_type))
-    agg[category].points_earned += Number((row as any).points_earned || 0)
-    agg[category].points_possible += Number(assignment.max_points || 0)
-  }
+    const rawType = normalizeAssignmentType((assignment as any).assignment_type)
+    const category = normalizeAssignmentCategory(rawType) as keyof PeriodComponentAgg
+    const period = hasPeriodColumn
+      ? ((assignment as any).grading_period as MabiniGradingPeriod | null)
+      : null
 
-  const GRADE_CATEGORIES: GradeCategory[] = ['exam', 'quiz', 'activity']
+    const earned = Number((row as any).points_earned || 0)
+    const possible = Number(assignment.max_points || 0)
+
+    if (period && ALL_PERIODS.includes(period)) {
+      // Pinned to a specific period
+      const agg = studentPeriodAgg.get(studentId)![period]
+      agg[category].earned += earned
+      agg[category].possible += possible
+    } else {
+      // No period set — distribute to all periods (legacy / unpinned assignments)
+      for (const p of ALL_PERIODS) {
+        const agg = studentPeriodAgg.get(studentId)![p]
+        agg[category].earned += earned
+        agg[category].possible += possible
+      }
+    }
+  }
 
   const rows: RegistrarExportRow[] = []
 
@@ -797,54 +893,85 @@ export const exportRegistrarGrades = async (
       : (enrollment as any).profile
 
     const studentId = enrollment.student_id as string
-    const agg = studentAggregates.get(studentId) || {
-      exam: { points_earned: 0, points_possible: 0 },
-      quiz: { points_earned: 0, points_possible: 0 },
-      activity: { points_earned: 0, points_possible: 0 },
+    const periodAgg = studentPeriodAgg.get(studentId)
+
+    const periodGrades: Partial<Record<MabiniGradingPeriod, number | null>> = {}
+
+    for (const period of ALL_PERIODS) {
+      const agg = periodAgg?.[period]
+      if (!agg) {
+        periodGrades[period] = null
+        continue
+      }
+      periodGrades[period] = calculateMabiniPeriodGrade({
+        examPoints: agg.exam.possible > 0 ? agg.exam : null,
+        quizPoints: agg.quiz.possible > 0 ? agg.quiz : null,
+        recitationPoints: agg.recitation.possible > 0 ? agg.recitation : null,
+        attendancePoints: agg.attendance.possible > 0 ? agg.attendance : null,
+        projectPoints: agg.project.possible > 0 ? agg.project : null,
+        activityPoints: agg.activity.possible > 0 ? agg.activity : null,
+      })
     }
 
-    const categoryPercentages: Partial<Record<GradeCategory, number | null>> = {}
-    for (const cat of GRADE_CATEGORIES) {
-      categoryPercentages[cat] = agg[cat].points_possible > 0
-        ? calculatePercentage(agg[cat].points_earned, agg[cat].points_possible)
-        : null
-    }
+    const completedPeriods = ALL_PERIODS.filter(p => periodGrades[p] !== null)
+    const overallGrade = completedPeriods.length > 0
+      ? roundToTwoDecimals(
+          completedPeriods.reduce((sum, p) => sum + (periodGrades[p] as number), 0) / completedPeriods.length
+        )
+      : null
 
-    const finalPct = calculateWeightedFinalGrade(categoryPercentages)
-    const activityPct = categoryPercentages.activity ?? null
-    const quizPct = categoryPercentages.quiz ?? null
-    const examPct = categoryPercentages.exam ?? null
-
-    const lastName = profile?.last_name || ''
-    const firstName = profile?.first_name || ''
-    const middleName = ''
+    const fmt = (g: number | null) => g !== null ? roundToTwoDecimals(g).toFixed(2) : 'INC'
+    const fmtGP = (g: number | null) => g !== null ? convertToMabiniGradePoint(g).toFixed(2) : 'INC'
 
     rows.push({
       lrn: '',
-      last_name: lastName,
-      first_name: firstName,
-      middle_initial: middleName,
-      prelim: activityPct !== null ? roundToTwoDecimals(activityPct).toFixed(2) : 'N/A',
-      midterm: quizPct !== null ? roundToTwoDecimals(quizPct).toFixed(2) : 'N/A',
-      finals: examPct !== null ? roundToTwoDecimals(examPct).toFixed(2) : 'N/A',
-      final_grade: finalPct !== null ? roundToTwoDecimals(finalPct).toFixed(2) : 'INC',
-      remarks: finalPct !== null ? (finalPct >= 75 ? 'Passed' : 'Failed') : 'INC',
+      last_name: profile?.last_name || '',
+      first_name: profile?.first_name || '',
+      middle_initial: '',
+      pre_mid_grade: fmt(periodGrades.pre_mid ?? null),
+      pre_mid_gp: fmtGP(periodGrades.pre_mid ?? null),
+      midterm_grade: fmt(periodGrades.midterm ?? null),
+      midterm_gp: fmtGP(periodGrades.midterm ?? null),
+      pre_final_grade: fmt(periodGrades.pre_final ?? null),
+      pre_final_gp: fmtGP(periodGrades.pre_final ?? null),
+      final_grade: fmt(periodGrades.final ?? null),
+      final_gp: fmtGP(periodGrades.final ?? null),
+      overall_grade: fmt(overallGrade),
+      overall_gp: fmtGP(overallGrade),
+      remarks: overallGrade !== null
+        ? (convertToMabiniGradePoint(overallGrade) <= 3.00 ? 'Passed' : 'Failed')
+        : 'INC',
     })
   }
 
   rows.sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name))
 
-  const header = 'LRN,Last Name,First Name,Middle Initial,Prelim (Activity 30%),Midterm (Quiz 30%),Finals (Exam 40%),Final Grade,Remarks'
+  const header = [
+    'LRN', 'Last Name', 'First Name', 'Middle Initial',
+    'Pre-Mid Grade', 'Pre-Mid GP',
+    'Midterm Grade', 'Midterm GP',
+    'Pre-Final Grade', 'Pre-Final GP',
+    'Final Grade', 'Final GP',
+    'Overall Grade', 'Overall GP',
+    'Remarks',
+  ].join(',')
+
   const csvRows = rows.map((r) =>
     [
       r.lrn,
       `"${r.last_name.replace(/"/g, '""')}"`,
       `"${r.first_name.replace(/"/g, '""')}"`,
       `"${r.middle_initial.replace(/"/g, '""')}"`,
-      r.prelim,
-      r.midterm,
-      r.finals,
+      r.pre_mid_grade,
+      r.pre_mid_gp,
+      r.midterm_grade,
+      r.midterm_gp,
+      r.pre_final_grade,
+      r.pre_final_gp,
       r.final_grade,
+      r.final_gp,
+      r.overall_grade,
+      r.overall_gp,
       r.remarks,
     ].join(',')
   )

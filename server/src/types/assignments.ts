@@ -28,8 +28,11 @@ export interface SubmissionStorageConsistencyIssue {
   fallback_applied: boolean;
 }
 
-export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity']);
+export const assignmentCategorySchema = z.enum(['exam', 'quiz', 'activity', 'recitation', 'attendance', 'project']);
 export type AssignmentCategory = z.infer<typeof assignmentCategorySchema>;
+
+export const gradingPeriodSchema = z.enum(['pre_mid', 'midterm', 'pre_final', 'final']);
+export type GradingPeriod = z.infer<typeof gradingPeriodSchema>;
 export const questionOrderModeSchema = z.enum(['sequence', 'random']);
 export type QuestionOrderMode = z.infer<typeof questionOrderModeSchema>;
 
@@ -76,6 +79,7 @@ export const createAssignmentSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   description: z.string().optional(),
   assignment_type: assignmentCategorySchema.default('activity'),
+  grading_period: gradingPeriodSchema.nullable().optional(),
   question_order_mode: questionOrderModeSchema.default('sequence').optional(),
   question_order: questionOrderModeSchema.optional(),
   order_mode: questionOrderModeSchema.optional(),
@@ -111,6 +115,7 @@ export const updateAssignmentSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
   assignment_type: assignmentCategorySchema.optional(),
+  grading_period: gradingPeriodSchema.nullable().optional(),
   question_order_mode: questionOrderModeSchema.optional(),
   question_order: questionOrderModeSchema.optional(),
   order_mode: questionOrderModeSchema.optional(),
@@ -241,6 +246,7 @@ export interface Assignment {
   title: string;
   description: string | null;
   assignment_type: AssignmentCategory;
+  grading_period?: GradingPeriod | null;
   question_order_mode?: QuestionOrderMode;
   exam_question_selection_mode?: QuestionOrderMode;
   exam_chapter_pool?: ExamChapterPoolSettings;

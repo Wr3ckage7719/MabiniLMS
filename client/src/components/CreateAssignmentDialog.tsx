@@ -598,6 +598,7 @@ export function CreateAssignmentDialog({
   const [topics, setTopics] = useState<Topic[]>([]);
   const [newTopic, setNewTopic] = useState('');
   const [showTopicInput, setShowTopicInput] = useState(false);
+  const [gradingPeriod, setGradingPeriod] = useState<'pre_mid' | 'midterm' | 'pre_final' | 'final' | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingMaterial, setIsUploadingMaterial] = useState(false);
   const [materialUploadProgress, setMaterialUploadProgress] = useState(0);
@@ -1390,6 +1391,7 @@ export function CreateAssignmentDialog({
           title: title.trim(),
           description: description.trim() || undefined,
           assignment_type: assignmentType,
+          grading_period: gradingPeriod || null,
           due_date: toEndOfDayISOString(dueDate) || new Date().toISOString(),
           max_points: (taskType === 'quiz')
             ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0))
@@ -1552,6 +1554,7 @@ export function CreateAssignmentDialog({
     setExamChapterTags('');
     setExamQuestionsPerChapter('5');
     setExamTotalQuestions('');
+    setGradingPeriod('');
     setFiles([]);
     setTopics([]);
     setNewTopic('');
@@ -1872,6 +1875,29 @@ export function CreateAssignmentDialog({
                 {errors.dueDate}
               </p>
             )}
+          </div>
+
+          {/* Grading Period */}
+          <div>
+            <label className="text-sm font-semibold">Grading Period</label>
+            <Select
+              value={gradingPeriod}
+              onValueChange={(v) => setGradingPeriod(v as typeof gradingPeriod)}
+            >
+              <SelectTrigger className="mt-2 rounded-lg bg-background">
+                <SelectValue placeholder="Select period (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— None —</SelectItem>
+                <SelectItem value="pre_mid">Pre-Mid (25%)</SelectItem>
+                <SelectItem value="midterm">Midterm (25%)</SelectItem>
+                <SelectItem value="pre_final">Pre-Final (25%)</SelectItem>
+                <SelectItem value="final">Final (25%)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Used for Mabini Colleges registrar grade export
+            </p>
           </div>
 
           {/* Points */}

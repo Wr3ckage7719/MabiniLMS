@@ -36,6 +36,7 @@ interface BackendAssignment {
   due_date: string;
   max_points: number;
   assignment_type?: string;
+  grading_period?: string | null;
   submissions_open?: boolean;
   submission_open_at?: string | null;
   submission_close_at?: string | null;
@@ -195,6 +196,8 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
   const typeMap: Record<string, Assignment['type']> = {
     'exam': 'assignment',
     'activity': 'assignment',
+    'recitation': 'assignment',
+    'attendance': 'assignment',
     'reading_material': 'assignment',
     'homework': 'assignment',
     'quiz': 'quiz',
@@ -212,6 +215,7 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     status: statusMap[assignment.submission_status || 'pending'] || 'assigned',
     type: typeMap[assignment.assignment_type || 'homework'] || 'assignment',
     rawType: assignment.assignment_type || 'activity',
+    gradingPeriod: (assignment.grading_period as Assignment['gradingPeriod']) ?? null,
     submissionsOpen: assignment.submissions_open ?? true,
     submissionOpenAt: assignment.submission_open_at ?? null,
     submissionCloseAt: assignment.submission_close_at ?? null,

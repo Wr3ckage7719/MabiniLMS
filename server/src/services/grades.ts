@@ -1012,6 +1012,9 @@ export const getWeightedCourseGrade = async (
     exam: 0,
     quiz: 0,
     activity: 0,
+    recitation: 0,
+    attendance: 0,
+    project: 0,
   }
 
   for (const assignment of assignments || []) {
@@ -1050,6 +1053,9 @@ export const getWeightedCourseGrade = async (
     exam: { graded_count: 0, points_earned: 0, points_possible: 0 },
     quiz: { graded_count: 0, points_earned: 0, points_possible: 0 },
     activity: { graded_count: 0, points_earned: 0, points_possible: 0 },
+    recitation: { graded_count: 0, points_earned: 0, points_possible: 0 },
+    attendance: { graded_count: 0, points_earned: 0, points_possible: 0 },
+    project: { graded_count: 0, points_earned: 0, points_possible: 0 },
   }
 
   for (const row of grades || []) {
