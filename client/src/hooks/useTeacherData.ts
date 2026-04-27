@@ -28,12 +28,17 @@ export function useTeacherCourses(options?: UseTeacherCoursesOptions): UseTeache
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const status = options?.status;
+  const includeEnrollmentCount = options?.includeEnrollmentCount;
 
   const fetchCourses = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await teacherService.getTeacherCourses(options);
+      const response = await teacherService.getTeacherCourses({
+        status,
+        includeEnrollmentCount,
+      });
       setCourses(response.data || []);
     } catch (err: any) {
       console.error('Error fetching teacher courses:', err);
@@ -42,7 +47,7 @@ export function useTeacherCourses(options?: UseTeacherCoursesOptions): UseTeache
     } finally {
       setLoading(false);
     }
-  }, [options?.status, options?.includeEnrollmentCount]);
+  }, [status, includeEnrollmentCount]);
 
   useEffect(() => {
     fetchCourses();

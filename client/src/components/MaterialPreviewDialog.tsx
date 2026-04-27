@@ -657,7 +657,7 @@ export function MaterialPreviewDialog({
     return () => {
       active = false;
     };
-  }, [open, isDoc, material?.id, material?.url]);
+  }, [docPreviewMode, open, isDoc, material?.id, material?.url]);
 
   useEffect(() => {
     if (!open || !material?.url || !isPresentation || pptxSlides.length > 0 || pptxLoading || Boolean(pptxError)) {
@@ -878,7 +878,7 @@ export function MaterialPreviewDialog({
   }, [canFetchEngagement, engagementLoading]);
 
   useEffect(() => {
-    if (!open || !material) {
+    if (!open || !material?.id) {
       return;
     }
 
@@ -1053,7 +1053,6 @@ export function MaterialPreviewDialog({
     markInteraction,
     material,
     onOpenChange,
-    pptPreviewMode,
     pushProgressEvent,
     toast,
   ]);

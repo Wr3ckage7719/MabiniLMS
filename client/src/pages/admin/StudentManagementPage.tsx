@@ -33,6 +33,8 @@ const getApiErrorMessage = (error: unknown, fallback: string): string => {
   return maybeError?.response?.data?.error?.message || maybeError?.message || fallback;
 };
 
+const EMPTY_STUDENTS: adminService.AdminUser[] = [];
+
 export default function StudentManagementPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -56,7 +58,7 @@ export default function StudentManagementPage() {
     queryFn: () => adminService.listUsers({ page, limit, role: 'student', search: search || undefined }),
   });
 
-  const students = studentsResponse?.users || [];
+  const students = studentsResponse?.users ?? EMPTY_STUDENTS;
   const totalPages = studentsResponse?.totalPages || 1;
 
   const sortedStudents = useMemo(() => {

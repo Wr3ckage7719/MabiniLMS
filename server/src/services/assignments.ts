@@ -1191,7 +1191,7 @@ export const updateAssignment = async (
     return normalizeAssignmentRecord(assignment) as Assignment;
   }
 
-  let mutableUpdatePayload: Record<string, unknown> = { ...updatePayload };
+  const mutableUpdatePayload: Record<string, unknown> = { ...updatePayload };
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabaseAdmin
