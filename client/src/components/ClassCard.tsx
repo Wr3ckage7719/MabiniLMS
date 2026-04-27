@@ -1,5 +1,6 @@
 import { ClassItem, CLASS_COLORS } from '@/lib/data';
-import { FileText } from 'lucide-react';
+import { FileText, ArchiveRestore } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
@@ -44,8 +45,8 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
   return (
     <>
       <Card
-        className={`group overflow-hidden border-0 ${!isArchived ? 'cursor-pointer' : ''} bg-transparent shadow-none md:bg-card md:shadow-sm md:card-interactive md:hover:shadow-glow`}
-        onClick={() => !isArchived && navigate(`/class/${classItem.id}`)}
+        className={`group overflow-hidden border-0 cursor-pointer bg-transparent shadow-none md:bg-card md:shadow-sm md:card-interactive md:hover:shadow-glow`}
+        onClick={() => navigate(`/class/${classItem.id}`)}
       >
         <div
           className={`md:hidden min-h-[146px] px-4 py-4 relative overflow-hidden rounded-[24px] ${isArchived ? 'opacity-70' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
@@ -74,8 +75,20 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
               <p className="text-[14px] font-semibold text-white/95 truncate">{classItem.teacher}</p>
               <p className="text-[13px] text-white/80 truncate">{classItem.room} • {classItem.schedule}</p>
               {isArchived && (
-                <div className="mt-1 inline-block">
+                <div className="mt-1 flex items-center gap-2">
                   <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-md">Archived</span>
+                  {onRestore && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmAction('restore');
+                      }}
+                      className="inline-flex items-center gap-1 text-[10px] bg-white/25 hover:bg-white/35 text-white px-1.5 py-0.5 rounded-md transition-colors"
+                    >
+                      <ArchiveRestore className="h-3 w-3" /> Unarchive
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -110,10 +123,24 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
           </div>
         </div>
 
-        <div className={`p-5 ${isArchived ? 'opacity-70' : ''}`}>
+        <div className={`p-5 ${isArchived ? 'opacity-90' : ''}`}>
           <p className="text-sm text-muted-foreground mb-2">{classItem.teacher}</p>
           <p className="text-xs text-muted-foreground mb-4">{classItem.room} • {classItem.schedule}</p>
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between gap-2">
+            {isArchived && onRestore ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-lg text-xs gap-1.5"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmAction('restore');
+                }}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+                Unarchive
+              </Button>
+            ) : <span />}
             {classItem.pendingAssignments > 0 && !isArchived && (
               <div className="flex items-center gap-1.5 text-primary">
                 <FileText className="h-4 w-4" />

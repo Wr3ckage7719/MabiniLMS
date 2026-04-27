@@ -62,4 +62,18 @@ router.get(
   enrollmentController.getEnrollmentStatus
 );
 
+// PATCH /api/enrollments/course/:courseId/archive - Student-side archive of their enrollment
+router.patch(
+  '/course/:courseId/archive',
+  authorize(UserRole.STUDENT),
+  (req, res, next) => enrollmentController.setMyArchive(req as any, res, next, true)
+);
+
+// PATCH /api/enrollments/course/:courseId/unarchive - Student-side unarchive of their enrollment
+router.patch(
+  '/course/:courseId/unarchive',
+  authorize(UserRole.STUDENT),
+  (req, res, next) => enrollmentController.setMyArchive(req as any, res, next, false)
+);
+
 export default router;

@@ -129,15 +129,20 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   }, [loadMyInvitations, user]);
 
   const handleArchive = useCallback(async (classId: string) => {
+    const isStudent = (user?.role || '').toLowerCase() === 'student';
     try {
-      await coursesService.archiveCourse(classId);
+      if (isStudent) {
+        await enrollmentsService.archiveMyEnrollment(classId);
+      } else {
+        await coursesService.archiveCourse(classId);
+      }
       setArchivedClasses((prev) => (prev.includes(classId) ? prev : [...prev, classId]));
       await refreshClassQueries(classId);
     } catch (error) {
       console.error('Failed to archive class', error);
       throw error;
     }
-  }, [refreshClassQueries]);
+  }, [refreshClassQueries, user]);
 
   const handleUnenroll = useCallback(async (classId: string) => {
     try {
@@ -157,15 +162,20 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   }, [refreshClassQueries]);
 
   const handleRestore = useCallback(async (classId: string) => {
+    const isStudent = (user?.role || '').toLowerCase() === 'student';
     try {
-      await coursesService.unarchiveCourse(classId);
+      if (isStudent) {
+        await enrollmentsService.unarchiveMyEnrollment(classId);
+      } else {
+        await coursesService.unarchiveCourse(classId);
+      }
       setArchivedClasses((prev) => prev.filter((id) => id !== classId));
       await refreshClassQueries(classId);
     } catch (error) {
       console.error('Failed to restore class', error);
       throw error;
     }
-  }, [refreshClassQueries]);
+  }, [refreshClassQueries, user]);
 
   const directEnrollStudentsByEmail = useCallback(
     async (classId: string, studentEmails: string[]): Promise<BulkDirectEnrollmentResult> => {

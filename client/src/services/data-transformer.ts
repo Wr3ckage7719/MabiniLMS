@@ -25,6 +25,7 @@ interface BackendCourse {
   enrollment_count?: number;
   pending_assignments_count?: number;
   archived?: boolean;
+  archived_by_me?: boolean;
 }
 
 interface BackendAssignment {
@@ -180,7 +181,7 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     room: course.room || metadata.room || 'Room TBA',
     schedule: course.schedule || metadata.schedule || 'Schedule TBA',
     coverImage: course.cover_image || metadata.coverImage,
-    archived: Boolean(course.archived || course.status === 'archived'),
+    archived: Boolean(course.archived || course.status === 'archived' || course.archived_by_me),
   };
 }
 

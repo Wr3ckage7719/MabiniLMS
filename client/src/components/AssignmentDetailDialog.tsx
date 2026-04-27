@@ -8,10 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { FileText, Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
+import { Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
 import { assignmentsService } from '@/services/assignments.service';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -90,15 +89,15 @@ interface AssignmentDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   teacherName: string;
   classId: string;
+  onStartExam?: (assignment: Assignment) => void;
 }
 
-export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId }: AssignmentDetailDialogProps) {
+export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId, onStartExam }: AssignmentDetailDialogProps) {
   const { currentUserAvatar } = useRole();
   const { toast } = useToast();
   const [submissionText, setSubmissionText] = useState('');
   const [driveReference, setDriveReference] = useState('');
   const [driveFileName, setDriveFileName] = useState('');
-  const [examOpen, setExamOpen] = useState(false);
   const [submission, setSubmission] = useState<ApiSubmission | null>(null);
   const [loadingSubmission, setLoadingSubmission] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -202,7 +201,10 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   }, [assignment?.id, mapApiComment, toast]);
 
   useEffect(() => {
-    if (!open || !assignment?.id) return;
+    if (!open) {
+      return;
+    }
+    if (!assignment?.id) return;
 
     setSubmissionText('');
     setDriveReference('');
@@ -325,6 +327,11 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     return null;
   }
 
+  const handleStartExam = () => {
+    if (!assignment || !onStartExam) return;
+    onStartExam(assignment);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl p-3 sm:p-6">
@@ -406,20 +413,37 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 {isQuizAssignment ? 'Quiz' : isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
               </h4>
 
-              {isExamAssignment ? (
+              {isQuizAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
-                  <p className="text-xs sm:text-sm text-muted-foreground">
-                    {isQuizAssignment
-                      ? 'Answer the quiz questions directly inside the app. Your answers are saved as you go.'
-                      : 'This is a proctored exam. Fullscreen, focus changes, and restricted interactions are monitored during your attempt.'}
-                  </p>
+                  <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
+                    <li>Answer questions directly inside the app.</li>
+                    <li>Your answers are saved automatically as you go.</li>
+                    <li>You can review all questions before submitting.</li>
+                    <li>Once you submit, your answers are final.</li>
+                  </ul>
                   <Button
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
-                    onClick={() => setExamOpen(true)}
+                    onClick={handleStartExam}
                   >
-                    <Send className="h-4 w-4 mr-1" />
-                    {isQuizAssignment ? 'Start Quiz' : 'Start Proctored Exam'}
+                    <Send className="h-4 w-4 mr-1" /> Start Quiz
+                  </Button>
+                </div>
+              ) : isExamAssignment ? (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 sm:p-4 space-y-3">
+                  <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
+                    <li>This exam is <strong>proctored</strong> — your screen activity is monitored.</li>
+                    <li>You will enter fullscreen when the exam starts. Do not exit it.</li>
+                    <li>Tab switching, right-clicking, and clipboard use are tracked as violations.</li>
+                    <li>Exceeding the violation limit may auto-submit or terminate your attempt.</li>
+                    <li>Once submitted, answers cannot be changed.</li>
+                  </ul>
+                  <Button
+                    size="sm"
+                    className="rounded-xl text-xs sm:text-sm"
+                    onClick={handleStartExam}
+                  >
+                    <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
                   </Button>
                 </div>
               ) : (
@@ -586,16 +610,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             )}
           </TabsContent>
         </Tabs>
-      </DialogContent>
 
-      {assignment && classId && (
-        <ProctoredExamDialog
-          assignmentId={assignment.id}
-          assignmentTitle={assignment.title}
-          open={examOpen}
-          onOpenChange={setExamOpen}
-        />
-      )}
+      </DialogContent>
     </Dialog>
   );
 }

@@ -399,3 +399,26 @@ export const getEnrollmentStatus = async (
     next(error);
   }
 };
+
+export const setMyArchive = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+  archive: boolean
+): Promise<void> => {
+  try {
+    const { courseId } = req.params;
+    const result = await enrollmentService.setMyEnrollmentArchive(
+      courseId,
+      req.user!.id,
+      archive
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};

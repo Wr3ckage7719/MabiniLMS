@@ -932,3 +932,62 @@ export const getEnrollmentStatusForUser = async (
     enrollment_id: selectedEnrollment.id,
   };
 };
+
+/**
+ * Set the student-side archive flag on their enrollment for a course.
+ * Does not affect the course itself or other students' enrollments.
+ */
+export const setMyEnrollmentArchive = async (
+  courseId: string,
+  studentId: string,
+  archive: boolean
+): Promise<{ archived_at: string | null; enrollment_id: string }> => {
+  const { data: enrollmentRow, error: lookupError } = await supabaseAdmin
+    .from('enrollments')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('student_id', studentId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES)
+    .order('enrolled_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (lookupError) {
+    logger.error('Failed to look up enrollment for archive toggle', {
+      courseId,
+      studentId,
+      error: lookupError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update archive state', 500);
+  }
+
+  if (!enrollmentRow?.id) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'You are not enrolled in this course', 404);
+  }
+
+  const archivedAt = archive ? new Date().toISOString() : null;
+
+  const { error: updateError } = await supabaseAdmin
+    .from('enrollments')
+    .update({ archived_at: archivedAt })
+    .eq('id', enrollmentRow.id);
+
+  if (updateError) {
+    if (isMissingColumnError(updateError, 'archived_at')) {
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Archive feature is not available — pending database migration 031_enrollment_archive.',
+        500
+      );
+    }
+
+    logger.error('Failed to update enrollment archive state', {
+      enrollmentId: enrollmentRow.id,
+      archive,
+      error: updateError.message,
+    });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update archive state', 500);
+  }
+
+  return { archived_at: archivedAt, enrollment_id: enrollmentRow.id };
+};
