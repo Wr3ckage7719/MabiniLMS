@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import {
   flushSubmissionQueue,
@@ -14,7 +14,7 @@ export default function SubmissionQueueSync() {
   const isSyncingRef = useRef(false);
   const lastFailureToastRef = useRef(0);
 
-  const runSync = async (showSuccessToast: boolean) => {
+  const runSync = useCallback(async (showSuccessToast: boolean) => {
     if (isSyncingRef.current) {
       return;
     }
@@ -55,7 +55,7 @@ export default function SubmissionQueueSync() {
     } finally {
       isSyncingRef.current = false;
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     void runSync(false);
@@ -79,7 +79,7 @@ export default function SubmissionQueueSync() {
       stopQueueSubscription();
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [runSync]);
 
   return null;
 }

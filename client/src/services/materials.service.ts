@@ -122,9 +122,13 @@ export const materialsService = {
       });
     }
 
-    return apiClient.post(`/courses/${courseId}/materials`, payload, {
-      onUploadProgress: options.onUploadProgress,
-    });
+    if (options.onUploadProgress) {
+      return apiClient.post(`/courses/${courseId}/materials`, payload, {
+        onUploadProgress: options.onUploadProgress,
+      });
+    }
+
+    return apiClient.post(`/courses/${courseId}/materials`, payload);
   },
 
   getById(materialId: string) {

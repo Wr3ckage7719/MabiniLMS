@@ -7,7 +7,7 @@
  * - Schema helpers
  */
 
-import { Request, Response, NextFunction } from 'express'
+import { Request, Response } from 'express'
 import { z } from 'zod'
 
 // ============================================

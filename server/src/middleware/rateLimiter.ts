@@ -1,6 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import { Request, Response } from 'express';
 import { ApiResponse, ErrorCode } from '../types/index.js';
 import logger from '../utils/logger.js';
@@ -19,7 +19,7 @@ if (redisClient) {
     logger.info('Redis-backed rate limiting enabled');
   });
 
-  redisClient.on('error', (error) => {
+  redisClient.on('error', (error: unknown) => {
     logger.error('Redis rate limiter client error', {
       error: error instanceof Error ? error.message : String(error),
     });

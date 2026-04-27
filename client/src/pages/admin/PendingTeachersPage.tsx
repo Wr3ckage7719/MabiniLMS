@@ -44,6 +44,9 @@ const getApiErrorMessage = (error: unknown, fallback: string): string => {
   return maybeError?.response?.data?.error?.message || maybeError?.message || fallback;
 };
 
+const EMPTY_ADMIN_USERS: adminService.AdminUser[] = [];
+const EMPTY_PENDING_TEACHERS: adminService.PendingTeacher[] = [];
+
 export default function PendingTeachersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -74,7 +77,7 @@ export default function PendingTeachersPage() {
   });
 
   const {
-    data: pendingTeachers = [],
+    data: pendingTeachersData,
     isLoading: isPendingTeachersLoading,
     error: pendingTeachersError,
   } = useQuery({
@@ -82,7 +85,8 @@ export default function PendingTeachersPage() {
     queryFn: adminService.listPendingTeachers,
   });
 
-  const teachers = teachersResponse?.users || [];
+  const pendingTeachers = pendingTeachersData ?? EMPTY_PENDING_TEACHERS;
+  const teachers = teachersResponse?.users ?? EMPTY_ADMIN_USERS;
   const totalPages = teachersResponse?.totalPages || 1;
 
   const pendingTeacherIds = useMemo(

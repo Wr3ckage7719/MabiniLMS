@@ -621,7 +621,7 @@ const normalizeExamQuestionWritePayload = (
     ? Math.floor(input.correct_choice_index)
     : (existingQuestion?.correct_choice_index ?? 0)
 
-  let answerPayload = input.answer_payload !== undefined
+  const answerPayload = input.answer_payload !== undefined
     ? toRecord(input.answer_payload)
     : (existingQuestion?.answer_payload || {})
 
@@ -754,7 +754,7 @@ export const createExamQuestion = async (
 
   const normalizedInput = normalizeExamQuestionWritePayload(input)
 
-  let insertPayload: Record<string, unknown> = {
+  const insertPayload: Record<string, unknown> = {
     assignment_id: assignmentId,
     prompt: input.prompt,
     item_type: normalizedInput.item_type,
@@ -853,7 +853,7 @@ export const updateExamQuestion = async (
   if (input.explanation !== undefined) updatePayload.explanation = input.explanation || null
   if (input.order_index !== undefined) updatePayload.order_index = input.order_index
 
-  let mutableUpdatePayload: Record<string, unknown> = {
+  const mutableUpdatePayload: Record<string, unknown> = {
     ...updatePayload,
   }
 
@@ -1453,7 +1453,7 @@ export const submitExamAttempt = async (
   }
 
   if (existingSubmission?.id) {
-    let payload = buildWritePayload(false)
+    const payload = buildWritePayload(false)
     let { error: submissionUpdateError } = await supabaseAdmin
       .from('submissions')
       .update(payload)
@@ -1493,7 +1493,7 @@ export const submitExamAttempt = async (
 
     submissionId = existingSubmission.id
   } else {
-    let payload = buildWritePayload(true)
+    const payload = buildWritePayload(true)
     let { data: createdSubmission, error: submissionCreateError } = await supabaseAdmin
       .from('submissions')
       .insert(payload)

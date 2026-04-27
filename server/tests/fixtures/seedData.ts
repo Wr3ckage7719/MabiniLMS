@@ -129,7 +129,6 @@ export const createBatchUsers = (count: number, roleOverride?: string) => {
  * Create enrollment scenarios
  */
 export const createEnrollmentScenarios = () => {
-  const teacher = seedData.users.teacher
   const student1 = seedData.users.student1
   const student2 = seedData.users.student2
 
