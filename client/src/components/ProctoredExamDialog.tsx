@@ -308,6 +308,27 @@ export function ProctoredExamDialog({
       setSubmitting(true)
       setSubmitError(null)
       try {
+        // Flush any unsaved text answers. The textarea normally saves
+        // onBlur, but when the user clicks Submit directly from the
+        // textarea the blur and submit can race — so push every typed
+        // text answer to the server before finalizing the attempt.
+        const pendingTextSaves = Object.entries(textAnswerMap)
+          .map(([questionId, text]) => [questionId, text.trim()] as const)
+          .filter(([, text]) => text.length > 0)
+          .map(([questionId, text]) =>
+            examsService
+              .submitExamAnswer(session.attempt.id, {
+                question_id: questionId,
+                answer_text: text,
+              })
+              .catch(() => {
+                // best-effort flush; the final submit still proceeds
+              })
+          )
+        if (pendingTextSaves.length > 0) {
+          await Promise.all(pendingTextSaves)
+        }
+
         const submitted = await examsService.submitExamAttempt(session.attempt.id)
         setResult(submitted)
         setStarted(false)
@@ -341,7 +362,7 @@ export function ProctoredExamDialog({
         timeoutSubmitInFlightRef.current = false
       }
     },
-    [isQuizMode, queryClient, result, session, submitting, toast]
+    [isQuizMode, queryClient, result, session, submitting, textAnswerMap, toast]
   )
 
   useEffect(() => {

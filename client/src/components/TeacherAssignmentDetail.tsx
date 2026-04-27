@@ -783,7 +783,7 @@ export function TeacherAssignmentDetail({
   return (
     <>
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="w-dvw sm:max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-3xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-xl">
           <DialogHeader className="flex flex-row items-start justify-between">
             <div className="flex-1">
               {selectedSubmission ? (
@@ -886,7 +886,7 @@ export function TeacherAssignmentDetail({
                       {selectedSubmission.submissionText || selectedSubmission.submissionUrl ? (
                         <div className="space-y-3 text-sm">
                           {selectedSubmission.submissionText && (
-                            <p className="whitespace-pre-wrap break-words">
+                            <p className="whitespace-pre-wrap break-all">
                               {selectedSubmission.submissionText}
                             </p>
                           )}

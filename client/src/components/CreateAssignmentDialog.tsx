@@ -1881,14 +1881,16 @@ export function CreateAssignmentDialog({
           <div>
             <label className="text-sm font-semibold">Grading Period</label>
             <Select
-              value={gradingPeriod}
-              onValueChange={(v) => setGradingPeriod(v as typeof gradingPeriod)}
+              value={gradingPeriod || '__none__'}
+              onValueChange={(v) =>
+                setGradingPeriod(v === '__none__' ? '' : (v as typeof gradingPeriod))
+              }
             >
               <SelectTrigger className="mt-2 rounded-lg bg-background">
                 <SelectValue placeholder="Select period (optional)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">— None —</SelectItem>
+                <SelectItem value="__none__">— None —</SelectItem>
                 <SelectItem value="pre_mid">Pre-Mid (25%)</SelectItem>
                 <SelectItem value="midterm">Midterm (25%)</SelectItem>
                 <SelectItem value="pre_final">Pre-Final (25%)</SelectItem>
@@ -3007,7 +3009,7 @@ export function CreateAssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="w-dvw sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-xl">
         <DialogHeader>
           <DialogTitle className="text-xl">Create Task</DialogTitle>
           <DialogDescription>

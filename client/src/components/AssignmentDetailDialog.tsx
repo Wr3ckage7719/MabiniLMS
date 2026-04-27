@@ -334,7 +334,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-dvw sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl p-3 sm:p-6">
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
