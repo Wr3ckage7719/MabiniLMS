@@ -369,7 +369,7 @@ function StudentDetailsDialog({
 
   return (
     <Dialog open={!!student} onOpenChange={onClose}>
-      <DialogContent className="rounded-xl max-w-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10">

@@ -1280,7 +1280,7 @@ export function TeacherClassStream({
               setShowThemeSettings(open);
             }}
           >
-            <DialogContent className="w-full max-w-md rounded-xl">
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md md:max-w-lg rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
               <DialogHeader>
                 <DialogTitle className="text-left">Customize appearance</DialogTitle>
               </DialogHeader>
@@ -1398,7 +1398,7 @@ export function TeacherClassStream({
               }
             }}
           >
-            <DialogContent className="w-full max-w-xl rounded-xl">
+            <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-xl md:max-w-2xl lg:max-w-3xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
               <DialogHeader>
                 <DialogTitle>Edit announcement</DialogTitle>
               </DialogHeader>
@@ -2249,7 +2249,7 @@ export function TeacherClassStream({
 
       {/* Submission Detail Dialog */}
       <Dialog open={showSubmissionDetail} onOpenChange={setShowSubmissionDetail}>
-        <DialogContent className="w-full max-w-2xl rounded-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle>Student Submission</DialogTitle>
           </DialogHeader>
@@ -2301,7 +2301,7 @@ export function TeacherClassStream({
                 <h4 className="font-semibold text-sm mb-3">Student's Submission</h4>
                 <Card className="border-0 shadow-sm bg-muted/50">
                   <CardContent className="p-4">
-                    <p className="text-sm text-foreground/80 whitespace-pre-wrap">
+                    <p className="text-sm text-foreground/80 whitespace-pre-wrap break-all">
                       {selectedSubmission.submissionContent || 'No submission content available yet from backend.'}
                     </p>
                     {selectedSubmission.submissionUrl && (

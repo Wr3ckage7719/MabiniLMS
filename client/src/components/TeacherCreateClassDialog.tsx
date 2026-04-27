@@ -215,7 +215,7 @@ export function TeacherCreateClassDialog({ open, onOpenChange, onSuccess }: Teac
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg rounded-2xl border-0 gap-0 p-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg md:max-w-xl lg:max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl border-0 gap-0 p-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
         {/* Header with gradient */}
         <div className="bg-gradient-to-r from-primary/10 to-accent/10 border-b px-6 pt-6 pb-4">
           <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent flex items-center gap-2">
