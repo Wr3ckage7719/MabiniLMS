@@ -28,7 +28,7 @@ const isValidPassword = (value: string): boolean => {
 };
 
 export default function GoogleStudentSetupPage() {
-  const { user, isLoggedIn, isLoading, logout } = useAuth();
+  const { user, isLoggedIn, isLoading } = useAuth();
   const { toast } = useToast();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -127,11 +127,6 @@ export default function GoogleStudentSetupPage() {
       setError(message);
       setIsSubmitting(false);
     }
-  };
-
-  const handleSignOut = async () => {
-    await logout();
-    window.location.replace('/login');
   };
 
   return (
@@ -264,19 +259,10 @@ export default function GoogleStudentSetupPage() {
                 </p>
               )}
 
-              <div className="grid gap-2 pt-1 sm:grid-cols-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 rounded-xl"
-                  onClick={handleSignOut}
-                  disabled={isSubmitting}
-                >
-                  Sign out
-                </Button>
+              <div className="pt-1">
                 <Button
                   type="submit"
-                  className="h-11 rounded-xl"
+                  className="h-11 w-full rounded-xl"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? 'Completing setup...' : 'Complete setup'}

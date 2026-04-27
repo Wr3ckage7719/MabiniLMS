@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Flag, Loader2, ShieldAlert } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { AlertTriangle, Clock, Flag, Loader2, ShieldAlert, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -286,6 +279,27 @@ export function ProctoredExamDialog({
 
       setSubmitting(true)
       try {
+        // Flush any unsaved text answers. The textarea normally saves
+        // onBlur, but when the user clicks Submit directly from the
+        // textarea the blur and submit can race — so push every typed
+        // text answer to the server before finalizing the attempt.
+        const pendingTextSaves = Object.entries(textAnswerMap)
+          .map(([questionId, text]) => [questionId, text.trim()] as const)
+          .filter(([, text]) => text.length > 0)
+          .map(([questionId, text]) =>
+            examsService
+              .submitExamAnswer(session.attempt.id, {
+                question_id: questionId,
+                answer_text: text,
+              })
+              .catch(() => {
+                // best-effort flush; the final submit still proceeds
+              })
+          )
+        if (pendingTextSaves.length > 0) {
+          await Promise.all(pendingTextSaves)
+        }
+
         const submitted = await examsService.submitExamAttempt(session.attempt.id)
         setResult(submitted)
         setStarted(false)
@@ -318,7 +332,7 @@ export function ProctoredExamDialog({
         timeoutSubmitInFlightRef.current = false
       }
     },
-    [queryClient, result, session, submitting, toast]
+    [queryClient, result, session, submitting, textAnswerMap, toast]
   )
 
   useEffect(() => {
@@ -473,19 +487,37 @@ export function ProctoredExamDialog({
 
   const disableInteraction = !isAttemptActive || submitting || Boolean(result)
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-dvw sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl p-3 sm:p-6">
-        <DialogHeader>
-          <DialogTitle className="text-base sm:text-lg">
-            {session?.assignment.is_proctored ? 'Proctored Exam' : 'Quiz'}: {assignmentTitle}
-          </DialogTitle>
-          <DialogDescription>
-            {session?.assignment.is_proctored
+  if (!open) return null
+
+  const isProctored = session?.assignment.is_proctored ?? false
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-background flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className={`flex-shrink-0 flex items-start justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b ${isProctored ? 'border-amber-500/30 bg-amber-950/10' : 'border-border bg-background'}`}>
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-semibold leading-tight truncate">
+            {isProctored ? 'Proctored Exam' : 'Quiz'}: {assignmentTitle}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isProctored
               ? 'This exam is proctored. Fullscreen, visibility, and restricted interaction events are monitored.'
               : 'Answer each question. Your responses are saved automatically as you go.'}
-          </DialogDescription>
-        </DialogHeader>
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="flex-shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted transition-colors"
+          aria-label="Close"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4">
 
         {loadingSession && (
           <div className="flex items-center justify-center py-8">
@@ -865,20 +897,22 @@ export function ProctoredExamDialog({
           </div>
         )}
 
-        <DialogFooter className="flex gap-2 sm:justify-between">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {result ? 'Close' : 'Exit'}
+        </div>
+      </div>
+      <div className="flex-shrink-0 border-t border-border px-4 sm:px-6 py-3 flex gap-2 justify-between bg-background">
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          {result ? 'Close' : 'Exit'}
+        </Button>
+        {!result && (
+          <Button
+            onClick={() => void submitAttempt('manual')}
+            disabled={!session || (!started && !terminated) || submitting}
+          >
+            {submitting ? 'Submitting...' : terminated ? 'Submit Terminated Attempt' : 'Submit Exam'}
           </Button>
-          {!result && (
-            <Button
-              onClick={() => void submitAttempt('manual')}
-              disabled={!session || (!started && !terminated) || submitting}
-            >
-              {submitting ? 'Submitting...' : terminated ? 'Submit Terminated Attempt' : 'Submit Exam'}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        )}
+      </div>
+    </div>,
+    document.body
   )
 }
