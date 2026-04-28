@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -27,6 +28,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [driveAccessAcknowledged, setDriveAccessAcknowledged] = useState(false);
 
   const handleStudentSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +42,11 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
 
     if (!normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
       setError(`Use your institutional email (@${STUDENT_INSTITUTIONAL_DOMAIN})`);
+      return;
+    }
+
+    if (!driveAccessAcknowledged) {
+      setError('Please acknowledge the Google Drive access notice to continue.');
       return;
     }
 
@@ -110,6 +117,7 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
     setFullName('');
     setEmail('');
     setError('');
+    setDriveAccessAcknowledged(false);
   };
 
   return (
@@ -142,12 +150,25 @@ export function SignupDialog({ open, onOpenChange, isTeacher }: SignupDialogProp
               />
             </div>
 
+            <label className="flex items-start gap-2 text-xs text-muted-foreground select-none">
+              <Checkbox
+                checked={driveAccessAcknowledged}
+                onCheckedChange={(checkedState) => setDriveAccessAcknowledged(checkedState === true)}
+                disabled={isLoading}
+                aria-label="Acknowledge Google Drive access notice"
+              />
+              <span>
+                I acknowledge that when I submit activities, my teacher will be granted access to the
+                Google Drive file I submit. This helps reduce access denied errors.
+              </span>
+            </label>
+
             {error && <div className="text-sm text-destructive text-center">{error}</div>}
 
             <Button
               type="submit"
               className="w-full h-11 rounded-xl font-medium bg-foreground text-background hover:bg-foreground/90"
-              disabled={isLoading}
+              disabled={isLoading || !driveAccessAcknowledged}
             >
               {isLoading ? 'Requesting...' : 'Send Account Setup Email'}
             </Button>
