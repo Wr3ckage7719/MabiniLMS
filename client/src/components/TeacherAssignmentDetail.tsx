@@ -173,6 +173,25 @@ const formatOptionalTimestamp = (value?: string | null): string | null => {
   return timestamp.toLocaleString();
 };
 
+const resolveDrivePreviewUrl = (
+  fileId?: string | null,
+  fallbackUrl?: string | null
+): string | null => {
+  if (fileId) {
+    return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`;
+  }
+
+  if (!fallbackUrl) {
+    return null;
+  }
+
+  if (fallbackUrl.includes('/view')) {
+    return fallbackUrl.replace('/view', '/preview');
+  }
+
+  return fallbackUrl;
+};
+
 export function TeacherAssignmentDetail({
   classId,
   assignment,
@@ -390,8 +409,10 @@ export function TeacherAssignmentDetail({
 
   if (!assignment) return null;
 
-  const isExamAssignment = assignment.rawType === 'exam';
-  const isQuizAssignment = assignment.rawType === 'quiz';
+  const assignmentType = (assignment.rawType || '').toLowerCase();
+  const isExamAssignment = assignmentType === 'exam';
+  const isQuizAssignment = assignmentType === 'quiz';
+  const isActivityAssignment = assignmentType === 'activity';
   const isAutoGraded = isExamAssignment || isQuizAssignment;
   const taskMeta = getTaskTypeMeta(assignment.rawType || assignment.type);
 
@@ -923,6 +944,51 @@ export function TeacherAssignmentDetail({
                                     .join(' • ')}
                                 </p>
                               )}
+                            </div>
+                          )}
+                          {isActivityAssignment && (selectedSubmission.providerFileId || selectedSubmission.submissionUrl) && (
+                            <div className="rounded-lg border border-border bg-background p-3 space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Drive Preview
+                                </p>
+                                {selectedSubmission.submissionUrl && (
+                                  <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" asChild>
+                                    <a
+                                      href={selectedSubmission.submissionUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Open in Drive
+                                    </a>
+                                  </Button>
+                                )}
+                              </div>
+                              {(() => {
+                                const previewUrl = resolveDrivePreviewUrl(
+                                  selectedSubmission.providerFileId,
+                                  selectedSubmission.submissionUrl
+                                );
+
+                                if (!previewUrl) {
+                                  return (
+                                    <p className="text-xs text-muted-foreground">
+                                      Preview is not available for this submission.
+                                    </p>
+                                  );
+                                }
+
+                                return (
+                                  <div className="w-full overflow-hidden rounded-lg border border-border/70 bg-muted/30">
+                                    <iframe
+                                      title="Drive submission preview"
+                                      src={previewUrl}
+                                      className="h-64 w-full"
+                                      allow="autoplay"
+                                    />
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

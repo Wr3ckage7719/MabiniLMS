@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Assignment } from '@/lib/data';
-import { useRole } from '@/contexts/RoleContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -12,6 +10,7 @@ import { Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { assignmentsService } from '@/services/assignments.service';
+import { authService } from '@/services/auth.service';
 import { useToast } from '@/hooks/use-toast';
 import {
   formatProviderFileSize,
@@ -62,6 +61,13 @@ interface ApiSubmission {
   status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
 }
 
+interface DrivePickerSelection {
+  id: string;
+  name: string;
+  url?: string | null;
+  mimeType?: string | null;
+}
+
 interface ApiAssignmentComment {
   id: string;
   content: string;
@@ -92,12 +98,74 @@ interface AssignmentDetailDialogProps {
   onStartExam?: (assignment: Assignment) => void;
 }
 
+const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
+let googleApiScriptPromise: Promise<void> | null = null;
+
+const loadGoogleApiScript = async (): Promise<void> => {
+  if (typeof window === 'undefined') {
+    throw new Error('Google API is unavailable in this environment.');
+  }
+
+  if (googleApiScriptPromise) {
+    return googleApiScriptPromise;
+  }
+
+  if ((window as any).gapi?.load && (window as any).google?.picker) {
+    googleApiScriptPromise = Promise.resolve();
+    return googleApiScriptPromise;
+  }
+
+  googleApiScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/api.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Google API script.'));
+    document.body.appendChild(script);
+  });
+
+  return googleApiScriptPromise;
+};
+
+const loadGooglePickerApi = async (): Promise<void> => {
+  await loadGoogleApiScript();
+
+  const gapi = (window as any).gapi;
+  if (!gapi?.load) {
+    throw new Error('Google API client is unavailable.');
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+
+    const fail = () => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Failed to initialize Google Picker.'));
+      }
+    };
+
+    gapi.load('picker', { callback: finish, onerror: fail });
+    window.setTimeout(fail, 10_000);
+  });
+
+  if (!(window as any).google?.picker) {
+    throw new Error('Google Picker API is unavailable.');
+  }
+};
+
 export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacherName, classId, onStartExam }: AssignmentDetailDialogProps) {
-  const { currentUserAvatar } = useRole();
   const { toast } = useToast();
   const [submissionText, setSubmissionText] = useState('');
-  const [driveReference, setDriveReference] = useState('');
-  const [driveFileName, setDriveFileName] = useState('');
+  const [selectedDriveFile, setSelectedDriveFile] = useState<DrivePickerSelection | null>(null);
+  const [openingPicker, setOpeningPicker] = useState(false);
   const [submission, setSubmission] = useState<ApiSubmission | null>(null);
   const [loadingSubmission, setLoadingSubmission] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -106,8 +174,10 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [postingComment, setPostingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
 
-  const isExamAssignment = assignment?.rawType === 'exam' || assignment?.rawType === 'quiz';
-  const isQuizAssignment = assignment?.rawType === 'quiz';
+  const assignmentRawType = (assignment?.rawType || '').toLowerCase();
+  const isExamAssignment = assignmentRawType === 'exam' || assignmentRawType === 'quiz';
+  const isQuizAssignment = assignmentRawType === 'quiz';
+  const isActivityAssignment = assignmentRawType === 'activity';
   const submissionsClosed = assignment?.submissionsOpen === false;
   const taskMeta = getTaskTypeMeta(assignment?.rawType || assignment?.type);
   const Icon = taskMeta.icon;
@@ -133,30 +203,6 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
       timestamp: new Date(comment.created_at).toLocaleString(),
     };
   }, []);
-
-  const extractDriveFileId = (value: string): string | null => {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-
-    if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmed)) {
-      return trimmed;
-    }
-
-    const patterns = [
-      /\/d\/([a-zA-Z0-9_-]{10,})/,
-      /[?&]id=([a-zA-Z0-9_-]{10,})/,
-      /\/file\/d\/([a-zA-Z0-9_-]{10,})/,
-    ];
-
-    for (const pattern of patterns) {
-      const match = trimmed.match(pattern);
-      if (match?.[1]) {
-        return match[1];
-      }
-    }
-
-    return null;
-  };
 
   const loadSubmission = useCallback(async () => {
     if (!assignment?.id) return;
@@ -207,8 +253,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     if (!assignment?.id) return;
 
     setSubmissionText('');
-    setDriveReference('');
-    setDriveFileName('');
+    setSelectedDriveFile(null);
     setNewComment('');
     void loadSubmission();
     void loadComments();
@@ -241,11 +286,11 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const handleSubmit = async () => {
     if (!assignment?.id) return;
 
-    const driveFileId = extractDriveFileId(driveReference);
+    const driveFileId = selectedDriveFile?.id;
     if (!driveFileId) {
       toast({
         title: 'Drive file is required',
-        description: 'Paste a valid Google Drive file ID or share link before submitting.',
+        description: 'Select a Google Drive file before submitting.',
         variant: 'destructive',
       });
       return;
@@ -253,10 +298,11 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
     setSubmitting(true);
     try {
+      const providerFileName = selectedDriveFile?.name?.trim() || 'Drive Submission';
       const result = await assignmentsService.submitAssignment(classId, assignment.id, {
         provider: 'google_drive',
         provider_file_id: driveFileId,
-        provider_file_name: driveFileName.trim() || 'Drive Submission',
+        provider_file_name: providerFileName,
         content: submissionText.trim() || undefined,
       });
 
@@ -288,6 +334,75 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
       });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openDrivePicker = async () => {
+    if (submissionsClosed || openingPicker) {
+      return;
+    }
+
+    if (!GOOGLE_API_KEY) {
+      toast({
+        title: 'Google Drive not configured',
+        description: 'Set VITE_GOOGLE_API_KEY to enable Drive file selection.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setOpeningPicker(true);
+    try {
+      const tokenResponse = await authService.refreshGoogleDriveToken();
+      const accessToken = tokenResponse?.data?.access_token;
+
+      if (!accessToken) {
+        throw new Error('Missing Google access token. Please sign in again.');
+      }
+
+      await loadGooglePickerApi();
+
+      const google = (window as any).google;
+      const docsView = new google.picker.DocsView()
+        .setIncludeFolders(false)
+        .setSelectFolderEnabled(false);
+
+      const picker = new google.picker.PickerBuilder()
+        .addView(docsView)
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(GOOGLE_API_KEY)
+        .setOrigin(window.location.origin)
+        .setCallback((data: any) => {
+          if (data?.action !== google.picker.Action.PICKED || !data.docs?.length) {
+            return;
+          }
+
+          const doc = data.docs[0] || {};
+          const name = doc.name || doc.title || 'Drive File';
+
+          setSelectedDriveFile({
+            id: doc.id,
+            name,
+            url: doc.url || doc.webViewLink || null,
+            mimeType: doc.mimeType || null,
+          });
+        })
+        .build();
+
+      picker.setVisible(true);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to open the Google Drive picker.';
+
+      toast({
+        title: 'Drive picker unavailable',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setOpeningPicker(false);
     }
   };
 
@@ -458,42 +573,108 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                       </p>
                     </div>
                   )}
-                  <Input
-                    value={driveReference}
-                    onChange={(e) => setDriveReference(e.target.value)}
-                    placeholder="Paste Google Drive file ID or link"
-                    className="rounded-xl border-0 bg-secondary/50 text-sm"
-                    disabled={submissionsClosed || submitting}
-                  />
-                  <Input
-                    value={driveFileName}
-                    onChange={(e) => setDriveFileName(e.target.value)}
-                    placeholder="Optional file name"
-                    className="rounded-xl border-0 bg-secondary/50 text-sm"
-                    disabled={submissionsClosed || submitting}
-                  />
-                  <Textarea
-                    value={submissionText}
-                    onChange={(e) => setSubmissionText(e.target.value)}
-                    placeholder="Optional notes or submission details..."
-                    className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
-                    disabled={submissionsClosed || submitting}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Submissions require a Google Drive file so teachers can review and grade directly.
-                  </p>
-                  <div className="flex justify-end mt-3">
-                    <Button
-                      size="sm"
-                      className="rounded-xl text-xs sm:text-sm"
-                      disabled={submissionsClosed || !driveReference.trim() || submitting}
-                      onClick={() => {
-                        void handleSubmit();
-                      }}
-                    >
-                      <Send className="h-4 w-4 mr-1" /> {submissionsClosed ? 'Closed' : 'Submit'}
-                    </Button>
-                  </div>
+
+                  {isActivityAssignment ? (
+                    <>
+                      <div className="rounded-xl border border-border/70 bg-secondary/40 p-3 sm:p-4 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div>
+                            <p className="text-xs sm:text-sm font-medium">Google Drive file</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Choose the file you want to submit. We will share read access with your teacher.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl text-xs sm:text-sm"
+                            disabled={submissionsClosed || openingPicker}
+                            onClick={() => {
+                              void openDrivePicker();
+                            }}
+                          >
+                            {openingPicker
+                              ? 'Opening...'
+                              : selectedDriveFile
+                                ? 'Change file'
+                                : 'Select from Drive'}
+                          </Button>
+                        </div>
+
+                        {selectedDriveFile ? (
+                          <div className="rounded-lg border border-border/60 bg-background/60 p-3 space-y-1">
+                            <p className="text-xs sm:text-sm font-medium break-words">
+                              {selectedDriveFile.name}
+                            </p>
+                            {selectedDriveFile.url ? (
+                              <a
+                                href={selectedDriveFile.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-primary underline break-all"
+                              >
+                                Open in Drive
+                              </a>
+                            ) : null}
+                            <p className="text-[11px] text-muted-foreground break-all">
+                              File ID: {selectedDriveFile.id}
+                            </p>
+                            {selectedDriveFile.mimeType ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                {selectedDriveFile.mimeType}
+                              </p>
+                            ) : null}
+                            <div className="pt-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setSelectedDriveFile(null)}
+                                disabled={submissionsClosed || submitting}
+                              >
+                                Clear selection
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">
+                            No file selected yet.
+                          </p>
+                        )}
+                      </div>
+
+                      <Textarea
+                        value={submissionText}
+                        onChange={(e) => setSubmissionText(e.target.value)}
+                        placeholder="Optional notes or submission details..."
+                        className="rounded-xl border-0 bg-secondary/50 resize-none min-h-[100px] text-sm"
+                        disabled={submissionsClosed || submitting}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Submissions require a Google Drive file so teachers can review and grade directly.
+                      </p>
+                      <div className="flex justify-end mt-3">
+                        <Button
+                          size="sm"
+                          className="rounded-xl text-xs sm:text-sm"
+                          disabled={submissionsClosed || !selectedDriveFile || submitting}
+                          onClick={() => {
+                            void handleSubmit();
+                          }}
+                        >
+                          <Send className="h-4 w-4 mr-1" /> {submissionsClosed ? 'Closed' : 'Submit'}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-xl border border-border/70 bg-secondary/40 p-3 sm:p-4">
+                      <p className="text-xs sm:text-sm text-muted-foreground">
+                        Drive submissions are only available for activity assignments.
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
             </div>

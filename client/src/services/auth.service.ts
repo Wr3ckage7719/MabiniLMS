@@ -41,6 +41,11 @@ export interface AuthResponse {
   error?: string;
 }
 
+export interface GoogleDriveTokenPayload {
+  access_token: string;
+  expires_at: string;
+}
+
 export interface CurrentUserPayload {
   id: string;
   email: string;
@@ -142,6 +147,14 @@ export const authService = {
       last_name: lastName,
       password,
     });
+  },
+
+  async refreshGoogleDriveToken(): Promise<{
+    success: boolean;
+    data?: GoogleDriveTokenPayload;
+    error?: string;
+  }> {
+    return apiClient.post('/auth/google/refresh');
   },
 
   async logout(): Promise<void> {
