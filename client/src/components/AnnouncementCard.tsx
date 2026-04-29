@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
 import { Announcement } from '@/lib/data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Heart, MessageSquare, Share2 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useAnnouncementInteractions } from '@/hooks/useAnnouncementInteractions';
 
 interface AnnouncementCardProps {
   announcement: Announcement;
@@ -12,100 +11,9 @@ interface AnnouncementCardProps {
   onOpenComments?: () => void;
 }
 
-const ANNOUNCEMENT_LIKES_STORAGE_KEY = 'mabini:announcement-likes';
-
-const readStoredAnnouncementLikes = (): Record<string, boolean> => {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-
-  try {
-    const rawValue = localStorage.getItem(ANNOUNCEMENT_LIKES_STORAGE_KEY);
-    if (!rawValue) {
-      return {};
-    }
-
-    const parsed = JSON.parse(rawValue);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-
-    return Object.entries(parsed).reduce<Record<string, boolean>>((accumulator, [key, value]) => {
-      accumulator[key] = value === true;
-      return accumulator;
-    }, {});
-  } catch {
-    return {};
-  }
-};
-
-const writeStoredAnnouncementLikes = (likesByAnnouncement: Record<string, boolean>): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  localStorage.setItem(ANNOUNCEMENT_LIKES_STORAGE_KEY, JSON.stringify(likesByAnnouncement));
-};
-
 export function AnnouncementCard({ announcement, commentsCount, onOpenComments }: AnnouncementCardProps) {
-  const { toast } = useToast();
   const totalComments = typeof commentsCount === 'number' ? commentsCount : announcement.comments;
-  const [liked, setLiked] = useState(false);
-
-  useEffect(() => {
-    const likesByAnnouncement = readStoredAnnouncementLikes();
-    setLiked(likesByAnnouncement[announcement.id] === true);
-  }, [announcement.id]);
-
-  const handleToggleLike = () => {
-    setLiked((currentValue) => {
-      const nextValue = !currentValue;
-      const likesByAnnouncement = readStoredAnnouncementLikes();
-      likesByAnnouncement[announcement.id] = nextValue;
-      writeStoredAnnouncementLikes(likesByAnnouncement);
-      return nextValue;
-    });
-  };
-
-  const handleShare = async () => {
-    const title = announcement.title?.trim() || 'Announcement';
-    const shareText = `${title}\n\n${announcement.content}`.trim();
-    const shareUrl =
-      typeof window !== 'undefined'
-        ? `${window.location.origin}/class/${announcement.classId}#announcement-${announcement.id}`
-        : '';
-
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({
-          title,
-          text: shareText,
-          url: shareUrl || undefined,
-        });
-        return;
-      }
-
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl || shareText);
-        toast({
-          title: 'Link copied',
-          description: 'Announcement link copied to clipboard.',
-        });
-        return;
-      }
-
-      toast({
-        title: 'Share unavailable',
-        description: 'Your browser does not support sharing for this content.',
-      });
-    } catch {
-      toast({
-        title: 'Share failed',
-        description: 'Unable to share this announcement right now.',
-        variant: 'destructive',
-      });
-    }
-  };
+  const { liked, toggleLike, share } = useAnnouncementInteractions(announcement.id);
 
   return (
     <Card
@@ -139,10 +47,11 @@ export function AnnouncementCard({ announcement, commentsCount, onOpenComments }
                   variant="ghost"
                   size="sm"
                   className="h-8 rounded-md px-2 text-xs hover:text-foreground"
-                  onClick={handleToggleLike}
+                  onClick={toggleLike}
+                  aria-pressed={liked}
                 >
                   <Heart className={`mr-1.5 h-4 w-4 ${liked ? 'fill-destructive text-destructive' : ''}`} />
-                  Like
+                  {liked ? 'Liked' : 'Like'}
                 </Button>
 
                 <Button
@@ -163,7 +72,7 @@ export function AnnouncementCard({ announcement, commentsCount, onOpenComments }
                   size="sm"
                   className="h-8 rounded-md px-2 text-xs hover:text-foreground"
                   onClick={() => {
-                    void handleShare();
+                    void share(announcement);
                   }}
                 >
                   <Share2 className="mr-1.5 h-4 w-4" />

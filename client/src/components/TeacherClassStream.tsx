@@ -11,8 +11,6 @@ import {
   Send,
   MoreVertical,
   Heart,
-  MessageCircle,
-  Repeat2,
   Clock,
   BookOpen,
   Upload,
@@ -46,6 +44,7 @@ import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssign
 import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
+import { AnnouncementActions } from '@/components/AnnouncementActions';
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
@@ -1606,38 +1605,10 @@ export function TeacherClassStream({
                             )}
 
                             {/* Actions */}
-                            <div className="flex gap-4 pt-2 border-t border-muted opacity-70 group-hover:opacity-100 transition-opacity">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-all"
-                                disabled
-                                title="Reactions are not available yet"
-                              >
-                                <Heart className="h-4 w-4 mr-1.5" />
-                                <span className="text-xs">Like</span>
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 rounded-lg text-muted-foreground hover:text-blue-500 hover:bg-blue-50 transition-all"
-                                onClick={() => setSelectedAnnouncementForComments(announcement)}
-                                title="View announcement comments"
-                              >
-                                <MessageCircle className="h-4 w-4 mr-1.5" />
-                                <span className="text-xs">{announcement.comments}</span>
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 rounded-lg text-muted-foreground hover:text-green-500 hover:bg-green-50 transition-all"
-                                disabled
-                                title="Sharing is not available yet"
-                              >
-                                <Repeat2 className="h-4 w-4 mr-1.5" />
-                                <span className="text-xs">Share</span>
-                              </Button>
-                            </div>
+                            <AnnouncementActions
+                              announcement={announcement}
+                              onOpenComments={() => setSelectedAnnouncementForComments(announcement)}
+                            />
                           </div>
                         </CardContent>
                       </Card>

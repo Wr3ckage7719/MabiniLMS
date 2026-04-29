@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment, type LearningMaterial } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClass } from '@/hooks-api/useClasses';
 import { useAssignments } from '@/hooks-api/useAssignments';
@@ -78,7 +79,8 @@ export default function ClassDetail() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
-  const { currentUserAvatar } = useRole();
+  const { currentUserAvatar, currentUserName, currentUserAvatarUrl } = useRole();
+  const { user } = useAuth();
   const { toast } = useToast();
   const { handleArchive: contextArchive, handleUnenroll: contextUnenroll } = useClassActions();
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
@@ -204,10 +206,11 @@ export default function ClassDetail() {
   })();
 
   const currentStudentGrade = {
-    id: 'current-user',
-    name: 'Student',
-    email: 'student@example.com',
+    id: user?.id || 'current-user',
+    name: currentUserName,
+    email: user?.email || '',
     avatar: currentUserAvatar,
+    avatarUrl: currentUserAvatarUrl,
     grade: gradeDisplay,
     percentage: mabiniSummary?.overall_weighted_grade ?? finalGradePercentage,
     remarks: overallRemarks,
@@ -741,11 +744,16 @@ export default function ClassDetail() {
                 <CardContent className="p-3 md:p-6">
                   <div className="flex items-start gap-3 md:gap-4">
                     <Avatar className="h-12 w-12 md:h-14 md:w-14 flex-shrink-0">
+                      {currentStudentGrade.avatarUrl ? (
+                        <AvatarImage src={currentStudentGrade.avatarUrl} alt={`${currentStudentGrade.name} avatar`} />
+                      ) : null}
                       <AvatarFallback className="bg-primary text-primary-foreground text-base md:text-lg">{currentStudentGrade.avatar}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm md:text-base">{currentStudentGrade.name}</p>
-                      <p className="text-xs md:text-sm text-muted-foreground truncate">{currentStudentGrade.email}</p>
+                      <p className="font-semibold text-sm md:text-base truncate">{currentStudentGrade.name}</p>
+                      {currentStudentGrade.email && (
+                        <p className="text-xs md:text-sm text-muted-foreground truncate">{currentStudentGrade.email}</p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
