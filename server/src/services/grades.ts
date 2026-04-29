@@ -23,6 +23,10 @@ import {
   calculateWeightedFinalGrade,
   normalizeAssignmentCategory,
   roundToTwoDecimals,
+  MabiniGradingPeriod,
+  MABINI_PERIOD_CONTRIBUTION,
+  calculateMabiniPeriodGrade,
+  convertToMabiniGradePoint,
 } from '../types/grades.js'
 import { SubmissionStatus } from '../types/assignments.js'
 import * as auditService from './audit.js'
@@ -994,9 +998,23 @@ export const getWeightedCourseGrade = async (
   const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn()
   const assignmentTypeField = hasAssignmentTypeColumn ? ', assignment_type' : ''
 
+  // Probe whether grading_period exists on the assignments table; we want
+  // to fall back gracefully on older deployments before the Mabini migration.
+  let hasPeriodColumn = false
+  try {
+    const { error: probeErr } = await supabaseAdmin
+      .from('assignments')
+      .select('id, grading_period')
+      .limit(1)
+    if (!probeErr) hasPeriodColumn = true
+  } catch {
+    hasPeriodColumn = false
+  }
+  const periodField = hasPeriodColumn ? ', grading_period' : ''
+
   const { data: assignments, error: assignmentsError } = await supabaseAdmin
     .from('assignments')
-    .select(`id${assignmentTypeField}`)
+    .select(`id${assignmentTypeField}${periodField}`)
     .eq('course_id', courseId)
 
   if (assignmentsError) {
@@ -1017,11 +1035,16 @@ export const getWeightedCourseGrade = async (
     project: 0,
   }
 
+  let courseHasAnyPeriodPin = false
+
   for (const assignment of assignments || []) {
     const category = normalizeAssignmentCategory(
       normalizeAssignmentType((assignment as any).assignment_type)
     )
     assignmentTotals[category] += 1
+    if (hasPeriodColumn && (assignment as any).grading_period) {
+      courseHasAnyPeriodPin = true
+    }
   }
 
   const { data: grades, error: gradesError } = await supabaseAdmin
@@ -1033,7 +1056,7 @@ export const getWeightedCourseGrade = async (
         assignment:assignments!inner(
           id,
           max_points,
-          course_id${assignmentTypeField}
+          course_id${assignmentTypeField}${periodField}
         )
       )
     `)
@@ -1058,6 +1081,22 @@ export const getWeightedCourseGrade = async (
     project: { graded_count: 0, points_earned: 0, points_possible: 0 },
   }
 
+  type PeriodAgg = Record<GradeCategory, { earned: number; possible: number }>
+  const emptyPeriodAgg = (): PeriodAgg => ({
+    exam: { earned: 0, possible: 0 },
+    quiz: { earned: 0, possible: 0 },
+    activity: { earned: 0, possible: 0 },
+    recitation: { earned: 0, possible: 0 },
+    attendance: { earned: 0, possible: 0 },
+    project: { earned: 0, possible: 0 },
+  })
+  const periodAggregates: Record<MabiniGradingPeriod, PeriodAgg> = {
+    pre_mid: emptyPeriodAgg(),
+    midterm: emptyPeriodAgg(),
+    pre_final: emptyPeriodAgg(),
+    final: emptyPeriodAgg(),
+  }
+
   for (const row of grades || []) {
     const submission = Array.isArray((row as any).submission)
       ? (row as any).submission[0]
@@ -1079,6 +1118,15 @@ export const getWeightedCourseGrade = async (
     aggregates[category].graded_count += 1
     aggregates[category].points_earned += pointsEarned
     aggregates[category].points_possible += maxPoints
+
+    if (hasPeriodColumn) {
+      const period = (assignment as any).grading_period as MabiniGradingPeriod | null
+      if (period && (period === 'pre_mid' || period === 'midterm' || period === 'pre_final' || period === 'final')) {
+        const bucket = periodAggregates[period][category]
+        bucket.earned += pointsEarned
+        bucket.possible += maxPoints
+      }
+    }
   }
 
   const categories = {} as WeightedCourseGradeBreakdown['categories']
@@ -1106,7 +1154,7 @@ export const getWeightedCourseGrade = async (
 
   const finalPercentage = calculateWeightedFinalGrade(categoryPercentages)
 
-  return {
+  const result: WeightedCourseGradeBreakdown = {
     course_id: courseId,
     student_id: targetStudentId,
     policy: 'missing_categories_count_as_zero',
@@ -1115,4 +1163,51 @@ export const getWeightedCourseGrade = async (
     weights: COURSE_GRADE_WEIGHTS,
     categories,
   }
+
+  if (courseHasAnyPeriodPin) {
+    const periodGrades: Record<MabiniGradingPeriod, number | null> = {
+      pre_mid: null, midterm: null, pre_final: null, final: null,
+    }
+    for (const period of ['pre_mid', 'midterm', 'pre_final', 'final'] as MabiniGradingPeriod[]) {
+      const agg = periodAggregates[period]
+      periodGrades[period] = calculateMabiniPeriodGrade({
+        examPoints: agg.exam.possible > 0 ? agg.exam : null,
+        quizPoints: agg.quiz.possible > 0 ? agg.quiz : null,
+        recitationPoints: agg.recitation.possible > 0 ? agg.recitation : null,
+        attendancePoints: agg.attendance.possible > 0 ? agg.attendance : null,
+        projectPoints: agg.project.possible > 0 ? agg.project : null,
+        activityPoints: agg.activity.possible > 0 ? agg.activity : null,
+      })
+    }
+
+    const periodGradePoints: Record<MabiniGradingPeriod, number | null> = {
+      pre_mid: periodGrades.pre_mid !== null ? convertToMabiniGradePoint(periodGrades.pre_mid) : null,
+      midterm: periodGrades.midterm !== null ? convertToMabiniGradePoint(periodGrades.midterm) : null,
+      pre_final: periodGrades.pre_final !== null ? convertToMabiniGradePoint(periodGrades.pre_final) : null,
+      final: periodGrades.final !== null ? convertToMabiniGradePoint(periodGrades.final) : null,
+    }
+
+    const allComplete = (['pre_mid', 'midterm', 'pre_final', 'final'] as MabiniGradingPeriod[])
+      .every((p) => periodGrades[p] !== null)
+
+    const overall = allComplete
+      ? roundToTwoDecimals(
+          (['pre_mid', 'midterm', 'pre_final', 'final'] as MabiniGradingPeriod[])
+            .reduce((sum, p) => sum + (periodGrades[p] as number), 0) * MABINI_PERIOD_CONTRIBUTION
+        )
+      : null
+
+    const overallGP = overall !== null ? convertToMabiniGradePoint(overall) : null
+
+    result.mabini = {
+      period_weight: MABINI_PERIOD_CONTRIBUTION,
+      period_grades: periodGrades,
+      period_grade_points: periodGradePoints,
+      overall_weighted_grade: overall,
+      overall_grade_point: overallGP,
+      remarks: overallGP === null ? 'INC' : (overallGP <= 3.0 ? 'Passed' : 'Failed'),
+    }
+  }
+
+  return result
 }

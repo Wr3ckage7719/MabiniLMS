@@ -13,7 +13,9 @@ import {
   roundToTwoDecimals,
   MabiniGradingPeriod,
   calculateMabiniPeriodGrade,
+  calculateMabiniRating,
   convertToMabiniGradePoint,
+  MABINI_PERIOD_WEIGHTS,
 } from '../types/grades.js'
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js'
@@ -706,6 +708,14 @@ export interface RegistrarExportRow {
   remarks: string
 }
 
+export interface RegistrarExportOptions {
+  /**
+   * When true, the CSV expands each period into raw/rating/weighted columns
+   * per component, mirroring the per-period sheets in TTH 1-2_30PM.xlsx.
+   */
+  detailed?: boolean
+}
+
 type PeriodComponentAgg = {
   exam: { earned: number; possible: number }
   quiz: { earned: number; possible: number }
@@ -741,7 +751,8 @@ export const exportRegistrarGrades = async (
   courseId: string,
   userId: string,
   userRole: UserRole,
-  scopeStudentId?: string
+  scopeStudentId?: string,
+  options: RegistrarExportOptions = {}
 ): Promise<string> => {
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
@@ -840,6 +851,7 @@ export const exportRegistrarGrades = async (
 
   // studentPeriodAgg[studentId][period][componentType]
   const studentPeriodAgg = new Map<string, Record<MabiniGradingPeriod, PeriodComponentAgg>>()
+  let unpinnedAssignmentCount = 0
 
   for (const row of allGrades || []) {
     const submission = Array.isArray((row as any).submission)
@@ -871,21 +883,99 @@ export const exportRegistrarGrades = async (
     const possible = Number(assignment.max_points || 0)
 
     if (period && ALL_PERIODS.includes(period)) {
-      // Pinned to a specific period
       const agg = studentPeriodAgg.get(studentId)![period]
       agg[category].earned += earned
       agg[category].possible += possible
     } else {
-      // No period set — distribute to all periods (legacy / unpinned assignments)
-      for (const p of ALL_PERIODS) {
-        const agg = studentPeriodAgg.get(studentId)![p]
-        agg[category].earned += earned
-        agg[category].possible += possible
-      }
+      // Per Mabini Colleges format (TTH 1-2_30PM.xlsx), every graded item must belong to a
+      // specific grading period. Unpinned assignments are excluded from the registrar
+      // export rather than being counted in every period (which inflates each period grade).
+      unpinnedAssignmentCount += 1
     }
   }
 
-  const rows: RegistrarExportRow[] = []
+  if (unpinnedAssignmentCount > 0) {
+    logger.warn('Registrar export: unpinned assignments excluded from period totals', {
+      courseId,
+      unpinnedAssignmentCount,
+    })
+  }
+
+  type PeriodComponentBreakdown = {
+    examRaw: number | null
+    examMax: number | null
+    examRating: number | null
+    examWeighted: number | null
+    quizRaw: number | null
+    quizMax: number | null
+    quizRating: number | null
+    quizWeighted: number | null
+    recitationRaw: number | null
+    recitationMax: number | null
+    recitationWeighted: number | null
+    attendanceRaw: number | null
+    attendanceMax: number | null
+    attendanceWeighted: number | null
+    projectRaw: number | null
+    projectMax: number | null
+    projectWeighted: number | null
+  }
+
+  type StudentRow = {
+    base: RegistrarExportRow
+    periodGrades: Record<MabiniGradingPeriod, number | null>
+    periodBreakdowns: Record<MabiniGradingPeriod, PeriodComponentBreakdown>
+  }
+
+  const rows: StudentRow[] = []
+
+  const emptyBreakdown = (): PeriodComponentBreakdown => ({
+    examRaw: null, examMax: null, examRating: null, examWeighted: null,
+    quizRaw: null, quizMax: null, quizRating: null, quizWeighted: null,
+    recitationRaw: null, recitationMax: null, recitationWeighted: null,
+    attendanceRaw: null, attendanceMax: null, attendanceWeighted: null,
+    projectRaw: null, projectMax: null, projectWeighted: null,
+  })
+
+  const buildBreakdown = (agg: PeriodComponentAgg): PeriodComponentBreakdown => {
+    const breakdown = emptyBreakdown()
+
+    if (agg.exam.possible > 0) {
+      breakdown.examRaw = roundToTwoDecimals(agg.exam.earned)
+      breakdown.examMax = roundToTwoDecimals(agg.exam.possible)
+      breakdown.examRating = calculateMabiniRating(agg.exam.earned, agg.exam.possible)
+      breakdown.examWeighted = roundToTwoDecimals(breakdown.examRating * MABINI_PERIOD_WEIGHTS.exam)
+    }
+    if (agg.quiz.possible > 0) {
+      breakdown.quizRaw = roundToTwoDecimals(agg.quiz.earned)
+      breakdown.quizMax = roundToTwoDecimals(agg.quiz.possible)
+      breakdown.quizRating = calculateMabiniRating(agg.quiz.earned, agg.quiz.possible)
+      breakdown.quizWeighted = roundToTwoDecimals(breakdown.quizRating * MABINI_PERIOD_WEIGHTS.quiz)
+    }
+    // Recitation: explicit recitation entries OR (legacy) activity entries when no project conflict.
+    const recitationSource = agg.recitation.possible > 0
+      ? agg.recitation
+      : (agg.activity.possible > 0 ? agg.activity : null)
+    if (recitationSource) {
+      breakdown.recitationRaw = roundToTwoDecimals(recitationSource.earned)
+      breakdown.recitationMax = roundToTwoDecimals(recitationSource.possible)
+      const pct = (recitationSource.earned / recitationSource.possible) * 100
+      breakdown.recitationWeighted = roundToTwoDecimals(pct * MABINI_PERIOD_WEIGHTS.recitation)
+    }
+    if (agg.attendance.possible > 0) {
+      breakdown.attendanceRaw = roundToTwoDecimals(agg.attendance.earned)
+      breakdown.attendanceMax = roundToTwoDecimals(agg.attendance.possible)
+      const pct = (agg.attendance.earned / agg.attendance.possible) * 100
+      breakdown.attendanceWeighted = roundToTwoDecimals(pct * MABINI_PERIOD_WEIGHTS.attendance)
+    }
+    if (agg.project.possible > 0) {
+      breakdown.projectRaw = roundToTwoDecimals(agg.project.earned)
+      breakdown.projectMax = roundToTwoDecimals(agg.project.possible)
+      const pct = (agg.project.earned / agg.project.possible) * 100
+      breakdown.projectWeighted = roundToTwoDecimals(pct * MABINI_PERIOD_WEIGHTS.project)
+    }
+    return breakdown
+  }
 
   for (const enrollment of enrollments || []) {
     const profile = Array.isArray((enrollment as any).profile)
@@ -895,7 +985,15 @@ export const exportRegistrarGrades = async (
     const studentId = enrollment.student_id as string
     const periodAgg = studentPeriodAgg.get(studentId)
 
-    const periodGrades: Partial<Record<MabiniGradingPeriod, number | null>> = {}
+    const periodGrades: Record<MabiniGradingPeriod, number | null> = {
+      pre_mid: null, midterm: null, pre_final: null, final: null,
+    }
+    const periodBreakdowns: Record<MabiniGradingPeriod, PeriodComponentBreakdown> = {
+      pre_mid: emptyBreakdown(),
+      midterm: emptyBreakdown(),
+      pre_final: emptyBreakdown(),
+      final: emptyBreakdown(),
+    }
 
     for (const period of ALL_PERIODS) {
       const agg = periodAgg?.[period]
@@ -911,12 +1009,16 @@ export const exportRegistrarGrades = async (
         projectPoints: agg.project.possible > 0 ? agg.project : null,
         activityPoints: agg.activity.possible > 0 ? agg.activity : null,
       })
+      periodBreakdowns[period] = buildBreakdown(agg)
     }
 
-    const completedPeriods = ALL_PERIODS.filter(p => periodGrades[p] !== null)
-    const overallGrade = completedPeriods.length > 0
+    // Per the registrar reference workbook, the final overall grade is only valid
+    // when ALL FOUR periods have grades. Partial overall is reported as INC so
+    // students aren't shown an artificially-inflated standing.
+    const allPeriodsComplete = ALL_PERIODS.every((p) => periodGrades[p] !== null)
+    const overallGrade = allPeriodsComplete
       ? roundToTwoDecimals(
-          completedPeriods.reduce((sum, p) => sum + (periodGrades[p] as number), 0) / completedPeriods.length
+          ALL_PERIODS.reduce((sum, p) => sum + (periodGrades[p] as number), 0) / ALL_PERIODS.length
         )
       : null
 
@@ -924,27 +1026,85 @@ export const exportRegistrarGrades = async (
     const fmtGP = (g: number | null) => g !== null ? convertToMabiniGradePoint(g).toFixed(2) : 'INC'
 
     rows.push({
-      lrn: '',
-      last_name: profile?.last_name || '',
-      first_name: profile?.first_name || '',
-      middle_initial: '',
-      pre_mid_grade: fmt(periodGrades.pre_mid ?? null),
-      pre_mid_gp: fmtGP(periodGrades.pre_mid ?? null),
-      midterm_grade: fmt(periodGrades.midterm ?? null),
-      midterm_gp: fmtGP(periodGrades.midterm ?? null),
-      pre_final_grade: fmt(periodGrades.pre_final ?? null),
-      pre_final_gp: fmtGP(periodGrades.pre_final ?? null),
-      final_grade: fmt(periodGrades.final ?? null),
-      final_gp: fmtGP(periodGrades.final ?? null),
-      overall_grade: fmt(overallGrade),
-      overall_gp: fmtGP(overallGrade),
-      remarks: overallGrade !== null
-        ? (convertToMabiniGradePoint(overallGrade) <= 3.00 ? 'Passed' : 'Failed')
-        : 'INC',
+      base: {
+        lrn: '',
+        last_name: profile?.last_name || '',
+        first_name: profile?.first_name || '',
+        middle_initial: '',
+        pre_mid_grade: fmt(periodGrades.pre_mid),
+        pre_mid_gp: fmtGP(periodGrades.pre_mid),
+        midterm_grade: fmt(periodGrades.midterm),
+        midterm_gp: fmtGP(periodGrades.midterm),
+        pre_final_grade: fmt(periodGrades.pre_final),
+        pre_final_gp: fmtGP(periodGrades.pre_final),
+        final_grade: fmt(periodGrades.final),
+        final_gp: fmtGP(periodGrades.final),
+        overall_grade: fmt(overallGrade),
+        overall_gp: fmtGP(overallGrade),
+        remarks: overallGrade !== null
+          ? (convertToMabiniGradePoint(overallGrade) <= 3.00 ? 'Passed' : 'Failed')
+          : 'INC',
+      },
+      periodGrades,
+      periodBreakdowns,
     })
   }
 
-  rows.sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name))
+  rows.sort(
+    (a, b) =>
+      a.base.last_name.localeCompare(b.base.last_name) ||
+      a.base.first_name.localeCompare(b.base.first_name)
+  )
+
+  const fmtCell = (g: number | null) => g !== null ? roundToTwoDecimals(g).toFixed(2) : 'INC'
+
+  if (options.detailed) {
+    const periodHeaderBlock = (label: string) => [
+      `${label} Exam Raw`, `${label} Exam Max`, `${label} Exam Rating`, `${label} Exam (45%)`,
+      `${label} Quiz Raw`, `${label} Quiz Max`, `${label} Quiz Rating`, `${label} Quiz (15%)`,
+      `${label} Recitation Raw`, `${label} Recitation Max`, `${label} Recitation (15%)`,
+      `${label} Attendance Raw`, `${label} Attendance Max`, `${label} Attendance (20%)`,
+      `${label} Project Raw`, `${label} Project Max`, `${label} Project (5%)`,
+      `${label} Weighted Grade`, `${label} GP`,
+    ]
+
+    const detailedHeader = [
+      'LRN', 'Last Name', 'First Name', 'Middle Initial',
+      ...periodHeaderBlock('Pre-Mid'),
+      ...periodHeaderBlock('Midterm'),
+      ...periodHeaderBlock('Pre-Final'),
+      ...periodHeaderBlock('Final'),
+      'Overall Grade', 'Overall GP', 'Remarks',
+    ].join(',')
+
+    const periodCells = (b: PeriodComponentBreakdown, periodGrade: number | null) => [
+      fmtCell(b.examRaw), fmtCell(b.examMax), fmtCell(b.examRating), fmtCell(b.examWeighted),
+      fmtCell(b.quizRaw), fmtCell(b.quizMax), fmtCell(b.quizRating), fmtCell(b.quizWeighted),
+      fmtCell(b.recitationRaw), fmtCell(b.recitationMax), fmtCell(b.recitationWeighted),
+      fmtCell(b.attendanceRaw), fmtCell(b.attendanceMax), fmtCell(b.attendanceWeighted),
+      fmtCell(b.projectRaw), fmtCell(b.projectMax), fmtCell(b.projectWeighted),
+      fmtCell(periodGrade),
+      periodGrade !== null ? convertToMabiniGradePoint(periodGrade).toFixed(2) : 'INC',
+    ]
+
+    const detailedRows = rows.map((r) =>
+      [
+        r.base.lrn,
+        `"${r.base.last_name.replace(/"/g, '""')}"`,
+        `"${r.base.first_name.replace(/"/g, '""')}"`,
+        `"${r.base.middle_initial.replace(/"/g, '""')}"`,
+        ...periodCells(r.periodBreakdowns.pre_mid, r.periodGrades.pre_mid),
+        ...periodCells(r.periodBreakdowns.midterm, r.periodGrades.midterm),
+        ...periodCells(r.periodBreakdowns.pre_final, r.periodGrades.pre_final),
+        ...periodCells(r.periodBreakdowns.final, r.periodGrades.final),
+        r.base.overall_grade,
+        r.base.overall_gp,
+        r.base.remarks,
+      ].join(',')
+    )
+
+    return [detailedHeader, ...detailedRows].join('\n')
+  }
 
   const header = [
     'LRN', 'Last Name', 'First Name', 'Middle Initial',
@@ -956,7 +1116,7 @@ export const exportRegistrarGrades = async (
     'Remarks',
   ].join(',')
 
-  const csvRows = rows.map((r) =>
+  const csvRows = rows.map(({ base: r }) =>
     [
       r.lrn,
       `"${r.last_name.replace(/"/g, '""')}"`,

@@ -21,6 +21,9 @@ import {
   calculateWeightedFinalGrade,
   formatGradeDisplay,
   normalizeAssignmentCategory,
+  calculateMabiniRating,
+  calculateMabiniPeriodGrade,
+  convertToMabiniGradePoint,
 } from '../../src/types/grades.js'
 
 // ============================================
@@ -468,6 +471,136 @@ describe('Grade Helper Functions', () => {
 
     it('should handle perfect scores', () => {
       expect(formatGradeDisplay(100, 100)).toBe('100/100 (100%) - A')
+    })
+  })
+})
+
+// ============================================
+// Mabini Colleges 4-period model tests
+// ============================================
+//
+// Reference values cross-checked against TTH 1-2_30PM.xlsx
+// (instructor: VENANCIO C. DIANO; PROF ED 3, 2nd Year, 1st Sem 2023-2024).
+// Per-period sheet row 14 establishes weights:
+//   Major Exam 0.45, Quiz 0.15, Recitation 0.15, Attendance 0.20, Project 0.05.
+// Excel formulas:
+//   Rating = raw / max * 40 + 60   (exam, quiz)
+//   Recit/Attend/Project = raw * weight (raw scored on 0-100 scale)
+//   Period Weighted = sum of all weighted contributions
+//   Overall = (PreMid + Midterm + PreFinal + Final) * 0.25
+// Grade-point lookup table (row 12 onward in OVERALL RATING sheet):
+//   ≥97.5→1.00, ≥94.5→1.25, ≥91.5→1.50, ≥88.5→1.75, ≥85.5→2.00,
+//   ≥82.5→2.25, ≥79.5→2.50, ≥76.5→2.75, ≥74.5→3.00, <74.5→5.00.
+
+describe('Mabini Colleges Grading Model', () => {
+  describe('calculateMabiniRating', () => {
+    it('matches the (raw/max)*40+60 formula in the workbook', () => {
+      expect(calculateMabiniRating(81, 100)).toBe(92.4)
+      expect(calculateMabiniRating(86, 100)).toBe(94.4)
+      expect(calculateMabiniRating(82, 100)).toBe(92.8)
+    })
+
+    it('returns 60 (the Excel floor) when max is zero', () => {
+      expect(calculateMabiniRating(0, 0)).toBe(60)
+    })
+
+    it('caps at 100 for a perfect raw score', () => {
+      expect(calculateMabiniRating(100, 100)).toBe(100)
+    })
+
+    it('hits 60 for a zero raw score (Excel min rating)', () => {
+      expect(calculateMabiniRating(0, 100)).toBe(60)
+    })
+  })
+
+  describe('calculateMabiniPeriodGrade', () => {
+    it('reproduces row 15 of the Pre-Mid sheet (Abarca, Nicole Kate)', () => {
+      // Excel inputs: exam=81/100, quiz=85/100, recit=90/100, attend=100/100, project=80/100
+      // Excel result: 41.58 + 14.10 + 13.50 + 20.00 + 4.00 = 93.18
+      const result = calculateMabiniPeriodGrade({
+        examPoints: { earned: 81, possible: 100 },
+        quizPoints: { earned: 85, possible: 100 },
+        recitationPoints: { earned: 90, possible: 100 },
+        attendancePoints: { earned: 100, possible: 100 },
+        projectPoints: { earned: 80, possible: 100 },
+      })
+      expect(result).toBe(93.18)
+    })
+
+    it('reproduces row 16 of the Pre-Mid sheet (Campo, Lovely Mae N.)', () => {
+      const result = calculateMabiniPeriodGrade({
+        examPoints: { earned: 86, possible: 100 },
+        quizPoints: { earned: 82, possible: 100 },
+        recitationPoints: { earned: 90, possible: 100 },
+        attendancePoints: { earned: 100, possible: 100 },
+        projectPoints: { earned: 80, possible: 100 },
+      })
+      // Excel result: 42.48 + 13.92 + 13.50 + 20.00 + 4.00 = 93.90
+      expect(result).toBe(93.9)
+    })
+
+    it('returns null when no graded items exist for the period', () => {
+      expect(calculateMabiniPeriodGrade({})).toBeNull()
+    })
+
+    it('falls back to activity as recitation when no project component is present', () => {
+      const result = calculateMabiniPeriodGrade({
+        examPoints: { earned: 100, possible: 100 },
+        activityPoints: { earned: 90, possible: 100 },
+      })
+      // Exam: 100*0.45 = 45, activity-as-recit: 90*0.15 = 13.5 → 58.5
+      expect(result).toBe(58.5)
+    })
+
+    it('handles partial period inputs (only exam graded so far)', () => {
+      const result = calculateMabiniPeriodGrade({
+        examPoints: { earned: 90, possible: 100 },
+      })
+      // Rating = 90/100*40+60 = 96, weighted = 96*0.45 = 43.2
+      expect(result).toBe(43.2)
+    })
+  })
+
+  describe('convertToMabiniGradePoint', () => {
+    it('returns the registrar grade-point for each boundary in the lookup table', () => {
+      // Exact boundaries (≥) — verified row-for-row in OVERALL RATING sheet col P/Q.
+      expect(convertToMabiniGradePoint(100)).toBe(1.0)
+      expect(convertToMabiniGradePoint(97.5)).toBe(1.0)
+      expect(convertToMabiniGradePoint(97.49)).toBe(1.25)
+      expect(convertToMabiniGradePoint(94.5)).toBe(1.25)
+      expect(convertToMabiniGradePoint(94.49)).toBe(1.5)
+      expect(convertToMabiniGradePoint(91.5)).toBe(1.5)
+      expect(convertToMabiniGradePoint(91.49)).toBe(1.75)
+      expect(convertToMabiniGradePoint(88.5)).toBe(1.75)
+      expect(convertToMabiniGradePoint(88.49)).toBe(2.0)
+      expect(convertToMabiniGradePoint(85.5)).toBe(2.0)
+      expect(convertToMabiniGradePoint(85.49)).toBe(2.25)
+      expect(convertToMabiniGradePoint(82.5)).toBe(2.25)
+      expect(convertToMabiniGradePoint(82.49)).toBe(2.5)
+      expect(convertToMabiniGradePoint(79.5)).toBe(2.5)
+      expect(convertToMabiniGradePoint(79.49)).toBe(2.75)
+      expect(convertToMabiniGradePoint(76.5)).toBe(2.75)
+      expect(convertToMabiniGradePoint(76.49)).toBe(3.0)
+      expect(convertToMabiniGradePoint(74.5)).toBe(3.0)
+      expect(convertToMabiniGradePoint(74.49)).toBe(5.0)
+      expect(convertToMabiniGradePoint(0)).toBe(5.0)
+    })
+
+    it('matches the FINAL GRADE column for the workbook sample row', () => {
+      // 93.18 (row 15 weighted) → falls in [91.5, 94.5) → 1.50
+      expect(convertToMabiniGradePoint(93.18)).toBe(1.5)
+      // 93.9 (row 16 weighted) → also 1.50
+      expect(convertToMabiniGradePoint(93.9)).toBe(1.5)
+    })
+  })
+
+  describe('overall grade composition', () => {
+    it('averages four equal-weight periods (×0.25 each)', () => {
+      const periods = [93.18, 84.1, 85.37, 80.0]
+      const sum = periods.reduce((acc, p) => acc + p * 0.25, 0)
+      // Overall = 23.295 + 21.025 + 21.3425 + 20 = 85.6625
+      expect(Math.round(sum * 100) / 100).toBe(85.66)
+      expect(convertToMabiniGradePoint(85.66)).toBe(2.0)
     })
   })
 })

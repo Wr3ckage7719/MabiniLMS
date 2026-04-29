@@ -421,6 +421,20 @@ export interface WeightedCourseGradeBreakdown {
   letter_grade: string
   weights: Record<GradeCategory, number>
   categories: Record<GradeCategory, WeightedCategoryBreakdown>
+  /**
+   * Mabini Colleges 4-period grade snapshot. Populated whenever the course
+   * has at least one assignment pinned to a grading_period. Final overall is
+   * only set when all four periods have grades; otherwise the period values
+   * are surfaced individually so the UI can render INC for missing periods.
+   */
+  mabini?: {
+    period_weight: number
+    period_grades: Record<MabiniGradingPeriod, number | null>
+    period_grade_points: Record<MabiniGradingPeriod, number | null>
+    overall_weighted_grade: number | null
+    overall_grade_point: number | null
+    remarks: 'Passed' | 'Failed' | 'INC'
+  }
 }
 
 // ============================================
