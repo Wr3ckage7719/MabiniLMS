@@ -776,12 +776,17 @@ export function TeacherClassStream({
     void (async () => {
       setExportingRegistrar(true);
       try {
-        const csv = await batchService.exportRegistrarGrades(classId);
-        const blob = new Blob([csv as string], { type: 'text/csv' });
+        // Mabini Colleges registrar workbook — same 5-sheet layout as TTH 1-2_30PM.xlsx
+        const blobResponse = await batchService.exportRegistrarWorkbook(classId);
+        const blob = blobResponse instanceof Blob
+          ? blobResponse
+          : new Blob([blobResponse as unknown as ArrayBuffer], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `registrar-grades-${classId}.csv`;
+        a.download = `registrar-grades-${classId}.xlsx`;
         a.click();
         URL.revokeObjectURL(url);
       } catch (error: any) {

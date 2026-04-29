@@ -159,14 +159,18 @@ export default function GradesPage() {
     if (exportingCourseId) return;
     setExportingCourseId(courseId);
     try {
-      const response: any = await batchService.exportMyGrade(courseId);
-      const csv = typeof response === 'string' ? response : (response?.data ?? '');
-      const blob = new Blob([csv], { type: 'text/csv' });
+      // Mabini Colleges registrar workbook — same 5-sheet layout as TTH 1-2_30PM.xlsx
+      const blobResponse = await batchService.exportMyGradeWorkbook(courseId);
+      const blob = blobResponse instanceof Blob
+        ? blobResponse
+        : new Blob([blobResponse as unknown as ArrayBuffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       const safeName = courseName.replace(/[^a-z0-9-_]+/gi, '_');
-      a.download = `my-grade-${safeName}-${courseId.slice(0, 8)}.csv`;
+      a.download = `my-grade-${safeName}-${courseId.slice(0, 8)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error: any) {
