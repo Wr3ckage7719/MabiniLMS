@@ -388,11 +388,11 @@ export default function ClassDetail() {
             {classSubtitle}
           </p>
           <p className="text-[11px] md:text-sm text-white/70 mt-1 md:mt-1.5">{cls.room} • {cls.schedule}</p>
-          <div className="hidden md:flex flex-wrap items-center gap-2 mt-2 md:mt-3">
-            <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mt-2 md:mt-3">
+            <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-[10px] md:text-sm px-2 md:px-3 py-0.5 md:py-1.5">
               <Users className="h-3 w-3 md:h-4 md:w-4 mr-1" /> {displayedStudentCount} students
             </Badge>
-            <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-xs md:text-sm">
+            <Badge className="bg-white/20 text-white border-0 hover:bg-white/30 text-[10px] md:text-sm px-2 md:px-3 py-0.5 md:py-1.5">
               Code: {classCode}
             </Badge>
           </div>
