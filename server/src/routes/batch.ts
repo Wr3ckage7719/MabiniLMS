@@ -90,7 +90,7 @@ router.get(
 )
 
 /**
- * GET /api/batch/export-registrar/:courseId - Export grades in Mabini Colleges registrar format
+ * GET /api/batch/export-registrar/:courseId - Export grades in Mabini Colleges registrar format (CSV)
  */
 router.get(
   '/export-registrar/:courseId',
@@ -100,13 +100,35 @@ router.get(
 )
 
 /**
- * GET /api/batch/export-my-grade/:courseId - Student self-export (own grade only, Mabini format)
+ * GET /api/batch/export-registrar-xlsx/:courseId - Mabini Colleges registrar workbook (.xlsx),
+ * mirrors the layout of TTH 1-2_30PM.xlsx (5 sheets, formulas, lookup table).
+ */
+router.get(
+  '/export-registrar-xlsx/:courseId',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validateUUID('courseId'),
+  batchController.exportRegistrarWorkbook
+)
+
+/**
+ * GET /api/batch/export-my-grade/:courseId - Student self-export (own grade only, CSV)
  */
 router.get(
   '/export-my-grade/:courseId',
   authorize(UserRole.STUDENT),
   validateUUID('courseId'),
   batchController.exportMyRegistrarGrades
+)
+
+/**
+ * GET /api/batch/export-my-grade-xlsx/:courseId - Student self-export workbook
+ * scoped to the authenticated student's row.
+ */
+router.get(
+  '/export-my-grade-xlsx/:courseId',
+  authorize(UserRole.STUDENT),
+  validateUUID('courseId'),
+  batchController.exportMyRegistrarWorkbook
 )
 
 // ============================================

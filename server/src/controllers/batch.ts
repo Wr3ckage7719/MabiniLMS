@@ -7,6 +7,9 @@
 import { Response, NextFunction } from 'express'
 import { AuthRequest, UserRole } from '../types/index.js'
 import * as batchService from '../services/batch.js'
+import { buildRegistrarWorkbook } from '../services/registrar-export.js'
+
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 // ============================================
 // Bulk Enrollment
@@ -250,6 +253,51 @@ export const exportMyRegistrarGrades = async (
     res.setHeader('Content-Type', 'text/csv')
     res.setHeader('Content-Disposition', `attachment; filename="my-grade-${courseId}.csv"`)
     res.send(csv)
+  } catch (error) {
+    next(error)
+  }
+}
+
+// ============================================
+// Registrar Export — Mabini Colleges xlsx workbook (mirrors TTH 1-2_30PM.xlsx)
+// ============================================
+
+export const exportRegistrarWorkbook = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params
+    const { buffer, filename } = await buildRegistrarWorkbook(
+      courseId,
+      req.user!.id,
+      req.user!.role as UserRole
+    )
+    res.setHeader('Content-Type', XLSX_CONTENT_TYPE)
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.send(buffer)
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const exportMyRegistrarWorkbook = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId } = req.params
+    const { buffer, filename } = await buildRegistrarWorkbook(
+      courseId,
+      req.user!.id,
+      req.user!.role as UserRole,
+      { scopeStudentId: req.user!.id }
+    )
+    res.setHeader('Content-Type', XLSX_CONTENT_TYPE)
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.send(buffer)
   } catch (error) {
     next(error)
   }
