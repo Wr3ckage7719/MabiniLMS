@@ -42,6 +42,9 @@ import {
 import { useStudents } from '@/hooks-api/useStudents';
 import { useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
+import { formatMabiniGradePoint } from '@/lib/grade-points';
+import { GRADING_PERIOD_LABELS } from '@/lib/task-types';
+import type { MabiniGradingPeriodKey, WeightedGradeCategory } from '@/services/grades.service';
 
 type SortOption = 'name' | 'submissions';
 
@@ -388,47 +391,130 @@ function StudentDetailsDialog({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Weighted Standing */}
+          {/* Weighted Standing — Mabini Colleges 4-period model */}
           <Card className="border-0 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-base">Current Standing (40/30/30)</CardTitle>
+              <CardTitle className="text-base">
+                {weightedBreakdown?.mabini ? 'Current Standing (Mabini 4-period)' : 'Current Standing (40/30/30)'}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {weightedGradeQuery.isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading weighted grade...</p>
               ) : weightedBreakdown ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Final Grade</span>
-                    <span className="font-semibold">
-                      {weightedBreakdown.final_percentage.toFixed(2)}% ({weightedBreakdown.letter_grade})
-                    </span>
-                  </div>
-
-                  {(['exam', 'quiz', 'activity'] as const).map((categoryKey) => {
-                    const category = weightedBreakdown.categories[categoryKey];
-                    const label =
-                      categoryKey === 'exam'
-                        ? 'Exam'
-                        : categoryKey === 'quiz'
-                          ? 'Quiz'
-                          : 'Activity';
+                  {weightedBreakdown.mabini ? (() => {
+                    const m = weightedBreakdown.mabini!;
+                    const overallGP = m.overall_grade_point;
+                    const overallGrade = m.overall_weighted_grade;
 
                     return (
-                      <div key={categoryKey} className="rounded-lg border p-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">{label} ({Math.round(category.weight * 100)}%)</span>
-                          <span className="font-semibold">+{category.weighted_contribution.toFixed(2)}</span>
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Overall Grade Point</span>
+                          <span className="font-semibold">
+                            {overallGP !== null ? formatMabiniGradePoint(overallGP) : 'INC'}
+                            {overallGrade !== null ? ` (${overallGrade.toFixed(2)}%)` : ''}
+                            <span
+                              className={`ml-2 text-xs ${
+                                m.remarks === 'Passed'
+                                  ? 'text-emerald-600'
+                                  : m.remarks === 'Failed'
+                                    ? 'text-rose-600'
+                                    : 'text-muted-foreground'
+                              }`}
+                            >
+                              {m.remarks}
+                            </span>
+                          </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {category.graded_count}/{category.assignment_total} graded
-                          {typeof category.raw_percentage === 'number'
-                            ? ` • ${category.raw_percentage.toFixed(2)}%`
-                            : ' • Not graded yet'}
-                        </p>
-                      </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {(['pre_mid', 'midterm', 'pre_final', 'final'] as MabiniGradingPeriodKey[]).map((period) => {
+                            const grade = m.period_grades[period];
+                            const gp = m.period_grade_points[period];
+                            return (
+                              <div key={period} className="rounded-lg border bg-muted/30 px-2 py-1.5 text-center">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                  {GRADING_PERIOD_LABELS[period]} (25%)
+                                </p>
+                                <p className="text-base font-bold text-primary">
+                                  {gp !== null ? formatMabiniGradePoint(gp) : 'INC'}
+                                </p>
+                                {grade !== null && (
+                                  <p className="text-[10px] text-muted-foreground">{grade.toFixed(2)}%</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="space-y-2 pt-1">
+                          <p className="text-xs font-medium text-muted-foreground">Per-period component weights</p>
+                          {(
+                            [
+                              { key: 'exam', label: 'Major Exam', weight: 0.45 },
+                              { key: 'quiz', label: 'Quiz', weight: 0.15 },
+                              { key: 'recitation', label: 'Recitation', weight: 0.15 },
+                              { key: 'attendance', label: 'Attendance', weight: 0.20 },
+                              { key: 'project', label: 'Project', weight: 0.05 },
+                            ] as readonly { key: WeightedGradeCategory; label: string; weight: number }[]
+                          ).map(({ key, label, weight }) => {
+                            const category = weightedBreakdown.categories[key];
+                            if (!category) return null;
+                            return (
+                              <div key={key} className="rounded-lg border p-3">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="font-medium">{label} ({Math.round(weight * 100)}%)</span>
+                                  <span className="font-semibold">+{category.weighted_contribution.toFixed(2)}</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {category.graded_count}/{category.assignment_total} graded
+                                  {typeof category.raw_percentage === 'number'
+                                    ? ` • ${category.raw_percentage.toFixed(2)}%`
+                                    : ' • Not graded yet'}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     );
-                  })}
+                  })() : (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Final Grade</span>
+                        <span className="font-semibold">
+                          {weightedBreakdown.final_percentage.toFixed(2)}% ({weightedBreakdown.letter_grade})
+                        </span>
+                      </div>
+
+                      {(['exam', 'quiz', 'activity'] as const).map((categoryKey) => {
+                        const category = weightedBreakdown.categories[categoryKey];
+                        const label =
+                          categoryKey === 'exam'
+                            ? 'Exam'
+                            : categoryKey === 'quiz'
+                              ? 'Quiz'
+                              : 'Activity';
+
+                        return (
+                          <div key={categoryKey} className="rounded-lg border p-3">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium">{label} ({Math.round(category.weight * 100)}%)</span>
+                              <span className="font-semibold">+{category.weighted_contribution.toFixed(2)}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {category.graded_count}/{category.assignment_total} graded
+                              {typeof category.raw_percentage === 'number'
+                                ? ` • ${category.raw_percentage.toFixed(2)}%`
+                                : ' • Not graded yet'}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
 
                   <p className="text-xs text-muted-foreground">
                     Missing categories currently contribute 0 until graded.
