@@ -13,6 +13,17 @@ export interface WeightedCategoryBreakdown {
   weighted_contribution: number;
 }
 
+export type MabiniGradingPeriodKey = 'pre_mid' | 'midterm' | 'pre_final' | 'final';
+
+export interface MabiniWeightedSummary {
+  period_weight: number;
+  period_grades: Record<MabiniGradingPeriodKey, number | null>;
+  period_grade_points: Record<MabiniGradingPeriodKey, number | null>;
+  overall_weighted_grade: number | null;
+  overall_grade_point: number | null;
+  remarks: 'Passed' | 'Failed' | 'INC';
+}
+
 export interface WeightedCourseGradeBreakdown {
   course_id: string;
   student_id: string;
@@ -21,6 +32,7 @@ export interface WeightedCourseGradeBreakdown {
   letter_grade: string;
   weights: Record<WeightedGradeCategory, number>;
   categories: Record<WeightedGradeCategory, WeightedCategoryBreakdown>;
+  mabini?: MabiniWeightedSummary;
 }
 
 const extractArray = (response: any) => {

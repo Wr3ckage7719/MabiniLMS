@@ -213,13 +213,17 @@ export const exportRegistrarGrades = async (
 ): Promise<void> => {
   try {
     const { courseId } = req.params
+    const detailed = req.query.detailed === 'true' || req.query.detailed === '1'
     const csv = await batchService.exportRegistrarGrades(
       courseId,
       req.user!.id,
-      req.user!.role as UserRole
+      req.user!.role as UserRole,
+      undefined,
+      { detailed }
     )
     res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', `attachment; filename="registrar-grades-${courseId}.csv"`)
+    const suffix = detailed ? '-detailed' : ''
+    res.setHeader('Content-Disposition', `attachment; filename="registrar-grades${suffix}-${courseId}.csv"`)
     res.send(csv)
   } catch (error) {
     next(error)
