@@ -13,7 +13,9 @@ import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
-import { getTaskTypeMeta } from '@/lib/task-types';
+import { getTaskTypeMeta, GRADING_PERIOD_LABELS } from '@/lib/task-types';
+import { formatMabiniGradePoint } from '@/lib/grade-points';
+import type { MabiniGradingPeriodKey, WeightedGradeCategory } from '@/services/grades.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -181,27 +183,34 @@ export default function ClassDetail() {
     return Math.round(averageGradeScore * 100) / 100;
   })();
 
-  const toLetterGrade = (score: number) => {
-    if (score >= 93) return 'A';
-    if (score >= 90) return 'A-';
-    if (score >= 87) return 'B+';
-    if (score >= 83) return 'B';
-    if (score >= 80) return 'B-';
-    if (score >= 77) return 'C+';
-    if (score >= 73) return 'C';
-    if (score >= 70) return 'C-';
-    if (score >= 67) return 'D+';
-    if (score >= 63) return 'D';
-    return 'F';
-  };
+  // Mabini Colleges grade point summary takes priority — falls back to overall percentage
+  // only if the course has no grading_period pinning at all (legacy data).
+  const mabiniSummary = weightedBreakdown?.mabini ?? null;
+  const overallGradePoint = mabiniSummary?.overall_grade_point ?? null;
+  const overallRemarks = mabiniSummary?.remarks ?? 'INC';
+
+  const gradeDisplay = (() => {
+    if (overallGradePoint !== null) return formatMabiniGradePoint(overallGradePoint);
+    if (mabiniSummary) {
+      // Show the latest available period GP when overall is incomplete
+      const periodOrder: MabiniGradingPeriodKey[] = ['final', 'pre_final', 'midterm', 'pre_mid'];
+      for (const period of periodOrder) {
+        const gp = mabiniSummary.period_grade_points[period];
+        if (gp !== null) return formatMabiniGradePoint(gp);
+      }
+      return 'INC';
+    }
+    return 'N/A';
+  })();
 
   const currentStudentGrade = {
     id: 'current-user',
     name: 'Student',
     email: 'student@example.com',
     avatar: currentUserAvatar,
-    grade: finalGradePercentage !== null ? toLetterGrade(finalGradePercentage) : 'N/A',
-    percentage: finalGradePercentage,
+    grade: gradeDisplay,
+    percentage: mabiniSummary?.overall_weighted_grade ?? finalGradePercentage,
+    remarks: overallRemarks,
   };
 
   const handleArchive = async () => {
@@ -751,53 +760,131 @@ export default function ClassDetail() {
                       {currentStudentGrade.percentage.toFixed(2)}%
                     </p>
                   )}
+                  {mabiniSummary && (
+                    <p
+                      className={`mt-1 text-xs font-medium ${
+                        currentStudentGrade.remarks === 'Passed'
+                          ? 'text-emerald-600'
+                          : currentStudentGrade.remarks === 'Failed'
+                            ? 'text-rose-600'
+                            : 'text-muted-foreground'
+                      }`}
+                    >
+                      {currentStudentGrade.remarks}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            {weightedBreakdown && (
+            {mabiniSummary && (
               <Card className="border-0 shadow-sm">
                 <CardContent className="p-3 md:p-6">
-                  <h4 className="font-semibold text-sm md:text-base mb-3 md:mb-4">Weighted Breakdown (40/30/30)</h4>
-                  <div className="space-y-3">
-                    {(['exam', 'quiz', 'activity'] as const).map((categoryKey) => {
-                      const category = weightedBreakdown.categories[categoryKey];
-                      const label =
-                        categoryKey === 'exam'
-                          ? 'Exam'
-                          : categoryKey === 'quiz'
-                            ? 'Quiz'
-                            : 'Activity';
-
+                  <h4 className="font-semibold text-sm md:text-base mb-3 md:mb-4">
+                    4-Period Standing (Mabini Colleges)
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+                    {(['pre_mid', 'midterm', 'pre_final', 'final'] as MabiniGradingPeriodKey[]).map((period) => {
+                      const grade = mabiniSummary.period_grades[period];
+                      const gp = mabiniSummary.period_grade_points[period];
                       return (
-                        <div key={categoryKey} className="rounded-lg border p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-medium text-sm md:text-base">
-                              {label} ({Math.round(category.weight * 100)}%)
-                            </p>
-                            <p className="font-semibold text-sm md:text-base">
-                              +{category.weighted_contribution.toFixed(2)}
-                            </p>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {category.points_earned.toFixed(2)}/{category.points_possible.toFixed(2)} points
-                            {typeof category.raw_percentage === 'number'
-                              ? ` (${category.raw_percentage.toFixed(2)}%)`
-                              : ' (No graded items yet)'}
+                        <div key={period} className="rounded-lg border bg-muted/30 px-3 py-2 text-center">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {GRADING_PERIOD_LABELS[period]} (25%)
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {category.graded_count}/{category.assignment_total} assignments graded
+                          <p className="text-lg md:text-xl font-bold text-primary">
+                            {gp !== null ? formatMabiniGradePoint(gp) : 'INC'}
                           </p>
+                          {grade !== null && (
+                            <p className="text-[10px] text-muted-foreground">{grade.toFixed(2)}%</p>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                   <p className="text-xs text-muted-foreground mt-3">
-                    Policy: missing categories currently contribute 0 until they receive graded work.
+                    Each grading period contributes 25% to the overall grade. The final overall
+                    grade is only released once all four periods have grades.
                   </p>
                 </CardContent>
               </Card>
             )}
+
+            {weightedBreakdown && (() => {
+              // Mabini 5-component breakdown (matches TTH 1-2_30PM.xlsx weights):
+              //   Major Exam 45%, Quiz 15%, Recitation 15%, Attendance 20%, Project 5%.
+              // Falls back to the legacy 40/30/30 view when the course has no Mabini
+              // periods configured AND none of the new categories have any work yet.
+              const mabiniCategoryKeys: readonly { key: WeightedGradeCategory; label: string; weight: number }[] = [
+                { key: 'exam', label: 'Major Exam', weight: 0.45 },
+                { key: 'quiz', label: 'Quiz', weight: 0.15 },
+                { key: 'recitation', label: 'Recitation', weight: 0.15 },
+                { key: 'attendance', label: 'Attendance', weight: 0.20 },
+                { key: 'project', label: 'Project', weight: 0.05 },
+              ];
+              const showMabiniLayout =
+                Boolean(mabiniSummary) ||
+                mabiniCategoryKeys.some(
+                  ({ key }) => (weightedBreakdown.categories[key]?.assignment_total ?? 0) > 0
+                );
+
+              const categoryRows = showMabiniLayout
+                ? mabiniCategoryKeys.map(({ key, label, weight }) => ({
+                    key,
+                    label,
+                    weight,
+                    category: weightedBreakdown.categories[key],
+                  }))
+                : (['exam', 'quiz', 'activity'] as const).map((key) => ({
+                    key,
+                    label: key === 'exam' ? 'Exam' : key === 'quiz' ? 'Quiz' : 'Activity',
+                    weight: weightedBreakdown.categories[key]?.weight ?? 0,
+                    category: weightedBreakdown.categories[key],
+                  }));
+
+              const heading = showMabiniLayout
+                ? 'Per-Period Component Weights (Mabini Colleges)'
+                : 'Weighted Breakdown (40/30/30)';
+
+              const policyNote = showMabiniLayout
+                ? 'Each period uses these weights: Major Exam 45%, Quiz 15%, Recitation 15%, Attendance 20%, Project 5%. Components without graded work contribute 0 to the period grade.'
+                : 'Policy: missing categories currently contribute 0 until they receive graded work.';
+
+              return (
+                <Card className="border-0 shadow-sm">
+                  <CardContent className="p-3 md:p-6">
+                    <h4 className="font-semibold text-sm md:text-base mb-3 md:mb-4">{heading}</h4>
+                    <div className="space-y-3">
+                      {categoryRows.map(({ key, label, weight, category }) => {
+                        if (!category) return null;
+                        return (
+                          <div key={key} className="rounded-lg border p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-medium text-sm md:text-base">
+                                {label} ({Math.round(weight * 100)}%)
+                              </p>
+                              <p className="font-semibold text-sm md:text-base">
+                                +{category.weighted_contribution.toFixed(2)}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {category.points_earned.toFixed(2)}/{category.points_possible.toFixed(2)} points
+                              {typeof category.raw_percentage === 'number'
+                                ? ` (${category.raw_percentage.toFixed(2)}%)`
+                                : ' (No graded items yet)'}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {category.graded_count}/{category.assignment_total} assignments graded
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-3">{policyNote}</p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Assignment Grades */}
             <Card className="border-0 shadow-sm">

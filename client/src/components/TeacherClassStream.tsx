@@ -2084,7 +2084,7 @@ export function TeacherClassStream({
                   disabled={exportingRegistrar}
                 >
                   <Download className="h-3.5 w-3.5" />
-                  {exportingRegistrar ? 'Exporting…' : 'Registrar CSV'}
+                  {exportingRegistrar ? 'Exporting…' : 'Registrar XLSX'}
                 </Button>
               </div>
               {recentSubmissions.length > 0 ? (
