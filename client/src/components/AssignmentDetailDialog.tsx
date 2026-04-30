@@ -7,7 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Paperclip, Send, Clock, CheckCircle2, Calendar } from 'lucide-react';
+import { Paperclip, Send, Clock, CheckCircle2, Calendar, Lock } from 'lucide-react';
+import { useAssessmentLockState } from '@/hooks-api/useAssessmentGating';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { assignmentsService } from '@/services/assignments.service';
@@ -198,6 +199,14 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const taskMeta = getTaskTypeMeta(assignment?.rawType || assignment?.type);
   const Icon = taskMeta.icon;
 
+  // Required-LM gating: students cannot submit/start until the configured
+  // materials are completed. We refetch on dialog open so progress that
+  // changed in another tab is reflected without a hard reload.
+  const lockStateQuery = useAssessmentLockState(open && assignment?.id ? assignment.id : null);
+  const lockState = lockStateQuery.data ?? null;
+  const isLocked = Boolean(lockState?.locked);
+  const lockedByGate = isLocked;
+
   const formatOptionalDateTime = (value?: string | null): string | null => {
     if (!value) return null;
     const parsed = new Date(value);
@@ -301,6 +310,15 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
   const handleSubmit = async () => {
     if (!assignment?.id) return;
+
+    if (lockedByGate) {
+      toast({
+        title: 'Required materials not complete',
+        description: 'Finish the required learning materials before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     const driveFileId = selectedDriveFile?.id;
     if (!driveFileId) {
@@ -460,6 +478,14 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
 
   const handleStartExam = () => {
     if (!assignment || !onStartExam) return;
+    if (lockedByGate) {
+      toast({
+        title: 'Required materials not complete',
+        description: 'Finish the required learning materials before starting this assessment.',
+        variant: 'destructive',
+      });
+      return;
+    }
     onStartExam(assignment);
   };
 
@@ -558,6 +584,33 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 {isQuizAssignment ? 'Quiz' : isExamAssignment ? 'Proctored Exam' : 'Submit Your Work'}
               </h4>
 
+              {lockedByGate && lockState ? (
+                <div className="rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 p-3 sm:p-4 mb-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Lock className="h-4 w-4 mt-0.5 text-amber-700 dark:text-amber-400" />
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-medium text-amber-900 dark:text-amber-200">
+                        Locked until required materials are complete
+                      </p>
+                      <p className="text-[11px] sm:text-xs text-amber-800/80 dark:text-amber-300/80">
+                        {lockState.satisfied_count} of {lockState.required_count} complete
+                      </p>
+                    </div>
+                  </div>
+                  <ul className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 space-y-1 list-disc pl-5">
+                    {lockState.missing.map((m) => (
+                      <li key={m.required_id} className="break-words">
+                        <span className="font-medium">{m.material_title}</span>
+                        <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                          {' '}— {Math.round(m.current_progress_percent)}% / {Math.round(m.min_progress_percent)}%
+                          {m.completed ? ' (completed)' : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               {isQuizAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
                   <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
@@ -570,8 +623,17 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
                     onClick={handleStartExam}
+                    disabled={lockedByGate}
                   >
-                    <Send className="h-4 w-4 mr-1" /> Start Quiz
+                    {lockedByGate ? (
+                      <>
+                        <Lock className="h-4 w-4 mr-1" /> Locked
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-1" /> Start Quiz
+                      </>
+                    )}
                   </Button>
                 </div>
               ) : isExamAssignment ? (
@@ -587,8 +649,17 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     size="sm"
                     className="rounded-xl text-xs sm:text-sm"
                     onClick={handleStartExam}
+                    disabled={lockedByGate}
                   >
-                    <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
+                    {lockedByGate ? (
+                      <>
+                        <Lock className="h-4 w-4 mr-1" /> Locked
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-1" /> Start Proctored Exam
+                      </>
+                    )}
                   </Button>
                 </div>
               ) : (
@@ -689,12 +760,20 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                         <Button
                           size="sm"
                           className="rounded-xl text-xs sm:text-sm"
-                          disabled={submissionsClosed || !selectedDriveFile || submitting}
+                          disabled={submissionsClosed || !selectedDriveFile || submitting || lockedByGate}
                           onClick={() => {
                             void handleSubmit();
                           }}
                         >
-                          <Send className="h-4 w-4 mr-1" /> {submissionsClosed ? 'Closed' : 'Submit'}
+                          {lockedByGate ? (
+                            <>
+                              <Lock className="h-4 w-4 mr-1" /> Locked
+                            </>
+                          ) : (
+                            <>
+                              <Send className="h-4 w-4 mr-1" /> {submissionsClosed ? 'Closed' : 'Submit'}
+                            </>
+                          )}
                         </Button>
                       </div>
                     </>

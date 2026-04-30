@@ -55,6 +55,8 @@ import {
 import { gradesService } from '@/services/grades.service';
 import { useToast } from '@/hooks/use-toast';
 import { TeacherExamManagementPanel } from '@/components/TeacherExamManagementPanel';
+import { RequiredMaterialsEditor } from '@/components/RequiredMaterialsEditor';
+import { AssessmentReadinessPanel } from '@/components/AssessmentReadinessPanel';
 import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
@@ -1286,6 +1288,16 @@ export function TeacherAssignmentDetail({
                   </Card>
                 </div>
               )}
+
+              {assignment?.id ? (
+                <>
+                  <RequiredMaterialsEditor
+                    classId={classId}
+                    assignmentId={assignment.id}
+                  />
+                  <AssessmentReadinessPanel assignmentId={assignment.id} />
+                </>
+              ) : null}
             </TabsContent>
 
             {/* Submissions / Results Tab */}

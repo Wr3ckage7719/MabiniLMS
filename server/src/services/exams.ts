@@ -20,6 +20,7 @@ import {
 } from '../types/exams.js'
 import * as enrollmentService from './enrollments.js'
 import { createGrade, updateGrade } from './grades.js'
+import { assertAssessmentUnlocked } from './assessment-gating.js'
 import logger from '../utils/logger.js'
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js'
 
@@ -950,6 +951,12 @@ export const startExamAttempt = async (
       return buildAttemptSession(assignment, activeAttempt)
     }
   }
+
+  // LM-gating: starting a new attempt requires the required materials to be
+  // completed. Resuming an active attempt is intentionally allowed even if
+  // the gate would now reject — the student already started before the gate
+  // was applied (or before progress was reset).
+  await assertAssessmentUnlocked(assignmentId, userId)
 
   const questions = await listQuestionsForAssignment(assignmentId)
   if (questions.length === 0) {
