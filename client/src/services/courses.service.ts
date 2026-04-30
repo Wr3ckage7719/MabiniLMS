@@ -87,4 +87,42 @@ export const coursesService = {
   async getCourseTeachers(courseId: string) {
     return apiClient.get(`/courses/${courseId}/teachers`);
   },
+
+  async getCourseInsights(courseId: string) {
+    return apiClient.get(`/courses/${courseId}/insights`);
+  },
 };
+
+export interface PerStudentInsight {
+  student: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+    avatar_url: string | null;
+  };
+  last_active_at: string | null;
+  submissions_total: number;
+  submissions_graded: number;
+  assignments_outstanding: number;
+  materials_viewed: number;
+  materials_total: number;
+  avg_grade_percent: number | null;
+  at_risk: boolean;
+}
+
+export interface ClassRollupInsight {
+  student_count: number;
+  assignment_count: number;
+  material_count: number;
+  avg_completion_percent: number;
+  at_risk_count: number;
+  grade_distribution: Array<{ range: string; count: number }>;
+}
+
+export interface CourseInsightsPayload {
+  course_id: string;
+  generated_at: string;
+  per_student: PerStudentInsight[];
+  class_rollup: ClassRollupInsight;
+}

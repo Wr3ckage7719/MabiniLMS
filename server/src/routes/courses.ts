@@ -160,4 +160,18 @@ router.get(
   enrollmentController.getCourseRoster
 );
 
+// ============================================
+// Course Insights (teacher analytics)
+// ============================================
+
+// Aggregated per-student + class-level engagement and completion metrics.
+// Teacher/admin only — students don't need their peers' submission counts.
+router.get(
+  '/:courseId/insights',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: courseMaterialsParamSchema }),
+  courseController.getCourseInsights
+);
+
 export default router;
