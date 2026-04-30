@@ -185,7 +185,19 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
 
         <div className={`p-5 ${isArchived ? 'opacity-90' : ''}`}>
           <p className="text-sm text-muted-foreground mb-2">{classItem.teacher}</p>
-          <p className="text-xs text-muted-foreground mb-4">{classItem.room} • {classItem.schedule}</p>
+          <p className="text-xs text-muted-foreground mb-2">{classItem.room} • {classItem.schedule}</p>
+          {(classItem.tags?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3">
+              {classItem.tags!.slice(0, 4).map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-medium"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2">
             {isArchived && onRestore ? (
               <Button

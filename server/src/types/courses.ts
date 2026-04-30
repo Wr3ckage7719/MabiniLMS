@@ -14,18 +14,73 @@ export enum CourseStatus {
 // Course Schemas
 // ============================================
 
+// LMS configuration knobs the teacher controls per course (see
+// migration 033_course_lms_config.sql).
+
+const courseTagsSchema = z
+  .array(z.string().trim().min(1).max(40))
+  .max(20)
+  .transform((values) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const value of values) {
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+    return out;
+  });
+
+const completionPolicySchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('all_items_viewed') }),
+  z.object({
+    type: z.literal('passing_score_on'),
+    assignment_id: z.string().uuid(),
+    threshold: z.number().min(0).max(100),
+  }),
+  z.object({
+    type: z.literal('weighted_score_threshold'),
+    threshold: z.number().min(0).max(100),
+  }),
+]);
+
+const categoryWeightsSchema = z.object({
+  exam: z.number().min(0).max(1),
+  quiz: z.number().min(0).max(1),
+  activity: z.number().min(0).max(1),
+  recitation: z.number().min(0).max(1),
+  attendance: z.number().min(0).max(1),
+  project: z.number().min(0).max(1),
+});
+
+// Short shared-classroom secret. Trim whitespace and cap length, but do
+// not require any specific complexity — these are not user passwords.
+const enrolmentKeySchema = z.string().trim().min(1).max(64);
+
 export const createCourseSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   description: z.string().optional(),
   syllabus: z.string().optional(),
   status: z.nativeEnum(CourseStatus).optional().default(CourseStatus.DRAFT),
+  tags: courseTagsSchema.optional(),
+  completion_policy: completionPolicySchema.nullable().optional(),
+  category_weights: categoryWeightsSchema.nullable().optional(),
+  enrolment_key: enrolmentKeySchema.nullable().optional(),
 });
 
 export const updateCourseSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().nullable().optional(),
   syllabus: z.string().nullable().optional(),
+  tags: courseTagsSchema.optional(),
+  completion_policy: completionPolicySchema.nullable().optional(),
+  category_weights: categoryWeightsSchema.nullable().optional(),
+  enrolment_key: enrolmentKeySchema.nullable().optional(),
 });
+
+export type CourseCompletionPolicy = z.infer<typeof completionPolicySchema>;
+export type CourseCategoryWeights = z.infer<typeof categoryWeightsSchema>;
 
 export const updateCourseStatusSchema = z.object({
   status: z.nativeEnum(CourseStatus),
@@ -143,6 +198,10 @@ export interface Course {
   description: string | null;
   syllabus: string | null;
   status: CourseStatus;
+  tags?: string[];
+  completion_policy?: CourseCompletionPolicy | null;
+  category_weights?: CourseCategoryWeights | null;
+  enrolment_key?: string | null;
   created_at: string;
   updated_at: string;
   teacher?: CourseTeacher | null;

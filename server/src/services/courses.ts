@@ -47,8 +47,36 @@ type MaterialUploadFile = {
 // Helpers
 // ============================================
 
-const COURSE_BASE_SELECT =
-  'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
+// Wildcard select keeps the migration 033 columns optional for older
+// databases — Postgres returns whatever columns exist instead of failing
+// on a missing-column error. Matches the pattern used by the assignments
+// service.
+const COURSE_BASE_SELECT = '*';
+
+// Columns that may not exist on databases that have not yet run migration
+// 033_course_lms_config — the create/update flows retry without them when
+// Postgres reports an undefined column.
+const COURSE_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
+  'tags',
+  'completion_policy',
+  'category_weights',
+  'enrolment_key',
+]);
+
+const extractMissingCourseColumn = (error?: DatabaseErrorShape | null): string | null => {
+  if (!error) return null;
+  const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+  for (const column of COURSE_COMPAT_OPTIONAL_COLUMNS) {
+    if (message.includes(`column "${column}"`) || message.includes(`column ${column}`)) {
+      return column;
+    }
+  }
+  if (error.code === '42703') {
+    // generic undefined-column without a quoted name — caller handles fallback.
+    return null;
+  }
+  return null;
+};
 
 const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
   return [error?.message, error?.details, error?.hint]
@@ -661,7 +689,7 @@ export const createCourse = async (
   input: CreateCourseInput,
   teacherId: string
 ): Promise<Course> => {
-  const insertPayload = {
+  const mutablePayload: Record<string, unknown> = {
     ...input,
     status: input.status || CourseStatus.PUBLISHED,
     teacher_id: teacherId,
@@ -669,13 +697,30 @@ export const createCourse = async (
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabaseAdmin
-    .from('courses')
-    .insert(insertPayload)
-    .select(COURSE_BASE_SELECT)
-    .single();
+  // Retry without optional columns if the migration hasn't been applied yet.
+  // Same pattern the assignments service uses for backwards compatibility.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .insert(mutablePayload)
+      .select(COURSE_BASE_SELECT)
+      .single();
 
-  if (error) {
+    if (!error) {
+      return attachTeacherToCourse(data as Course);
+    }
+
+    const missingColumn = extractMissingCourseColumn(error);
+    if (missingColumn && Object.prototype.hasOwnProperty.call(mutablePayload, missingColumn)) {
+      delete mutablePayload[missingColumn];
+      logger.warn('Retrying course insert without optional column', {
+        teacherId,
+        missingColumn,
+        attempt: attempt + 1,
+      });
+      continue;
+    }
+
     logger.error('Failed to create course', { error: error.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
@@ -684,7 +729,7 @@ export const createCourse = async (
     );
   }
 
-  return attachTeacherToCourse(data as Course);
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create course', 500);
 };
 
 /**
@@ -956,14 +1001,30 @@ export const updateCourse = async (
     }
   });
 
-  const { data, error } = await supabaseAdmin
-    .from('courses')
-    .update(updateData)
-    .eq('id', courseId)
-    .select(COURSE_BASE_SELECT)
-    .single();
+  // Retry without optional columns if migration 033 hasn't been applied.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .update(updateData)
+      .eq('id', courseId)
+      .select(COURSE_BASE_SELECT)
+      .single();
 
-  if (error) {
+    if (!error) {
+      return attachTeacherToCourse(data as Course);
+    }
+
+    const missingColumn = extractMissingCourseColumn(error);
+    if (missingColumn && Object.prototype.hasOwnProperty.call(updateData, missingColumn)) {
+      delete updateData[missingColumn];
+      logger.warn('Retrying course update without optional column', {
+        courseId,
+        missingColumn,
+        attempt: attempt + 1,
+      });
+      continue;
+    }
+
     logger.error('Failed to update course', { courseId, error: error.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
@@ -972,7 +1033,7 @@ export const updateCourse = async (
     );
   }
 
-  return attachTeacherToCourse(data as Course);
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update course', 500);
 };
 
 /**

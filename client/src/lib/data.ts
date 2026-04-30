@@ -1,3 +1,17 @@
+export type CourseCompletionPolicy =
+  | { type: 'all_items_viewed' }
+  | { type: 'passing_score_on'; assignment_id: string; threshold: number }
+  | { type: 'weighted_score_threshold'; threshold: number };
+
+export interface CourseCategoryWeights {
+  exam: number;
+  quiz: number;
+  activity: number;
+  recitation: number;
+  attendance: number;
+  project: number;
+}
+
 export interface ClassItem {
   id: string;
   name: string;
@@ -12,6 +26,10 @@ export interface ClassItem {
   schedule: string;
   coverImage?: string;
   archived?: boolean;
+  tags?: string[];
+  completionPolicy?: CourseCompletionPolicy | null;
+  categoryWeights?: CourseCategoryWeights | null;
+  enrolmentKey?: string | null;
 }
 
 export interface Assignment {

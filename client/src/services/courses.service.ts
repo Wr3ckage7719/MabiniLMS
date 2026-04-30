@@ -1,5 +1,19 @@
 import { apiClient } from './api-client';
 
+export type CourseCompletionPolicy =
+  | { type: 'all_items_viewed' }
+  | { type: 'passing_score_on'; assignment_id: string; threshold: number }
+  | { type: 'weighted_score_threshold'; threshold: number };
+
+export interface CourseCategoryWeights {
+  exam: number;
+  quiz: number;
+  activity: number;
+  recitation: number;
+  attendance: number;
+  project: number;
+}
+
 export interface CourseData {
   title: string;
   description?: string;
@@ -9,6 +23,10 @@ export interface CourseData {
   room?: string;
   schedule?: string;
   cover_image?: string;
+  tags?: string[];
+  completion_policy?: CourseCompletionPolicy | null;
+  category_weights?: CourseCategoryWeights | null;
+  enrolment_key?: string | null;
 }
 
 export const coursesService = {

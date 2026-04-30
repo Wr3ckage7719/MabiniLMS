@@ -57,6 +57,7 @@ export default function Dashboard() {
       cls.room,
       cls.schedule,
       cls.code,
+      ...(cls.tags ?? []),
     ]
       .filter(Boolean)
       .join(' ')

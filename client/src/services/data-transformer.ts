@@ -168,6 +168,20 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
   const fallbackColor = getCourseColor(index);
   const resolvedColor = resolveCourseColor(course.cover_image || metadata.theme, fallbackColor);
 
+  const rawTags = (course as { tags?: unknown }).tags;
+  const tags = Array.isArray(rawTags)
+    ? rawTags
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    : [];
+
+  const completionPolicy =
+    (course as { completion_policy?: unknown }).completion_policy ?? null;
+  const categoryWeights =
+    (course as { category_weights?: unknown }).category_weights ?? null;
+  const enrolmentKey = (course as { enrolment_key?: unknown }).enrolment_key;
+
   return {
     id: course.id,
     name: course.title,
@@ -182,6 +196,10 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
     schedule: course.schedule || metadata.schedule || 'Schedule TBA',
     coverImage: course.cover_image || metadata.coverImage,
     archived: Boolean(course.archived || course.status === 'archived' || course.archived_by_me),
+    tags,
+    completionPolicy: completionPolicy as ClassItem['completionPolicy'],
+    categoryWeights: categoryWeights as ClassItem['categoryWeights'],
+    enrolmentKey: typeof enrolmentKey === 'string' ? enrolmentKey : null,
   };
 }
 
