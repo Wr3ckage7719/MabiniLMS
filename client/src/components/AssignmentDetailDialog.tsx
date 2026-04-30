@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Assignment } from '@/lib/data';
+import { formatDueCountdown } from '@/lib/course-completion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -173,6 +174,21 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
+  // `nowTick` re-renders the countdown badge every minute while the dialog
+  // is open. The previous render compared `Date.now()` once at mount, so
+  // "Due in 4 hours" stayed stale even after an hour passed in the same view.
+  const [nowTick, setNowTick] = useState(0);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setInterval(() => setNowTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, [open]);
+
+  const countdown = useMemo(() => {
+    void nowTick;
+    return formatDueCountdown(assignment?.dueDate);
+  }, [assignment?.dueDate, nowTick]);
 
   const assignmentRawType = (assignment?.rawType || '').toLowerCase();
   const isExamAssignment = assignmentRawType === 'exam' || assignmentRawType === 'quiz';
@@ -472,6 +488,20 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             <Calendar className="h-3 w-3 mr-1" />
             <span className="hidden sm:inline">Due </span>{new Date(assignment.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </Badge>
+          {countdown && assignment.status !== 'submitted' && assignment.status !== 'graded' && (
+            <Badge
+              className={`rounded-lg text-xs sm:text-sm whitespace-nowrap ${
+                countdown.tone === 'overdue'
+                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive'
+                  : countdown.tone === 'soon'
+                  ? 'bg-amber-500 text-white hover:bg-amber-500'
+                  : 'bg-primary/10 text-primary hover:bg-primary/10'
+              }`}
+            >
+              <Clock className="h-3 w-3 mr-1" />
+              {countdown.label}
+            </Badge>
+          )}
           <Badge variant={assignment.status === 'late' ? 'destructive' : 'secondary'} className="rounded-lg capitalize text-xs sm:text-sm">
             {assignment.status}
           </Badge>

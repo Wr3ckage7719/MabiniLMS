@@ -13,15 +13,65 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import type { CourseCompletion } from '@/lib/course-completion';
 
 interface ClassCardProps {
   classItem: ClassItem;
   onArchive?: (classId: string) => void;
   onUnenroll?: (classId: string) => void;
   onRestore?: (classId: string) => void;
+  /**
+   * Per-course completion derived on the parent (which already holds the
+   * full assignment list) so the dashboard doesn't refetch per-card.
+   * Omit on teacher views — the ring only renders when this is provided.
+   */
+  completion?: CourseCompletion;
 }
 
-export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: ClassCardProps) {
+interface ProgressRingProps {
+  percent: number;
+  size?: number;
+  stroke?: number;
+}
+
+// Small inline SVG ring so we don't pull a chart lib for one indicator.
+function ProgressRing({ percent, size = 36, stroke = 4 }: ProgressRingProps) {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (clamped / 100) * circumference;
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth={stroke}
+          fill="none"
+          className="text-white/25"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className="text-white transition-all duration-500"
+        />
+      </svg>
+      <span className="absolute text-[9px] font-semibold text-white">{clamped}%</span>
+    </div>
+  );
+}
+
+export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, completion }: ClassCardProps) {
   const navigate = useNavigate();
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | 'restore' | null>(null);
 
@@ -66,9 +116,14 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
           <div className="absolute -right-2 -top-4 w-16 h-16 rounded-full bg-white/10" />
 
           <div className="relative z-10 flex h-full flex-col justify-between gap-5">
-            <div className="pr-8">
-              <h3 className="text-[18px] leading-tight font-bold text-white tracking-tight truncate">{classItem.name}</h3>
-              <p className="text-[14px] text-white/90 mt-0.5 truncate">{classItem.section || 'Section'}</p>
+            <div className="flex items-start justify-between gap-3 pr-1">
+              <div className="min-w-0 pr-2">
+                <h3 className="text-[18px] leading-tight font-bold text-white tracking-tight truncate">{classItem.name}</h3>
+                <p className="text-[14px] text-white/90 mt-0.5 truncate">{classItem.section || 'Section'}</p>
+              </div>
+              {completion && completion.total > 0 && !isArchived && (
+                <ProgressRing percent={completion.percent} size={40} stroke={4} />
+              )}
             </div>
 
             <div>
@@ -112,13 +167,18 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
           <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
           <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10 group-hover:scale-110 transition-transform duration-500" />
           <div className="absolute -right-8 -top-8 w-20 h-20 rounded-full bg-white/5" />
-          <div className="relative z-10">
-            <h3 className="text-lg font-bold text-white truncate">{classItem.name}</h3>
-            <p className="text-sm text-white/80 mt-0.5 truncate">{classItem.section}</p>
-            {isArchived && (
-              <div className="mt-2 inline-block">
-                <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-md">Archived</span>
-              </div>
+          <div className="relative z-10 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold text-white truncate">{classItem.name}</h3>
+              <p className="text-sm text-white/80 mt-0.5 truncate">{classItem.section}</p>
+              {isArchived && (
+                <div className="mt-2 inline-block">
+                  <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-md">Archived</span>
+                </div>
+              )}
+            </div>
+            {completion && completion.total > 0 && !isArchived && (
+              <ProgressRing percent={completion.percent} size={44} stroke={4} />
             )}
           </div>
         </div>
@@ -141,11 +201,20 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore }: Class
                 Unarchive
               </Button>
             ) : <span />}
-            {classItem.pendingAssignments > 0 && !isArchived && (
+            {!isArchived && completion && completion.total > 0 ? (
               <div className="flex items-center gap-1.5 text-primary">
                 <FileText className="h-4 w-4" />
-                <span className="text-sm font-medium">{classItem.pendingAssignments} pending</span>
+                <span className="text-sm font-medium">
+                  {completion.completed}/{completion.total} done
+                </span>
               </div>
+            ) : (
+              classItem.pendingAssignments > 0 && !isArchived && (
+                <div className="flex items-center gap-1.5 text-primary">
+                  <FileText className="h-4 w-4" />
+                  <span className="text-sm font-medium">{classItem.pendingAssignments} pending</span>
+                </div>
+              )
             )}
           </div>
         </div>

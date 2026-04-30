@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Archive, Loader2, RefreshCw } from 'lucide-react';
 import { ClassCard } from '@/components/ClassCard';
@@ -8,6 +9,12 @@ import { Button } from '@/components/ui/button';
 import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClasses as useApiClasses } from '@/hooks-api/useClasses';
+import { useAssignments } from '@/hooks-api/useAssignments';
+import {
+  computeCourseCompletion,
+  groupAssignmentsByClass,
+  type CourseCompletion,
+} from '@/lib/course-completion';
 
 export default function Dashboard() {
   const { currentUserName } = useRole();
@@ -18,6 +25,18 @@ export default function Dashboard() {
     error,
     refetch,
   } = useApiClasses();
+  // Pulled once for the dashboard so each ClassCard reuses the same data
+  // instead of refetching per-card. Empty array on error/loading is fine —
+  // ClassCard hides its progress ring when completion.total === 0.
+  const { data: allAssignments = [] } = useAssignments();
+  const completionByClass = useMemo<Map<string, CourseCompletion>>(() => {
+    const grouped = groupAssignmentsByClass(allAssignments);
+    const out = new Map<string, CourseCompletion>();
+    grouped.forEach((items, classId) => {
+      out.set(classId, computeCourseCompletion(items));
+    });
+    return out;
+  }, [allAssignments]);
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -181,6 +200,7 @@ export default function Dashboard() {
                     onArchive={handleArchiveClass}
                     onUnenroll={handleUnenrollClass}
                     onRestore={handleRestoreClass}
+                    completion={completionByClass.get(cls.id)}
                   />
                 ))}
               </div>
@@ -228,6 +248,7 @@ export default function Dashboard() {
                         onArchive={handleArchiveClass}
                         onUnenroll={handleUnenrollClass}
                         onRestore={handleRestoreClass}
+                        completion={completionByClass.get(cls.id)}
                       />
                     ))}
                   </div>
