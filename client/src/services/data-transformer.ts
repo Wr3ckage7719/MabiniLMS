@@ -205,6 +205,14 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     'discussion': 'discussion',
   };
 
+  const rawTopics = (assignment as { topics?: unknown }).topics;
+  const topics = Array.isArray(rawTopics)
+    ? rawTopics
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    : [];
+
   return {
     id: assignment.id,
     classId: assignment.course_id,
@@ -220,6 +228,7 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     submissionOpenAt: assignment.submission_open_at ?? null,
     submissionCloseAt: assignment.submission_close_at ?? null,
     attachments: assignment.attachments_count,
+    topics,
   };
 }
 

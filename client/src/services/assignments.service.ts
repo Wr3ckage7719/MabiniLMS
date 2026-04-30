@@ -36,6 +36,7 @@ export interface AssignmentData {
   submission_open_at?: string | null;
   submission_close_at?: string | null;
   instructions?: string;
+  topics?: string[];
 }
 
 export interface SubmissionData {

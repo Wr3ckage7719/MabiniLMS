@@ -75,6 +75,23 @@ export type ExamChapterPoolSettings = z.infer<typeof examChapterPoolSchema>;
 // Assignment Schemas
 // ============================================
 
+// Topic labels are free-form (≤40 chars, ≤10 per assignment) and normalized
+// to trimmed, deduped, non-empty strings on the way in.
+const topicsArraySchema = z
+  .array(z.string().trim().min(1).max(40))
+  .max(10)
+  .transform((values) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const value of values) {
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+    return out;
+  });
+
 export const createAssignmentSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   description: z.string().optional(),
@@ -95,6 +112,7 @@ export const createAssignmentSchema = z.object({
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).optional(),
   proctoring_policy: proctoringPolicySchema.optional(),
+  topics: topicsArraySchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.submission_open_at && value.submission_close_at) {
     const openAt = new Date(value.submission_open_at).getTime();
@@ -131,6 +149,7 @@ export const updateAssignmentSchema = z.object({
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).nullable().optional(),
   proctoring_policy: proctoringPolicySchema.nullable().optional(),
+  topics: topicsArraySchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.submission_open_at && value.submission_close_at) {
     const openAt = new Date(value.submission_open_at).getTime();
@@ -258,6 +277,7 @@ export interface Assignment {
   is_proctored?: boolean;
   exam_duration_minutes?: number | null;
   proctoring_policy?: Record<string, unknown>;
+  topics?: string[];
   created_at: string;
 }
 
