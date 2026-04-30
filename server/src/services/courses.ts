@@ -47,8 +47,36 @@ type MaterialUploadFile = {
 // Helpers
 // ============================================
 
-const COURSE_BASE_SELECT =
-  'id, teacher_id, title, description, syllabus, status, created_at, updated_at';
+// Wildcard select keeps the migration 033 columns optional for older
+// databases — Postgres returns whatever columns exist instead of failing
+// on a missing-column error. Matches the pattern used by the assignments
+// service.
+const COURSE_BASE_SELECT = '*';
+
+// Columns that may not exist on databases that have not yet run migration
+// 033_course_lms_config — the create/update flows retry without them when
+// Postgres reports an undefined column.
+const COURSE_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
+  'tags',
+  'completion_policy',
+  'category_weights',
+  'enrolment_key',
+]);
+
+const extractMissingCourseColumn = (error?: DatabaseErrorShape | null): string | null => {
+  if (!error) return null;
+  const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+  for (const column of COURSE_COMPAT_OPTIONAL_COLUMNS) {
+    if (message.includes(`column "${column}"`) || message.includes(`column ${column}`)) {
+      return column;
+    }
+  }
+  if (error.code === '42703') {
+    // generic undefined-column without a quoted name — caller handles fallback.
+    return null;
+  }
+  return null;
+};
 
 const normalizeDbErrorText = (error?: DatabaseErrorShape | null): string => {
   return [error?.message, error?.details, error?.hint]
@@ -661,7 +689,7 @@ export const createCourse = async (
   input: CreateCourseInput,
   teacherId: string
 ): Promise<Course> => {
-  const insertPayload = {
+  const mutablePayload: Record<string, unknown> = {
     ...input,
     status: input.status || CourseStatus.PUBLISHED,
     teacher_id: teacherId,
@@ -669,13 +697,30 @@ export const createCourse = async (
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabaseAdmin
-    .from('courses')
-    .insert(insertPayload)
-    .select(COURSE_BASE_SELECT)
-    .single();
+  // Retry without optional columns if the migration hasn't been applied yet.
+  // Same pattern the assignments service uses for backwards compatibility.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .insert(mutablePayload)
+      .select(COURSE_BASE_SELECT)
+      .single();
 
-  if (error) {
+    if (!error) {
+      return attachTeacherToCourse(data as Course);
+    }
+
+    const missingColumn = extractMissingCourseColumn(error);
+    if (missingColumn && Object.prototype.hasOwnProperty.call(mutablePayload, missingColumn)) {
+      delete mutablePayload[missingColumn];
+      logger.warn('Retrying course insert without optional column', {
+        teacherId,
+        missingColumn,
+        attempt: attempt + 1,
+      });
+      continue;
+    }
+
     logger.error('Failed to create course', { error: error.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
@@ -684,7 +729,7 @@ export const createCourse = async (
     );
   }
 
-  return attachTeacherToCourse(data as Course);
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create course', 500);
 };
 
 /**
@@ -956,14 +1001,30 @@ export const updateCourse = async (
     }
   });
 
-  const { data, error } = await supabaseAdmin
-    .from('courses')
-    .update(updateData)
-    .eq('id', courseId)
-    .select(COURSE_BASE_SELECT)
-    .single();
+  // Retry without optional columns if migration 033 hasn't been applied.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .update(updateData)
+      .eq('id', courseId)
+      .select(COURSE_BASE_SELECT)
+      .single();
 
-  if (error) {
+    if (!error) {
+      return attachTeacherToCourse(data as Course);
+    }
+
+    const missingColumn = extractMissingCourseColumn(error);
+    if (missingColumn && Object.prototype.hasOwnProperty.call(updateData, missingColumn)) {
+      delete updateData[missingColumn];
+      logger.warn('Retrying course update without optional column', {
+        courseId,
+        missingColumn,
+        attempt: attempt + 1,
+      });
+      continue;
+    }
+
     logger.error('Failed to update course', { courseId, error: error.message });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
@@ -972,7 +1033,7 @@ export const updateCourse = async (
     );
   }
 
-  return attachTeacherToCourse(data as Course);
+  throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update course', 500);
 };
 
 /**
@@ -2217,4 +2278,276 @@ export const getCourseTeachers = async (
   }
 
   return data ? [data] : [];
+};
+
+// ============================================
+// Course Insights (teacher analytics)
+// ============================================
+
+export interface PerStudentInsight {
+  student: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+    avatar_url: string | null;
+  };
+  /** Most recent activity timestamp across submissions and material progress. */
+  last_active_at: string | null;
+  submissions_total: number;
+  submissions_graded: number;
+  /** assignments_total minus submissions_total, clamped to non-negative. */
+  assignments_outstanding: number;
+  materials_viewed: number;
+  materials_total: number;
+  /** Mean grade percentage across graded submissions, 0-100. Null when no graded work. */
+  avg_grade_percent: number | null;
+  /**
+   * No activity in 7 days AND has at least one outstanding assignment.
+   * Mirrors the "Nudge" trigger from the LMS workflow spec.
+   */
+  at_risk: boolean;
+}
+
+export interface ClassRollupInsight {
+  student_count: number;
+  assignment_count: number;
+  material_count: number;
+  /** Mean of per-student (submissions_total / assignment_count). 0-100. */
+  avg_completion_percent: number;
+  at_risk_count: number;
+  /** Histogram bins: 0-59, 60-69, 70-79, 80-89, 90-100. */
+  grade_distribution: Array<{ range: string; count: number }>;
+}
+
+export interface CourseInsightsPayload {
+  course_id: string;
+  generated_at: string;
+  per_student: PerStudentInsight[];
+  class_rollup: ClassRollupInsight;
+}
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const computeGradeBins = (percentages: number[]): Array<{ range: string; count: number }> => {
+  const bins = [
+    { range: '0-59', min: 0, max: 60, count: 0 },
+    { range: '60-69', min: 60, max: 70, count: 0 },
+    { range: '70-79', min: 70, max: 80, count: 0 },
+    { range: '80-89', min: 80, max: 90, count: 0 },
+    { range: '90-100', min: 90, max: 101, count: 0 },
+  ];
+  for (const p of percentages) {
+    const bin = bins.find((b) => p >= b.min && p < b.max);
+    if (bin) bin.count += 1;
+  }
+  return bins.map(({ range, count }) => ({ range, count }));
+};
+
+/**
+ * Aggregated engagement + completion metrics for a single course. Replaces
+ * what would otherwise be N per-material + per-student round-trips from the
+ * teacher Insights tab. Read-only — no schema changes.
+ */
+export const getCourseInsights = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<CourseInsightsPayload> => {
+  // Permission check (throws if not allowed to view this course).
+  await getCourseById(courseId, false, userId, userRole);
+
+  const [studentsResult, assignmentsResult, materialsResult, submissionsResult, progressResult] =
+    await Promise.all([
+      supabaseAdmin
+        .from('enrollments')
+        .select(`
+          student:profiles!enrollments_student_id_fkey(
+            id, email, first_name, last_name, avatar_url
+          )
+        `)
+        .eq('course_id', courseId)
+        .in('status', ACTIVE_ENROLLMENT_STATUSES),
+      supabaseAdmin
+        .from('assignments')
+        .select('id, max_points')
+        .eq('course_id', courseId),
+      supabaseAdmin
+        .from('course_materials')
+        .select('id')
+        .eq('course_id', courseId),
+      supabaseAdmin
+        .from('submissions')
+        .select(`
+          student_id,
+          submitted_at,
+          assignment:assignments!inner(course_id, max_points),
+          grade:grades(points_earned)
+        `)
+        .eq('assignment.course_id', courseId),
+      supabaseAdmin
+        .from('material_progress')
+        .select('user_id, material_id, completed, progress_percent, last_viewed_at')
+        .eq('course_id', courseId),
+    ]);
+
+  for (const [label, result] of [
+    ['students', studentsResult],
+    ['assignments', assignmentsResult],
+    ['materials', materialsResult],
+    ['submissions', submissionsResult],
+    ['progress', progressResult],
+  ] as const) {
+    if (result.error) {
+      logger.error('Failed to load insights data', {
+        courseId,
+        label,
+        error: result.error.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to compute course insights',
+        500
+      );
+    }
+  }
+
+  // Deduplicate students (multiple enrollment rows can exist for re-joins).
+  const studentMap = new Map<string, PerStudentInsight['student']>();
+  for (const row of (studentsResult.data || []) as Array<{ student?: any }>) {
+    const student = Array.isArray(row.student) ? row.student[0] : row.student;
+    if (!student?.id || studentMap.has(student.id)) continue;
+    studentMap.set(student.id, {
+      id: student.id,
+      email: student.email,
+      first_name: student.first_name ?? null,
+      last_name: student.last_name ?? null,
+      avatar_url: student.avatar_url ?? null,
+    });
+  }
+
+  const assignmentCount = (assignmentsResult.data || []).length;
+  const materialCount = (materialsResult.data || []).length;
+
+  type Bucket = {
+    submissions_total: number;
+    submissions_graded: number;
+    grade_percentages: number[];
+    materials_viewed: Set<string>;
+    last_active_at: number;
+  };
+  const buckets = new Map<string, Bucket>();
+  const ensureBucket = (sid: string): Bucket => {
+    let bucket = buckets.get(sid);
+    if (!bucket) {
+      bucket = {
+        submissions_total: 0,
+        submissions_graded: 0,
+        grade_percentages: [],
+        materials_viewed: new Set<string>(),
+        last_active_at: 0,
+      };
+      buckets.set(sid, bucket);
+    }
+    return bucket;
+  };
+
+  // Submissions → counts, grades, last activity.
+  for (const row of (submissionsResult.data || []) as any[]) {
+    const sid = row.student_id;
+    if (!sid) continue;
+    const bucket = ensureBucket(sid);
+    bucket.submissions_total += 1;
+    const submittedAt = new Date(row.submitted_at || 0).getTime();
+    if (Number.isFinite(submittedAt) && submittedAt > bucket.last_active_at) {
+      bucket.last_active_at = submittedAt;
+    }
+    const gradeRow = Array.isArray(row.grade) ? row.grade[0] : row.grade;
+    const points = gradeRow?.points_earned;
+    const assignment = Array.isArray(row.assignment) ? row.assignment[0] : row.assignment;
+    const maxPoints = assignment?.max_points;
+    if (typeof points === 'number' && typeof maxPoints === 'number' && maxPoints > 0) {
+      bucket.submissions_graded += 1;
+      bucket.grade_percentages.push((points / maxPoints) * 100);
+    }
+  }
+
+  // Material progress → viewed count + last activity (counted once per material).
+  for (const row of (progressResult.data || []) as any[]) {
+    const sid = row.user_id;
+    if (!sid) continue;
+    const bucket = ensureBucket(sid);
+    if (row.completed || (typeof row.progress_percent === 'number' && row.progress_percent > 0)) {
+      bucket.materials_viewed.add(String(row.material_id ?? ''));
+    }
+    const viewedAt = new Date(row.last_viewed_at || 0).getTime();
+    if (Number.isFinite(viewedAt) && viewedAt > bucket.last_active_at) {
+      bucket.last_active_at = viewedAt;
+    }
+  }
+
+  const now = Date.now();
+  const perStudent: PerStudentInsight[] = [];
+
+  for (const student of studentMap.values()) {
+    const bucket = buckets.get(student.id);
+    const submissionsTotal = bucket?.submissions_total ?? 0;
+    const submissionsGraded = bucket?.submissions_graded ?? 0;
+    const lastActiveMs = bucket?.last_active_at ?? 0;
+    const outstanding = Math.max(0, assignmentCount - submissionsTotal);
+    const inactiveTooLong = lastActiveMs === 0 || now - lastActiveMs >= SEVEN_DAYS_MS;
+    const avgGrade =
+      bucket && bucket.grade_percentages.length > 0
+        ? bucket.grade_percentages.reduce((acc, n) => acc + n, 0) /
+          bucket.grade_percentages.length
+        : null;
+
+    perStudent.push({
+      student,
+      last_active_at: lastActiveMs > 0 ? new Date(lastActiveMs).toISOString() : null,
+      submissions_total: submissionsTotal,
+      submissions_graded: submissionsGraded,
+      assignments_outstanding: outstanding,
+      materials_viewed: bucket?.materials_viewed.size ?? 0,
+      materials_total: materialCount,
+      avg_grade_percent: avgGrade !== null ? Math.round(avgGrade * 100) / 100 : null,
+      at_risk: inactiveTooLong && outstanding > 0,
+    });
+  }
+
+  perStudent.sort((a, b) => {
+    const aName = `${a.student.last_name ?? ''} ${a.student.first_name ?? ''}`.trim();
+    const bName = `${b.student.last_name ?? ''} ${b.student.first_name ?? ''}`.trim();
+    return aName.localeCompare(bName);
+  });
+
+  const completionPercents = perStudent.map((row) => {
+    if (assignmentCount === 0) return 0;
+    return Math.min(100, (row.submissions_total / assignmentCount) * 100);
+  });
+  const avgCompletion =
+    completionPercents.length > 0
+      ? completionPercents.reduce((acc, n) => acc + n, 0) / completionPercents.length
+      : 0;
+
+  const allGradePercents: number[] = [];
+  for (const row of perStudent) {
+    if (row.avg_grade_percent !== null) {
+      allGradePercents.push(row.avg_grade_percent);
+    }
+  }
+
+  return {
+    course_id: courseId,
+    generated_at: new Date().toISOString(),
+    per_student: perStudent,
+    class_rollup: {
+      student_count: perStudent.length,
+      assignment_count: assignmentCount,
+      material_count: materialCount,
+      avg_completion_percent: Math.round(avgCompletion * 100) / 100,
+      at_risk_count: perStudent.filter((r) => r.at_risk).length,
+      grade_distribution: computeGradeBins(allGradePercents),
+    },
+  };
 };

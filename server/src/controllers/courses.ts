@@ -1102,3 +1102,34 @@ export const getCourseTeachers = async (
     next(error);
   }
 };
+
+// ============================================
+// Course Insights (teacher analytics)
+// ============================================
+
+/**
+ * Aggregated per-student + class-level engagement and completion metrics
+ * for a single course. Returns the full payload in one round-trip so the
+ * teacher Insights tab does not have to fan out N requests per student.
+ */
+export const getCourseInsights = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { courseId } = req.params;
+    const userId = req.user!.id;
+    const userRole = req.user!.role;
+
+    const insights = await courseService.getCourseInsights(courseId, userId, userRole);
+
+    const response: ApiResponse = {
+      success: true,
+      data: insights,
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};

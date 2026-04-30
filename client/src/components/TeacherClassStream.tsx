@@ -54,6 +54,7 @@ import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { AnnouncementActions } from '@/components/AnnouncementActions';
 import { TeacherClassPeople } from '@/components/TeacherClassPeople';
+import { TeacherClassInsights } from '@/components/TeacherClassInsights';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useMaterials } from '@/hooks-api/useMaterials';
@@ -190,9 +191,9 @@ const CREATE_TASK_OPTIONS: Array<{
   },
 ];
 
-type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions';
+type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions' | 'insights';
 
-const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['stream', 'classwork', 'people', 'submissions'];
+const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['stream', 'classwork', 'people', 'submissions', 'insights'];
 
 const parseTeacherClassTab = (value: string | null): TeacherClassTab => {
   if (value && VALID_TEACHER_CLASS_TABS.includes(value as TeacherClassTab)) {
@@ -1232,6 +1233,16 @@ export function TeacherClassStream({
           >
             Recent Submissions
           </button>
+          <button
+            onClick={() => handleTabChange('insights')}
+            className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
+              activeTab === 'insights'
+                ? 'text-primary'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Insights
+          </button>
         </div>
       </div>
 
@@ -2209,6 +2220,11 @@ export function TeacherClassStream({
                 </Card>
               )}
             </>
+          )}
+
+          {/* Insights Tab Content */}
+          {activeTab === 'insights' && (
+            <TeacherClassInsights classId={classId} />
           )}
         </div>
       </div>
