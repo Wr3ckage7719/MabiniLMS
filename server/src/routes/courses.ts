@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as courseController from '../controllers/courses.js';
 import * as enrollmentController from '../controllers/enrollments.js';
+import * as engagementController from '../controllers/teacher-engagement.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { materialUpload } from '../middleware/upload.js';
 import { validate } from '../middleware/validate.js';
@@ -172,6 +173,17 @@ router.get(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: courseMaterialsParamSchema }),
   courseController.getCourseInsights
+);
+
+// Per-class material engagement rollup. Surfaces the telemetry stored in
+// material_progress (started, completed, avg progress, downloads, last
+// activity) so teachers can see which LMs are sticking and which aren't.
+router.get(
+  '/:courseId/material-engagement',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: courseMaterialsParamSchema }),
+  engagementController.getCourseMaterialEngagementSummary
 );
 
 export default router;

@@ -15,6 +15,7 @@ import {
   submissionIdParamSchema,
   createAssignmentCommentSchema,
   assignmentCommentsParamSchema,
+  setRequiredMaterialsSchema,
 } from '../types/assignments.js';
 import {
   createExamQuestionSchema,
@@ -30,6 +31,8 @@ import {
 } from '../types/exams.js';
 import * as assignmentController from '../controllers/assignments.js';
 import * as examController from '../controllers/exams.js';
+import * as gatingController from '../controllers/assessment-gating.js';
+import * as engagementController from '../controllers/teacher-engagement.js';
 
 const router = Router();
 
@@ -85,6 +88,40 @@ router.delete(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: assignmentIdParamSchema }),
   assignmentController.deleteAssignment
+);
+
+// ============================================
+// LM-gating: required materials per assessment
+// ============================================
+
+// GET /api/assignments/:id/required-materials - list configured required LMs
+router.get(
+  '/:id/required-materials',
+  validate({ params: assignmentIdParamSchema }),
+  gatingController.listRequiredMaterials
+);
+
+// PUT /api/assignments/:id/required-materials - replace required-LM list (teacher/admin)
+router.put(
+  '/:id/required-materials',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentIdParamSchema, body: setRequiredMaterialsSchema }),
+  gatingController.setRequiredMaterials
+);
+
+// GET /api/assignments/:id/lock-state/me - current student's lock state for this assessment
+router.get(
+  '/:id/lock-state/me',
+  validate({ params: assignmentIdParamSchema }),
+  gatingController.getMyLockState
+);
+
+// GET /api/assignments/:id/readiness - per-student readiness rollup (teacher/admin)
+router.get(
+  '/:id/readiness',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: assignmentIdParamSchema }),
+  engagementController.getAssessmentReadiness
 );
 
 // ============================================

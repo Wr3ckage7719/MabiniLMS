@@ -41,6 +41,7 @@ export enum ErrorCode {
   INVALID_INPUT = 'INVALID_INPUT',
   DATABASE_ERROR = 'DATABASE_ERROR',
   TOO_MANY_REQUESTS = 'TOO_MANY_REQUESTS',
+  LOCKED = 'LOCKED',
 }
 
 // Custom error class

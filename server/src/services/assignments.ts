@@ -31,6 +31,7 @@ import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceive
 import logger from '../utils/logger.js';
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
+import { assertAssessmentUnlocked } from './assessment-gating.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
@@ -1345,6 +1346,11 @@ export const submitAssignment = async (
       403
     );
   }
+
+  // LM-gating: block submissions when required learning materials are not
+  // yet completed. Runs after the enrolment check so unenrolled callers
+  // still get 403, not 423.
+  await assertAssessmentUnlocked(assignmentId, userId);
 
   const now = new Date();
   const submissionsOpen = (assignment as AssignmentWithCourse).submissions_open;

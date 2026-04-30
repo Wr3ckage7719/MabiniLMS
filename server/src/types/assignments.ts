@@ -234,6 +234,27 @@ export const requestRevisionSchema = z.object({
 });
 
 // ============================================
+// LM-gating: required-materials schemas
+// ============================================
+
+export const requiredMaterialEntrySchema = z.object({
+  material_id: z.string().uuid('Invalid material ID'),
+  min_progress_percent: z
+    .number()
+    .min(0, 'min_progress_percent must be between 0 and 100')
+    .max(100, 'min_progress_percent must be between 0 and 100')
+    .optional(),
+});
+
+export const setRequiredMaterialsSchema = z.object({
+  enabled: z.boolean().optional(),
+  materials: z.array(requiredMaterialEntrySchema).max(50, 'Up to 50 required materials per assessment'),
+});
+
+export type RequiredMaterialEntryInput = z.infer<typeof requiredMaterialEntrySchema>;
+export type SetRequiredMaterialsInput = z.infer<typeof setRequiredMaterialsSchema>;
+
+// ============================================
 // Assignment Comment Schemas
 // ============================================
 

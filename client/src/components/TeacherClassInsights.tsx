@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCourseInsights } from '@/hooks-api/useCourseInsights';
+import { MaterialEngagementPanel } from '@/components/MaterialEngagementPanel';
 
 interface TeacherClassInsightsProps {
   classId: string;
@@ -227,6 +228,8 @@ export function TeacherClassInsights({ classId }: TeacherClassInsightsProps) {
           )}
         </CardContent>
       </Card>
+
+      <MaterialEngagementPanel classId={classId} />
     </div>
   );
 }
