@@ -13,7 +13,7 @@ import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound } from 'lucide-react';
+import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound, Tag } from 'lucide-react';
 import { getTaskTypeMeta, GRADING_PERIOD_LABELS } from '@/lib/task-types';
 import { formatMabiniGradePoint } from '@/lib/grade-points';
 import type { MabiniGradingPeriodKey, WeightedGradeCategory } from '@/services/grades.service';
@@ -44,6 +44,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const FILE_TYPE_ICONS: Record<string, typeof FileText> = {
   pdf: FileText,
@@ -89,6 +96,7 @@ export default function ClassDetail() {
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | null>(null);
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const [previewMaterial, setPreviewMaterial] = useState<LearningMaterial | null>(null);
+  const [classworkTopicFilter, setClassworkTopicFilter] = useState<string>('all');
   const classId = id || '';
 
   const classQuery = useClass(classId);
@@ -127,6 +135,29 @@ export default function ClassDetail() {
   const classStudents = studentsQuery.data || [];
   const classGrades = gradesQuery.data || [];
   const discussionCommentCount = (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
+
+  // Sorted unique topic labels across this class's assignments — populates the
+  // Classwork tab's filter dropdown (mobile + desktop share state).
+  const availableTopics = useMemo(() => {
+    const set = new Set<string>();
+    for (const assignment of assignments) {
+      for (const topic of assignment.topics ?? []) {
+        set.add(topic);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [assignments]);
+
+  useEffect(() => {
+    if (classworkTopicFilter !== 'all' && !availableTopics.includes(classworkTopicFilter)) {
+      setClassworkTopicFilter('all');
+    }
+  }, [availableTopics, classworkTopicFilter]);
+
+  const filteredAssignments = useMemo(() => {
+    if (classworkTopicFilter === 'all') return assignments;
+    return assignments.filter((a) => (a.topics ?? []).includes(classworkTopicFilter));
+  }, [assignments, classworkTopicFilter]);
 
   useEffect(() => {
     const assignmentId = searchParams.get('assignmentId');
@@ -461,10 +492,30 @@ export default function ClassDetail() {
 
           {/* Mobile Classwork */}
           <TabsContent value="classwork" className="md:hidden space-y-3">
+            {availableTopics.length > 0 && (
+              <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
+                <SelectTrigger
+                  className="w-full rounded-lg h-9 text-[12px]"
+                  aria-label="Filter classwork by topic"
+                >
+                  <Tag className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All topics</SelectItem>
+                  {availableTopics.map((topic) => (
+                    <SelectItem key={topic} value={topic}>
+                      {topic}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <div className="space-y-1.5">
               <h3 className="font-semibold text-[13px]">Assignments</h3>
-              {assignments.length > 0 ? (
-                assignments.map((a) => {
+              {filteredAssignments.length > 0 ? (
+                filteredAssignments.map((a) => {
                   const meta = getTaskTypeMeta(a.rawType || a.type);
                   const Icon = meta.icon;
                   const assignmentTypeLabel = meta.label;
@@ -499,6 +550,19 @@ export default function ClassDetail() {
                                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 h-5">Late</Badge>
                               )}
                             </div>
+                            {(a.topics ?? []).length > 0 && (
+                              <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                                {(a.topics ?? []).map((topic) => (
+                                  <Badge
+                                    key={topic}
+                                    variant="outline"
+                                    className="text-[10px] px-1.5 py-0.5 h-5 rounded-full border-primary/40 bg-primary/5 text-primary"
+                                  >
+                                    {topic}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
                             <p className={`text-[11px] mt-1 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
                               Due {formatShortDate(a.dueDate)}
                             </p>
@@ -510,7 +574,20 @@ export default function ClassDetail() {
                 })
               ) : (
                 <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
-                  No assignments yet
+                  {classworkTopicFilter === 'all' ? (
+                    'No assignments yet'
+                  ) : (
+                    <>
+                      No assignments tagged "{classworkTopicFilter}".{' '}
+                      <button
+                        type="button"
+                        onClick={() => setClassworkTopicFilter('all')}
+                        className="text-primary hover:underline"
+                      >
+                        Clear filter
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -643,9 +720,30 @@ export default function ClassDetail() {
 
           {/* Assignments */}
           <TabsContent value="assignments" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
-            <h3 className="font-semibold text-sm md:text-base">All Assignments</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-sm md:text-base">All Assignments</h3>
+              {availableTopics.length > 0 && (
+                <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
+                  <SelectTrigger
+                    className="w-56 rounded-lg h-9"
+                    aria-label="Filter assignments by topic"
+                  >
+                    <Tag className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All topics</SelectItem>
+                    {availableTopics.map((topic) => (
+                      <SelectItem key={topic} value={topic}>
+                        {topic}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <div className="space-y-1 md:space-y-2 lg:space-y-3 animate-stagger">
-              {assignments.map((a) => {
+              {filteredAssignments.map((a) => {
                 const meta = getTaskTypeMeta(a.rawType || a.type);
                 const Icon = meta.icon;
                 return (
@@ -661,6 +759,19 @@ export default function ClassDetail() {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm md:text-base truncate">{a.title}</p>
                         <p className="text-xs md:text-sm text-muted-foreground mt-0.5 truncate">{a.description}</p>
+                        {(a.topics ?? []).length > 0 && (
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                            {(a.topics ?? []).map((topic) => (
+                              <Badge
+                                key={topic}
+                                variant="outline"
+                                className="rounded-full text-[10px] px-1.5 py-0 h-5 border-primary/40 bg-primary/5 text-primary"
+                              >
+                                {topic}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 md:gap-3 flex-wrap md:flex-nowrap md:shrink-0">
                         <Badge variant="outline" className={`text-xs border ${meta.badgeClass}`}>
@@ -691,10 +802,25 @@ export default function ClassDetail() {
                   </Card>
                 );
               })}
-              {assignments.length === 0 && (
+              {filteredAssignments.length === 0 && (
                 <div className="text-center py-8 md:py-12 text-muted-foreground">
                   <FileText className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 md:mb-3 opacity-30" />
-                  <p className="text-sm md:text-base">No assignments yet</p>
+                  {classworkTopicFilter === 'all' ? (
+                    <p className="text-sm md:text-base">No assignments yet</p>
+                  ) : (
+                    <>
+                      <p className="text-sm md:text-base">
+                        No assignments tagged "{classworkTopicFilter}"
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setClassworkTopicFilter('all')}
+                        className="text-sm text-primary hover:underline mt-1"
+                      >
+                        Clear filter
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

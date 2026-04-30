@@ -30,7 +30,6 @@ import {
 import {
   Calendar,
   FileText,
-  Tags,
   Edit2,
   Save,
   X,
@@ -102,11 +101,6 @@ interface ApiAssignmentComment {
   } | null;
 }
 
-interface Topic {
-  id: string;
-  name: string;
-}
-
 const STATUS_LABELS: Record<SubmissionStatus, string> = {
   draft: 'Draft',
   submitted: 'Submitted',
@@ -143,10 +137,10 @@ interface TeacherAssignmentDetailProps {
     points: number;
     type: 'activity' | 'material';
     rawType?: string;
-    topics: Topic[];
     acceptingSubmissions: boolean;
     submissionOpenAt?: string | null;
     submissionCloseAt?: string | null;
+    topics?: string[];
   } | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -216,11 +210,8 @@ export function TeacherAssignmentDetail({
     assignment ? new Date(assignment.dueDate) : undefined
   );
   const [editedPoints, setEditedPoints] = useState(String(assignment?.points ?? 0));
-  const [editedTopics, setEditedTopics] = useState<Topic[]>(
-    assignment?.topics ?? []
-  );
-  const [newTopic, setNewTopic] = useState('');
-  const [showNewTopicInput, setShowNewTopicInput] = useState(false);
+  const [editedTopics, setEditedTopics] = useState<string[]>(assignment?.topics ?? []);
+  const [topicDraft, setTopicDraft] = useState('');
   const [acceptingSubmissions, setAcceptingSubmissions] = useState(
     assignment?.acceptingSubmissions ?? true
   );
@@ -349,6 +340,7 @@ export function TeacherAssignmentDetail({
     setEditedDueDate(assignment.dueDate ? new Date(assignment.dueDate) : undefined);
     setEditedPoints(String(assignment.points ?? 0));
     setEditedTopics(assignment.topics ?? []);
+    setTopicDraft('');
     setAcceptingSubmissions(assignment.acceptingSubmissions ?? true);
     setSubmissionClosedAt(assignment.submissionCloseAt ?? null);
     setComments([]);
@@ -446,6 +438,7 @@ export function TeacherAssignmentDetail({
         description: editedDescription,
         due_date: editedDueDate ? editedDueDate.toISOString() : null,
         max_points: parsedPoints,
+        topics: editedTopics,
       });
 
       setIsEditing(false);
@@ -543,21 +536,6 @@ export function TeacherAssignmentDetail({
     } finally {
       setUpdatingSubmissionSettings(false);
     }
-  };
-
-  const handleAddTopic = () => {
-    if (!newTopic.trim()) return;
-    const topic: Topic = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newTopic.trim(),
-    };
-    setEditedTopics([...editedTopics, topic]);
-    setNewTopic('');
-    setShowNewTopicInput(false);
-  };
-
-  const handleRemoveTopic = (topicId: string) => {
-    setEditedTopics(editedTopics.filter((t) => t.id !== topicId));
   };
 
   const handleAddComment = async () => {
@@ -881,7 +859,6 @@ export function TeacherAssignmentDetail({
                     setEditedTitle(editedTitle);
                     setEditedDescription(editedDescription);
                     setEditedPoints(editedPoints);
-                    setEditedTopics(editedTopics);
                   }
                   setIsEditing(!isEditing);
                 }}
@@ -1159,81 +1136,88 @@ export function TeacherAssignmentDetail({
               </div>
 
               {/* Topics */}
-              <div>
-                <h3 className="font-semibold mb-2 flex items-center gap-2">
-                  <Tags className="h-4 w-4" />
-                  Topics
-                </h3>
-                {editedTopics.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {editedTopics.map((topic) => (
-                      <div
-                        key={topic.id}
-                        className="bg-primary/10 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2"
-                      >
-                        {topic.name}
-                        {isEditing && (
-                          <button
-                            onClick={() => handleRemoveTopic(topic.id)}
-                            className="hover:text-destructive"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {isEditing && (
-                  <div>
-                    {!showNewTopicInput ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-lg gap-2"
-                        onClick={() => setShowNewTopicInput(true)}
-                      >
-                        <Plus className="h-3 w-3" />
-                        Add Topic
-                      </Button>
-                    ) : (
+              {(isEditing || editedTopics.length > 0) && (
+                <div>
+                  <h3 className="font-semibold mb-2 text-sm">Topics</h3>
+                  {editedTopics.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {editedTopics.map((topic) => (
+                        <span
+                          key={topic}
+                          className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-medium"
+                        >
+                          {topic}
+                          {isEditing && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditedTopics((prev) => prev.filter((entry) => entry !== topic))
+                              }
+                              className="ml-0.5 hover:text-destructive"
+                              aria-label={`Remove topic ${topic}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {isEditing && (
+                    <div className="space-y-2">
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Topic name..."
-                          value={newTopic}
-                          onChange={(e) => setNewTopic(e.target.value)}
+                          placeholder="Add a topic..."
+                          value={topicDraft}
+                          onChange={(e) => setTopicDraft(e.target.value)}
+                          maxLength={40}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              handleAddTopic();
+                              const value = topicDraft.trim();
+                              if (!value) return;
+                              setEditedTopics((prev) => {
+                                if (prev.length >= 10) return prev;
+                                const exists = prev.some(
+                                  (entry) => entry.toLowerCase() === value.toLowerCase()
+                                );
+                                return exists ? prev : [...prev, value];
+                              });
+                              setTopicDraft('');
                             }
                           }}
                           className="rounded-lg text-sm"
-                          autoFocus
+                          disabled={editedTopics.length >= 10}
                         />
                         <Button
+                          type="button"
                           size="icon"
-                          className="rounded-lg"
-                          onClick={handleAddTopic}
+                          className="rounded-lg shrink-0"
+                          disabled={!topicDraft.trim() || editedTopics.length >= 10}
+                          onClick={() => {
+                            const value = topicDraft.trim();
+                            if (!value) return;
+                            setEditedTopics((prev) => {
+                              if (prev.length >= 10) return prev;
+                              const exists = prev.some(
+                                (entry) => entry.toLowerCase() === value.toLowerCase()
+                              );
+                              return exists ? prev : [...prev, value];
+                            });
+                            setTopicDraft('');
+                          }}
+                          aria-label="Add topic"
                         >
                           <Plus className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="rounded-lg"
-                          onClick={() => {
-                            setShowNewTopicInput(false);
-                            setNewTopic('');
-                          }}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {editedTopics.length}/10 topics · max 40 characters each
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Type-specific info panel */}
               {isQuizAssignment && (

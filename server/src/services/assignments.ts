@@ -61,7 +61,30 @@ const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'is_proctored',
   'exam_duration_minutes',
   'proctoring_policy',
+  'topics',
 ]);
+
+const sanitizeTopicsInput = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (!trimmed || trimmed.length > 40) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+    if (out.length >= 10) break;
+  }
+
+  return out;
+};
 
 const DEFAULT_PROCTORING_POLICY: Record<string, unknown> = {
   max_violations: 3,
@@ -380,6 +403,9 @@ const normalizeAssignmentRecord = (assignment: any): any => {
   return {
     ...assignment,
     assignment_type: normalizeAssignmentType(assignment.assignment_type),
+    topics: Array.isArray(assignment.topics)
+      ? assignment.topics.filter((entry: unknown): entry is string => typeof entry === 'string')
+      : [],
   };
 };
 
@@ -793,6 +819,11 @@ export const createAssignment = async (
     created_at: new Date().toISOString(),
   };
 
+  const topicsForInsert = sanitizeTopicsInput(input.topics);
+  if (topicsForInsert !== undefined) {
+    insertPayload.topics = topicsForInsert;
+  }
+
   if (hasAssignmentTypeColumn) {
     insertPayload.assignment_type = assignmentType;
   }
@@ -1174,6 +1205,15 @@ export const updateAssignment = async (
     });
     if (updatePayload.proctoring_policy === undefined) {
       delete updatePayload.proctoring_policy;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalizedInput, 'topics')) {
+    const sanitized = sanitizeTopicsInput(normalizedInput.topics);
+    if (sanitized === undefined) {
+      delete updatePayload.topics;
+    } else {
+      updatePayload.topics = sanitized;
     }
   }
 

@@ -69,11 +69,6 @@ interface AttachedFile {
   file: File;
 }
 
-interface Topic {
-  id: string;
-  name: string;
-}
-
 export type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam';
 type ActivityMode = 'essay_writing' | 'group_activity' | 'assignment';
 type QuizQuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in_blank' | 'essay';
@@ -595,9 +590,8 @@ export function CreateAssignmentDialog({
   const [examQuestionsPerChapter, setExamQuestionsPerChapter] = useState('5');
   const [examTotalQuestions, setExamTotalQuestions] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [newTopic, setNewTopic] = useState('');
-  const [showTopicInput, setShowTopicInput] = useState(false);
+  const [topics, setTopics] = useState<string[]>([]);
+  const [topicDraft, setTopicDraft] = useState('');
   const [gradingPeriod, setGradingPeriod] = useState<'pre_mid' | 'midterm' | 'pre_final' | 'final' | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingMaterial, setIsUploadingMaterial] = useState(false);
@@ -786,20 +780,34 @@ export function CreateAssignmentDialog({
   };
 
   const addTopic = () => {
-    if (!newTopic.trim()) return;
+    const value = topicDraft.trim();
+    if (!value) return;
+    if (value.length > 40) {
+      toast({
+        title: 'Topic too long',
+        description: 'Topics must be 40 characters or fewer.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-    const topic: Topic = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newTopic.trim(),
-    };
-
-    setTopics((prev) => [...prev, topic]);
-    setNewTopic('');
-    setShowTopicInput(false);
+    setTopics((prev) => {
+      if (prev.length >= 10) {
+        toast({
+          title: 'Topic limit reached',
+          description: 'A task can have at most 10 topics.',
+          variant: 'destructive',
+        });
+        return prev;
+      }
+      const exists = prev.some((entry) => entry.toLowerCase() === value.toLowerCase());
+      return exists ? prev : [...prev, value];
+    });
+    setTopicDraft('');
   };
 
-  const removeTopic = (topicId: string) => {
-    setTopics((prev) => prev.filter((t) => t.id !== topicId));
+  const removeTopic = (topic: string) => {
+    setTopics((prev) => prev.filter((entry) => entry !== topic));
   };
 
   const toggleActivityFileType = (fileType: string, checked: boolean) => {
@@ -1402,6 +1410,7 @@ export function CreateAssignmentDialog({
           submission_open_at: submissionOpenAt,
           submission_close_at: submissionCloseAt,
           instructions: assignmentInstructions,
+          topics: topics.length > 0 ? topics : undefined,
           question_order_mode:
             taskType === 'quiz'
               ? quizQuestionOrder
@@ -1557,8 +1566,7 @@ export function CreateAssignmentDialog({
     setGradingPeriod('');
     setFiles([]);
     setTopics([]);
-    setNewTopic('');
-    setShowTopicInput(false);
+    setTopicDraft('');
     setIsSubmitting(false);
     setIsUploadingMaterial(false);
     setMaterialUploadProgress(0);
@@ -2698,90 +2706,64 @@ export function CreateAssignmentDialog({
     </div>
   );
 
-  const categoriesSectionContent = (
+  const topicsSectionContent = (
     <div>
       <p className="text-sm text-muted-foreground mb-4">
-        Organize your task by adding categories. Students can filter
-        by categories to find relevant content.
+        Tag this task with topics (e.g. "Homework", "Group Work", "Algebra"). Students can
+        filter the Classwork tab by topic to find related work.
       </p>
 
-      {/* Categories List */}
       {topics.length > 0 && (
-        <div className="space-y-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           {topics.map((topic) => (
-            <div
-              key={topic.id}
-              className="flex items-center justify-between p-3 bg-card border border-border rounded-lg"
+            <span
+              key={topic}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-medium"
             >
-              <span className="text-sm font-medium">{topic.name}</span>
+              {topic}
               <button
-                onClick={() => removeTopic(topic.id)}
-                className="p-1 hover:bg-destructive/10 rounded transition-colors"
+                type="button"
+                onClick={() => removeTopic(topic)}
+                className="ml-0.5 hover:text-destructive"
+                aria-label={`Remove topic ${topic}`}
               >
-                <Trash2 className="h-4 w-4 text-destructive" />
+                <X className="h-3 w-3" />
               </button>
-            </div>
+            </span>
           ))}
         </div>
       )}
 
-      {/* Add Category */}
-      {!showTopicInput ? (
+      <div className="flex gap-2">
+        <Input
+          placeholder="e.g., Homework, Group Work, Algebra..."
+          value={topicDraft}
+          onChange={(e) => setTopicDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addTopic();
+            }
+          }}
+          maxLength={40}
+          className="rounded-lg"
+          disabled={topics.length >= 10}
+        />
         <Button
-          variant="outline"
-          className="w-full rounded-lg gap-2"
-          onClick={() => setShowTopicInput(true)}
+          type="button"
+          size="icon"
+          className="rounded-lg shrink-0"
+          onClick={addTopic}
+          disabled={!topicDraft.trim() || topics.length >= 10}
+          aria-label="Add topic"
         >
           <Plus className="h-4 w-4" />
-          Add Category
         </Button>
-      ) : (
-        <div className="flex gap-2">
-          <Input
-            placeholder="e.g., Homework, Group Work, Algebra..."
-            value={newTopic}
-            onChange={(e) => setNewTopic(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addTopic();
-              }
-            }}
-            className="rounded-lg"
-            autoFocus
-          />
-          <Button
-            size="icon"
-            className="rounded-lg shrink-0"
-            onClick={addTopic}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-          <Button
-            size="icon"
-            variant="outline"
-            className="rounded-lg shrink-0"
-            onClick={() => {
-              setShowTopicInput(false);
-              setNewTopic('');
-            }}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
+      </div>
 
-      {/* No categories message */}
-      {topics.length === 0 && !showTopicInput && (
-        <Card className="border-0 bg-muted/30 mt-4">
-          <CardContent className="p-4 text-center">
-            <p className="text-xs text-muted-foreground">
-              No categories added yet. Categories help organize content and
-              improve discoverability.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      <p className="text-[11px] text-muted-foreground mt-2">
+        {topics.length}/10 topics · max 40 characters each
+      </p>
     </div>
   );
 
@@ -2939,7 +2921,7 @@ export function CreateAssignmentDialog({
           Details
         </TabsTrigger>
         <TabsTrigger value="topics" className="rounded-md">
-          Categories
+          Topics
         </TabsTrigger>
         <TabsTrigger value="files" className="rounded-md">
           Attachments
@@ -2951,9 +2933,9 @@ export function CreateAssignmentDialog({
         {detailsSectionContent}
       </TabsContent>
 
-      {/* Categories Tab */}
+      {/* Topics Tab */}
       <TabsContent value="topics" className="space-y-4 mt-6">
-        {categoriesSectionContent}
+        {topicsSectionContent}
       </TabsContent>
 
       {/* Files Tab */}
@@ -2974,9 +2956,9 @@ export function CreateAssignmentDialog({
 
       <section className="space-y-4">
         <div className="border-b border-border pb-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Topics</h3>
         </div>
-        {categoriesSectionContent}
+        {topicsSectionContent}
       </section>
 
       <section className="space-y-4">

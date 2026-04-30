@@ -29,6 +29,7 @@ export interface Assignment {
   submissionOpenAt?: string | null;
   submissionCloseAt?: string | null;
   attachments?: number;
+  topics?: string[];
 }
 
 export interface Announcement {

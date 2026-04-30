@@ -16,6 +16,7 @@ import {
   Upload,
   Download,
   Trash2,
+  Tag,
 } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssignmentDialog';
 import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
@@ -104,7 +112,7 @@ interface ClassworkAssignment {
   status: 'active' | 'completed';
   type: 'activity' | 'material';
   rawType?: string;
-  topic?: string;
+  topics: string[];
   acceptingSubmissions: boolean;
   submissionOpenAt?: string | null;
   submissionCloseAt?: string | null;
@@ -334,6 +342,7 @@ export function TeacherClassStream({
   const [submissionFeedback, setSubmissionFeedback] = useState('');
   const [savingSubmissionGrade, setSavingSubmissionGrade] = useState(false);
   const [assignments, setAssignments] = useState<ClassworkAssignment[]>([]);
+  const [classworkTopicFilter, setClassworkTopicFilter] = useState<string>('all');
   const [editingAnnouncement, setEditingAnnouncement] = useState<EditableAnnouncement | null>(null);
   const [editAnnouncementTitle, setEditAnnouncementTitle] = useState('');
   const [editAnnouncementContent, setEditAnnouncementContent] = useState('');
@@ -451,6 +460,7 @@ export function TeacherClassStream({
       status: assignment.status === 'graded' ? 'completed' : 'active',
       type: assignment.type === 'discussion' ? 'material' : 'activity',
       rawType: assignment.rawType,
+      topics: assignment.topics ?? [],
       acceptingSubmissions: assignment.submissionsOpen ?? true,
       submissionOpenAt: assignment.submissionOpenAt ?? null,
       submissionCloseAt: assignment.submissionCloseAt ?? null,
@@ -459,6 +469,33 @@ export function TeacherClassStream({
 
     setAssignments(mappedAssignments);
   }, [apiAssignments, apiSubmissions]);
+
+  // Sorted, deduplicated topic list across this class's assignments — used to
+  // populate the Classwork tab's filter dropdown. Reset filter if the active
+  // topic disappears (e.g. last assignment with that topic was deleted).
+  const availableClassworkTopics = useMemo(() => {
+    const set = new Set<string>();
+    for (const assignment of assignments) {
+      for (const topic of assignment.topics) {
+        set.add(topic);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [assignments]);
+
+  useEffect(() => {
+    if (
+      classworkTopicFilter !== 'all'
+      && !availableClassworkTopics.includes(classworkTopicFilter)
+    ) {
+      setClassworkTopicFilter('all');
+    }
+  }, [availableClassworkTopics, classworkTopicFilter]);
+
+  const filteredClassworkAssignments = useMemo(() => {
+    if (classworkTopicFilter === 'all') return assignments;
+    return assignments.filter((item) => item.topics.includes(classworkTopicFilter));
+  }, [assignments, classworkTopicFilter]);
 
   const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
     return apiSubmissions
@@ -1777,8 +1814,32 @@ export function TeacherClassStream({
           {/* Classwork Tab Content */}
           {activeTab === 'classwork' && (
             <div className="space-y-4">
-              {/* Create Classwork Button */}
-              <div className="flex justify-end">
+              {/* Topic filter + Create button */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
+                  <SelectTrigger
+                    className="w-full sm:w-56 rounded-lg"
+                    aria-label="Filter classwork by topic"
+                  >
+                    <Tag className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All topics</SelectItem>
+                    {availableClassworkTopics.length === 0 ? (
+                      <SelectItem value="__none__" disabled>
+                        No topics yet
+                      </SelectItem>
+                    ) : (
+                      availableClassworkTopics.map((topic) => (
+                        <SelectItem key={topic} value={topic}>
+                          {topic}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1817,8 +1878,8 @@ export function TeacherClassStream({
 
               {/* Classwork Items */}
               <div className="space-y-3">
-                {assignments.length > 0 ? (
-                  assignments.map((item, idx) => {
+                {filteredClassworkAssignments.length > 0 ? (
+                  filteredClassworkAssignments.map((item, idx) => {
                     const itemMeta = getTaskTypeMeta(item.rawType);
                     const ItemIcon = itemMeta.icon;
                     return (
@@ -1867,7 +1928,21 @@ export function TeacherClassStream({
                             )}
                             
                             <p className="text-xs text-muted-foreground mb-3 font-medium">Due: {item.dueDate}</p>
-                            
+
+                            {item.topics.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                {item.topics.map((topic) => (
+                                  <Badge
+                                    key={topic}
+                                    variant="outline"
+                                    className="rounded-full text-[10px] px-2 py-0 h-5 border-primary/40 bg-primary/5 text-primary"
+                                  >
+                                    {topic}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+
                             {/* Progress Bar */}
                             <div className="space-y-1">
                               <div className="flex items-center justify-between">
@@ -1929,8 +2004,25 @@ export function TeacherClassStream({
                   <Card className="border-0 shadow-sm">
                     <CardContent className="p-12 text-center">
                       <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-                      <p className="text-muted-foreground font-medium">No assignments yet</p>
-                      <p className="text-xs text-muted-foreground mt-1">Create one to get started</p>
+                      {classworkTopicFilter === 'all' ? (
+                        <>
+                          <p className="text-muted-foreground font-medium">No assignments yet</p>
+                          <p className="text-xs text-muted-foreground mt-1">Create one to get started</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-muted-foreground font-medium">
+                            No assignments tagged "{classworkTopicFilter}"
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setClassworkTopicFilter('all')}
+                            className="text-xs text-primary hover:underline mt-1"
+                          >
+                            Clear filter
+                          </button>
+                        </>
+                      )}
                     </CardContent>
                   </Card>
                 )}
@@ -2197,7 +2289,7 @@ export function TeacherClassStream({
             points: selectedAssignment.points,
             type: selectedAssignment.type,
             rawType: selectedAssignment.rawType,
-            topics: selectedAssignment.topic ? [{ id: '1', name: selectedAssignment.topic }] : [],
+            topics: selectedAssignment.topics,
             acceptingSubmissions: selectedAssignment.acceptingSubmissions,
             submissionOpenAt: selectedAssignment.submissionOpenAt,
             submissionCloseAt: selectedAssignment.submissionCloseAt,
