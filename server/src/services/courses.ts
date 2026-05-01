@@ -1244,7 +1244,69 @@ export const createMaterial = async (
     });
   }
 
+  // D10 — park the material in the course's General lesson if it isn't
+  // already linked to one, so the lesson model owns every file.
+  await ensureMaterialParkedInGeneralLesson(courseId, String(data.id));
+
   return data as CourseMaterial;
+};
+
+const ensureMaterialParkedInGeneralLesson = async (
+  courseId: string,
+  materialId: string
+): Promise<void> => {
+  const { data: existing } = await supabaseAdmin
+    .from('lesson_materials')
+    .select('lesson_id')
+    .eq('material_id', materialId)
+    .maybeSingle();
+  if (existing) return;
+
+  let { data: general } = await supabaseAdmin
+    .from('lessons')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('is_general', true)
+    .maybeSingle();
+
+  if (!general) {
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from('lessons')
+      .insert({
+        course_id: courseId,
+        title: 'General',
+        description: 'Holds existing assignments and materials that were created before lessons. Split or rename as needed.',
+        topics: [],
+        sort_order: 9999,
+        is_published: true,
+        is_general: true,
+        completion_rule_type: 'mark_as_done',
+        completion_rule_min_minutes: null,
+        next_lesson_id: null,
+        unlock_on_submit: true,
+        unlock_on_pass: false,
+        pass_threshold_percent: null,
+      })
+      .select('id')
+      .single();
+    if (createErr || !created) return;
+    general = created as { id: string };
+  }
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('lesson_materials')
+    .insert({
+      lesson_id: (general as { id: string }).id,
+      material_id: materialId,
+      sort_order: 0,
+    });
+  if (linkErr && (linkErr as { code?: string }).code !== '23505') {
+    logger.warn('Could not park material in General lesson', {
+      courseId,
+      materialId,
+      error: linkErr.message,
+    });
+  }
 };
 
 /**

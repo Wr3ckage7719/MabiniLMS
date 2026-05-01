@@ -123,12 +123,11 @@ export interface LearningMaterial {
 // Lesson model (LM-centric flow)
 // ============================================
 //
-// Frontend-only stand-in for the upcoming lesson backend. Lessons are the
-// new unit of progression: each lesson owns its files, its completion rule,
-// and the assessments that unlock after it. Lessons can be chained so the
-// next one stays locked until the previous lesson and its assessments are
-// cleared. The shapes here mirror what the backend will return; the source
-// of truth today is `services/lessons.fixtures.ts`.
+// Lessons are the unit of progression: each lesson owns its files, its
+// completion rule, and the assessments that unlock after it. Lessons can be
+// chained so the next one stays locked until the previous lesson and its
+// assessments are cleared. The shapes here mirror what the backend at
+// /api/lessons returns.
 
 export type LessonStatus = 'locked' | 'active' | 'done' | 'draft';
 
