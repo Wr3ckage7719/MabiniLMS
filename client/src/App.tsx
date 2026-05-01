@@ -14,6 +14,8 @@ import CalendarPage from "./pages/CalendarPage";
 import UpcomingPage from "./pages/UpcomingPage";
 import GradesPage from "./pages/GradesPage";
 import CompetencyPortfolioPage from "./pages/CompetencyPortfolioPage";
+import LessonDetailPage from "./pages/LessonDetailPage";
+import LessonEditorPage from "./pages/LessonEditorPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import GoogleStudentSetupPage from "./pages/GoogleStudentSetupPage";
@@ -91,6 +93,24 @@ const AppRoutes = () => (
       <Route path="/admin/bug-reports" element={<BugReportsPage />} />
     </Route>
     
+    {/* Full-screen lesson pages — outside AppLayout so they own the entire viewport. */}
+    <Route
+      path="/class/:id/lessons/:lessonId/edit"
+      element={(
+        <ProtectedRoute>
+          <LessonEditorPage />
+        </ProtectedRoute>
+      )}
+    />
+    <Route
+      path="/class/:id/lessons/:lessonId"
+      element={(
+        <ProtectedRoute>
+          <LessonDetailPage />
+        </ProtectedRoute>
+      )}
+    />
+
     {/* Regular App Routes */}
     <Route element={<AppLayout />}>
       <Route path="/dashboard" element={<Dashboard />} />

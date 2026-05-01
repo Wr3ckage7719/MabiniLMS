@@ -19,6 +19,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
+import { LessonListBoard } from '@/components/lessons/LessonListBoard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -191,16 +192,16 @@ const CREATE_TASK_OPTIONS: Array<{
   },
 ];
 
-type TeacherClassTab = 'stream' | 'classwork' | 'people' | 'submissions' | 'insights';
+type TeacherClassTab = 'lessons' | 'stream' | 'classwork' | 'people' | 'submissions' | 'insights';
 
-const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['stream', 'classwork', 'people', 'submissions', 'insights'];
+const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['lessons', 'stream', 'classwork', 'people', 'submissions', 'insights'];
 
 const parseTeacherClassTab = (value: string | null): TeacherClassTab => {
   if (value && VALID_TEACHER_CLASS_TABS.includes(value as TeacherClassTab)) {
     return value as TeacherClassTab;
   }
 
-  return 'stream';
+  return 'lessons';
 };
 
 const parseTaskTypeParam = (value: string | null): TaskType | null => {
@@ -323,7 +324,7 @@ export function TeacherClassStream({
   );
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(classCoverImage || null);
   const [savingAppearance, setSavingAppearance] = useState(false);
-  const [activeTab, setActiveTab] = useState<TeacherClassTab>('stream');
+  const [activeTab, setActiveTab] = useState<TeacherClassTab>('lessons');
   const [builderTaskType, setBuilderTaskType] = useState<TaskType | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<ClassworkAssignment | null>(null);
   const [showAssignmentDetail, setShowAssignmentDetail] = useState(false);
@@ -1194,6 +1195,16 @@ export function TeacherClassStream({
       <div className="mb-6">
         <div className="flex gap-1 md:gap-6">
           <button
+            onClick={() => handleTabChange('lessons')}
+            className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
+              activeTab === 'lessons'
+                ? 'text-primary'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Lessons
+          </button>
+          <button
             onClick={() => handleTabChange('stream')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'stream'
@@ -1514,6 +1525,11 @@ export function TeacherClassStream({
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Lessons Tab — LM-centric primary view */}
+          {activeTab === 'lessons' && (
+            <LessonListBoard classId={classId} />
+          )}
 
           {/* Stream Tab Content */}
           {activeTab === 'stream' && (
