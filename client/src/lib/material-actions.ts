@@ -47,16 +47,11 @@ const toSafeFileName = (title: string): string => {
 };
 
 const defaultTrackViewStart: TrackMaterialViewStart = async (materialId) => {
-  const { materialsService } = await import('@/services/materials.service');
-  await materialsService.trackViewStart(materialId, {});
+  await trackViewStart(materialId);
 };
 
 const defaultTrackDownload: TrackMaterialDownload = async (materialId, metadata) => {
-  const { materialsService } = await import('@/services/materials.service');
-  await materialsService.trackDownload(materialId, {
-    file_name: metadata?.fileName,
-    file_size: metadata?.fileSize,
-  });
+  await trackDownload(materialId, metadata);
 };
 
 const defaultOpenUrl: OpenMaterialUrl = (url) => {
@@ -89,14 +84,43 @@ const triggerSafeTracking = (action: () => Promise<unknown>): void => {
   });
 };
 
+const isOffline = (): boolean => {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+};
+
+const enqueueProgressOnFailure = async (
+  kind:
+    | 'trackViewStart'
+    | 'trackViewEnd'
+    | 'trackDownload'
+    | 'trackProgress',
+  materialId: string,
+  payload: Record<string, unknown>
+): Promise<void> => {
+  const { enqueueProgressEvent } = await import(
+    '@/services/material-progress-queue.service'
+  );
+  enqueueProgressEvent(kind, materialId, payload);
+};
+
 export const trackViewStart = async (materialId: string): Promise<void> => {
+  const payload = {
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+  } as Record<string, unknown>;
+
+  if (isOffline()) {
+    await enqueueProgressOnFailure('trackViewStart', materialId, payload);
+    return;
+  }
+
   try {
     const { materialsService } = await import('@/services/materials.service');
-    await materialsService.trackViewStart(materialId, {
-      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
-    });
-  } catch {
-    // Tracking is best effort only.
+    await materialsService.trackViewStart(materialId, payload as { user_agent?: string });
+  } catch (error: any) {
+    if (!error?.response) {
+      // Looks like a network error; preserve the event for replay.
+      await enqueueProgressOnFailure('trackViewStart', materialId, payload);
+    }
   }
 };
 
@@ -104,16 +128,30 @@ export const trackViewEnd = async (
   materialId: string,
   payload: MaterialViewEndTrackingPayload
 ): Promise<void> => {
+  const apiPayload = {
+    time_spent_seconds: Math.max(0, Math.round(payload.timeSpentSeconds)),
+    final_scroll_percent: payload.finalScrollPercent,
+    completed: payload.completed,
+    page_number: payload.pageNumber,
+  } as Record<string, unknown>;
+
+  if (isOffline()) {
+    await enqueueProgressOnFailure('trackViewEnd', materialId, apiPayload);
+    return;
+  }
+
   try {
     const { materialsService } = await import('@/services/materials.service');
     await materialsService.trackViewEnd(materialId, {
-      time_spent_seconds: Math.max(0, Math.round(payload.timeSpentSeconds)),
-      final_scroll_percent: payload.finalScrollPercent,
-      completed: payload.completed,
-      page_number: payload.pageNumber,
+      time_spent_seconds: apiPayload.time_spent_seconds as number,
+      final_scroll_percent: apiPayload.final_scroll_percent as number,
+      completed: apiPayload.completed as boolean | undefined,
+      page_number: apiPayload.page_number as number | undefined,
     });
-  } catch {
-    // Tracking is best effort only.
+  } catch (error: any) {
+    if (!error?.response) {
+      await enqueueProgressOnFailure('trackViewEnd', materialId, apiPayload);
+    }
   }
 };
 
@@ -121,14 +159,26 @@ export const trackDownload = async (
   materialId: string,
   metadata: MaterialDownloadMetadata = {}
 ): Promise<void> => {
+  const apiPayload = {
+    file_name: metadata.fileName,
+    file_size: metadata.fileSize,
+  } as Record<string, unknown>;
+
+  if (isOffline()) {
+    await enqueueProgressOnFailure('trackDownload', materialId, apiPayload);
+    return;
+  }
+
   try {
     const { materialsService } = await import('@/services/materials.service');
     await materialsService.trackDownload(materialId, {
       file_name: metadata.fileName,
       file_size: metadata.fileSize,
     });
-  } catch {
-    // Tracking is best effort only.
+  } catch (error: any) {
+    if (!error?.response) {
+      await enqueueProgressOnFailure('trackDownload', materialId, apiPayload);
+    }
   }
 };
 
@@ -136,6 +186,18 @@ export const trackScrollProgress = async (
   materialId: string,
   payload: MaterialProgressTrackingPayload
 ): Promise<void> => {
+  const apiPayload = {
+    scroll_percent: payload.scrollPercent,
+    page_number: payload.pageNumber,
+    pages_viewed: payload.pagesViewed,
+    active_seconds: payload.activeSeconds,
+  } as Record<string, unknown>;
+
+  if (isOffline()) {
+    await enqueueProgressOnFailure('trackProgress', materialId, apiPayload);
+    return;
+  }
+
   try {
     const { materialsService } = await import('@/services/materials.service');
     await materialsService.trackProgress(materialId, {
@@ -144,8 +206,10 @@ export const trackScrollProgress = async (
       pages_viewed: payload.pagesViewed,
       active_seconds: payload.activeSeconds,
     });
-  } catch {
-    // Tracking is best effort only.
+  } catch (error: any) {
+    if (!error?.response) {
+      await enqueueProgressOnFailure('trackProgress', materialId, apiPayload);
+    }
   }
 };
 

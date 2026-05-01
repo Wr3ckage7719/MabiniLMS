@@ -11,6 +11,10 @@ export interface SubmissionRequestPayload {
   drive_file_name?: string;
   content?: string;
   sync_key: string;
+  // Device-side timestamp captured at the moment Submit was tapped. Carried
+  // through the queue so an offline submission keeps its original "submitted
+  // at" once the sync engine drains it.
+  client_submitted_at?: string;
 }
 
 export interface QueuedSubmission {
@@ -62,6 +66,7 @@ const normalizeQueuePayload = (
     drive_file_name: providerFileName,
     content: payload.content,
     sync_key: syncKey,
+    client_submitted_at: payload.client_submitted_at,
   };
 };
 
@@ -159,7 +164,11 @@ export const subscribeToSubmissionQueue = (listener: () => void): (() => void) =
 export const enqueueSubmission = (input: EnqueueSubmissionInput): QueuedSubmission => {
   const syncKey = input.payload.sync_key || createSubmissionSyncKey();
   const now = new Date().toISOString();
-  const payload = normalizeQueuePayload(input.payload, syncKey);
+  const payloadWithClientTimestamp = {
+    ...input.payload,
+    client_submitted_at: input.payload.client_submitted_at || now,
+  };
+  const payload = normalizeQueuePayload(payloadWithClientTimestamp, syncKey);
 
   const queuedSubmission: QueuedSubmission = {
     syncKey,

@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useRole } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationsPopover } from '@/components/NotificationsPopover';
+import OfflineSubmissionTray from '@/components/OfflineSubmissionTray';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from '@/hooks/use-toast';
@@ -168,6 +169,8 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Join Class</span>
             </Button>
+
+            <OfflineSubmissionTray buttonClassName="h-10 w-10 rounded-full md:h-10 md:w-10 md:rounded-xl hover:bg-primary/10" />
 
             <NotificationsPopover role="student" buttonClassName="h-10 w-10 rounded-full md:h-10 md:w-10 md:rounded-xl" />
 

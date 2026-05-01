@@ -5,6 +5,10 @@ import {
   getSubmissionQueueCount,
   subscribeToSubmissionQueue,
 } from '@/services/submission-queue.service';
+import {
+  flushMaterialProgressQueue,
+  subscribeToMaterialProgressQueue,
+} from '@/services/material-progress-queue.service';
 
 const FAILURE_TOAST_COOLDOWN_MS = 2 * 60 * 1000;
 const SYNC_POLL_INTERVAL_MS = 30 * 1000;
@@ -30,6 +34,11 @@ export default function SubmissionQueueSync() {
     isSyncingRef.current = true;
 
     try {
+      // LM progress events ride alongside submissions: same trigger, same
+      // online/offline gate. Errors in the progress queue are swallowed —
+      // they're best-effort engagement telemetry.
+      void flushMaterialProgressQueue().catch(() => undefined);
+
       const result = await flushSubmissionQueue();
 
       if (showSuccessToast && result.synced > 0) {
@@ -67,6 +76,9 @@ export default function SubmissionQueueSync() {
     const stopQueueSubscription = subscribeToSubmissionQueue(() => {
       void runSync(false);
     });
+    const stopProgressSubscription = subscribeToMaterialProgressQueue(() => {
+      void flushMaterialProgressQueue().catch(() => undefined);
+    });
 
     const intervalId = window.setInterval(() => {
       void runSync(false);
@@ -77,6 +89,7 @@ export default function SubmissionQueueSync() {
     return () => {
       window.removeEventListener('online', handleOnline);
       stopQueueSubscription();
+      stopProgressSubscription();
       window.clearInterval(intervalId);
     };
   }, [runSync]);
