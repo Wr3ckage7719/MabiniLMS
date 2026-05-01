@@ -114,6 +114,10 @@ export const createMaterialSchema = z.object({
   title: z.string().min(1, 'Title is required').max(255),
   type: z.nativeEnum(MaterialType),
   file_url: z.string().url().optional(),
+  // Multipart form bodies arrive as strings, so accept the lesson_id as a
+  // string and let the service validate it as a UUID. When present, the new
+  // material is attached to that lesson via lesson_materials.
+  lesson_id: z.string().uuid('Invalid lesson ID').optional(),
 });
 
 export const updateMaterialSchema = z.object({

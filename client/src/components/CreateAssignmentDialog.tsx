@@ -59,6 +59,9 @@ interface CreateAssignmentDialogProps {
   onCreated?: () => void;
   initialTaskType?: TaskType;
   isPage?: boolean;
+  // When provided, the created material/assignment is attached to this lesson
+  // via lesson_materials / lesson_assessments instead of the General lesson.
+  lessonId?: string;
 }
 
 interface AttachedFile {
@@ -557,6 +560,7 @@ export function CreateAssignmentDialog({
   onCreated,
   initialTaskType,
   isPage = false,
+  lessonId,
 }: CreateAssignmentDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1336,6 +1340,7 @@ export function CreateAssignmentDialog({
           title: title.trim(),
           type: resolvedMaterialType,
           file: attachedMaterialFile,
+          lesson_id: lessonId,
         }, {
           onUploadProgress: (progressEvent) => {
             const totalBytes = progressEvent.total || attachedMaterialFile.size;
@@ -1447,6 +1452,7 @@ export function CreateAssignmentDialog({
               : taskType === 'quiz'
               ? { one_question_at_a_time: quizOneQuestionAtATime }
               : undefined,
+          lesson_id: lessonId,
         });
 
         const createdAssignmentId = String(
@@ -1491,6 +1497,14 @@ export function CreateAssignmentDialog({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['assignments', classId] }),
         queryClient.invalidateQueries({ queryKey: ['materials', classId] }),
+        // When the new content is attached to a lesson, refresh the lesson
+        // queries so the editor sees the new chip immediately.
+        ...(lessonId
+          ? [
+              queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] }),
+              queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId] }),
+            ]
+          : []),
       ]);
 
       toast({

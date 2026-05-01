@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
-  Plus,
   Trash2,
   FileText,
   ClipboardList,
@@ -11,8 +10,11 @@ import {
   Save,
   CheckCircle2,
   X,
-  Upload,
+  BookOpen,
+  Activity,
+  ClipboardCheck,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,7 +37,15 @@ import {
   useDeleteLesson,
 } from '@/hooks-api/useLessons';
 import { useClass } from '@/hooks-api/useClasses';
+import {
+  CreateAssignmentDialog,
+  type TaskType,
+} from '@/components/CreateAssignmentDialog';
+import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
+import { materialsService } from '@/services/materials.service';
+import { assignmentsService } from '@/services/assignments.service';
 import type {
+  LearningMaterial,
   Lesson,
   LessonChain,
   LessonCompletionRule,
@@ -57,9 +67,6 @@ interface DraftState {
   unlockOnPass: boolean;
   passThreshold: number;
 }
-
-const ACCEPTED_FILE_TYPES = '.pdf,.doc,.docx,.ppt,.pptx';
-const ACCEPTED_FILE_LABEL = 'PDF · DOC/DOCX · PPT/PPTX';
 
 const buildDraftFromLesson = (lesson: Lesson): DraftState => ({
   title: lesson.title === 'Untitled lesson' ? '' : lesson.title,
@@ -110,77 +117,122 @@ const chainFromDraft = (draft: DraftState): LessonChain => ({
 
 interface MaterialChipProps {
   material: LessonMaterialRef;
+  onPreview: () => void;
   onRemove: () => void;
+  removing: boolean;
 }
 
-function MaterialChip({ material, onRemove }: MaterialChipProps) {
+function MaterialChip({ material, onPreview, onRemove, removing }: MaterialChipProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-secondary/40">
-      <FileText className="h-4 w-4 text-primary flex-shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{material.title}</p>
-        <p className="text-xs text-muted-foreground">
-          <span className="uppercase">{material.file_type}</span> · {material.file_size}
-        </p>
-      </div>
+      <button
+        type="button"
+        onClick={onPreview}
+        className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
+        aria-label={`Preview ${material.title}`}
+      >
+        <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{material.title}</p>
+          <p className="text-xs text-muted-foreground">
+            <span className="uppercase">{material.file_type}</span> · {material.file_size}
+          </p>
+        </div>
+      </button>
       <Button
         variant="ghost"
         size="icon"
         className="h-7 w-7 text-muted-foreground"
         onClick={onRemove}
+        disabled={removing}
         aria-label={`Remove ${material.title}`}
       >
-        <X className="h-3.5 w-3.5" />
+        {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
       </Button>
     </div>
   );
 }
 
+const assessmentTypeIcon = (rawType: LessonAssessmentRef['raw_type']) => {
+  if (rawType === 'quiz') return FileText;
+  if (rawType === 'exam') return ClipboardCheck;
+  if (rawType === 'activity') return Activity;
+  return ClipboardList;
+};
+
 interface AssessmentChipProps {
   assessment: LessonAssessmentRef;
   onRemove: () => void;
-  onToggleOptional: () => void;
+  removing: boolean;
 }
 
-function AssessmentChip({ assessment, onRemove, onToggleOptional }: AssessmentChipProps) {
+function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps) {
+  const Icon = assessmentTypeIcon(assessment.raw_type);
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-secondary/40">
-      <ClipboardList className="h-4 w-4 text-primary flex-shrink-0" />
+      <Icon className="h-4 w-4 text-primary flex-shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate">{assessment.title}</p>
         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
           <span className="uppercase">{assessment.raw_type}</span>
           <span>·</span>
           <span>{assessment.points} pts</span>
+          {assessment.is_optional ? (
+            <>
+              <span>·</span>
+              <span className="italic">optional</span>
+            </>
+          ) : null}
         </div>
       </div>
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-          <Switch
-            checked={Boolean(assessment.is_optional)}
-            onCheckedChange={onToggleOptional}
-          />
-          Optional
-        </label>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground"
-          onClick={onRemove}
-          aria-label={`Remove ${assessment.title}`}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground flex-shrink-0"
+        onClick={onRemove}
+        disabled={removing}
+        aria-label={`Remove ${assessment.title}`}
+      >
+        {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+      </Button>
     </div>
   );
 }
+
+const lessonMaterialFileTypeToLearning = (
+  fileType: LessonMaterialRef['file_type']
+): LearningMaterial['fileType'] => {
+  if (fileType === 'pdf') return 'pdf';
+  if (fileType === 'doc' || fileType === 'docx') return 'doc';
+  if (fileType === 'ppt' || fileType === 'pptx') return 'presentation';
+  if (fileType === 'image') return 'image';
+  if (fileType === 'video') return 'video';
+  if (fileType === 'archive') return 'archive';
+  return 'doc';
+};
+
+const toPreviewMaterial = (
+  material: LessonMaterialRef,
+  classId: string
+): LearningMaterial => ({
+  id: material.material_id,
+  classId,
+  title: material.title,
+  description: '',
+  fileType: lessonMaterialFileTypeToLearning(material.file_type),
+  fileSize: material.file_size,
+  uploadedBy: '',
+  uploadedDate: '',
+  downloads: 0,
+  url: material.url,
+});
 
 export default function LessonEditorPage() {
   const { id, lessonId } = useParams();
   const classId = id ?? '';
   const navigate = useNavigate();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const classQuery = useClass(classId);
   const lessonQuery = useTeacherLesson(classId, lessonId);
@@ -192,16 +244,16 @@ export default function LessonEditorPage() {
   const allLessons = useMemo(() => lessonsQuery.data ?? [], [lessonsQuery.data]);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
-  const [pendingMaterials, setPendingMaterials] = useState<LessonMaterialRef[]>([]);
-  const [pendingAssessments, setPendingAssessments] = useState<LessonAssessmentRef[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [builderTaskType, setBuilderTaskType] = useState<TaskType | null>(null);
+  const [previewMaterial, setPreviewMaterial] = useState<LessonMaterialRef | null>(null);
+  const [removingMaterialId, setRemovingMaterialId] = useState<string | null>(null);
+  const [removingAssessmentId, setRemovingAssessmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (lesson && !draft) {
       setDraft(buildDraftFromLesson(lesson));
-      setPendingMaterials([...lesson.materials]);
-      setPendingAssessments([...lesson.assessments]);
     }
   }, [lesson, draft]);
 
@@ -212,65 +264,51 @@ export default function LessonEditorPage() {
 
   const handleBack = () => navigate(`/class/${classId}?tab=lessons`);
 
-  const handleAddMaterials = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const next: LessonMaterialRef[] = [...pendingMaterials];
-    for (const file of Array.from(files)) {
-      const name = file.name.toLowerCase();
-      const fileType = name.endsWith('.pdf')
-        ? 'pdf'
-        : name.endsWith('.docx')
-          ? 'docx'
-          : name.endsWith('.doc')
-            ? 'doc'
-            : name.endsWith('.pptx')
-              ? 'pptx'
-              : name.endsWith('.ppt')
-                ? 'ppt'
-                : 'other';
-      next.push({
-        material_id: `pending-${Date.now()}-${next.length}`,
-        title: file.name,
-        file_type: fileType as LessonMaterialRef['file_type'],
-        file_size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+  const refreshLesson = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] }),
+      queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId] }),
+    ]);
+  };
+
+  const handleRemoveMaterial = async (materialId: string, materialTitle: string) => {
+    if (removingMaterialId) return;
+    const confirmed = window.confirm(`Remove "${materialTitle}" from this lesson? The file will be deleted.`);
+    if (!confirmed) return;
+    setRemovingMaterialId(materialId);
+    try {
+      await materialsService.delete(materialId);
+      await refreshLesson();
+      toast({ title: 'Material removed' });
+    } catch (error) {
+      toast({
+        title: 'Could not remove material',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
       });
+    } finally {
+      setRemovingMaterialId(null);
     }
-    setPendingMaterials(next);
   };
 
-  const handleRemoveMaterial = (materialId: string) => {
-    setPendingMaterials((current) => current.filter((m) => m.material_id !== materialId));
-  };
-
-  const handleAddAssessment = (rawType: LessonAssessmentRef['raw_type']) => {
-    const next: LessonAssessmentRef = {
-      assignment_id: `pending-assessment-${Date.now()}-${pendingAssessments.length}`,
-      title: `New ${rawType}`,
-      raw_type: rawType,
-      points: rawType === 'exam' ? 30 : 10,
-      is_optional: false,
-      submitted: false,
-      graded: false,
-    };
-    setPendingAssessments([...pendingAssessments, next]);
-    toast({
-      title: 'Assessment added',
-      description: 'Open it from the Lessons tab to fill in questions.',
-    });
-  };
-
-  const handleRemoveAssessment = (assignmentId: string) => {
-    setPendingAssessments((current) =>
-      current.filter((a) => a.assignment_id !== assignmentId)
-    );
-  };
-
-  const handleToggleOptional = (assignmentId: string) => {
-    setPendingAssessments((current) =>
-      current.map((a) =>
-        a.assignment_id === assignmentId ? { ...a, is_optional: !a.is_optional } : a
-      )
-    );
+  const handleRemoveAssessment = async (assignmentId: string, assignmentTitle: string) => {
+    if (removingAssessmentId) return;
+    const confirmed = window.confirm(`Remove "${assignmentTitle}" from this lesson? Submissions and grades will be lost.`);
+    if (!confirmed) return;
+    setRemovingAssessmentId(assignmentId);
+    try {
+      await assignmentsService.deleteAssignment(classId, assignmentId);
+      await refreshLesson();
+      toast({ title: 'Assessment removed' });
+    } catch (error) {
+      toast({
+        title: 'Could not remove assessment',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRemovingAssessmentId(null);
+    }
   };
 
   const persist = async (publish: boolean) => {
@@ -428,34 +466,34 @@ export default function LessonEditorPage() {
               <div>
                 <h2 className="text-base font-semibold">Materials</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {ACCEPTED_FILE_LABEL}
+                  PDF, DOCX, PPTX, images, or video. Students view in-app with reading
+                  progress tracked.
                 </p>
               </div>
-              <label className="cursor-pointer">
-                <input
-                  type="file"
-                  accept={ACCEPTED_FILE_TYPES}
-                  multiple
-                  onChange={(event) => handleAddMaterials(event.target.files)}
-                  className="hidden"
-                />
-                <span className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm hover:bg-secondary/50 transition-colors">
-                  <Upload className="h-3.5 w-3.5" /> Upload file
-                </span>
-              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5"
+                onClick={() => setBuilderTaskType('reading_material')}
+              >
+                <BookOpen className="h-3.5 w-3.5" /> Add reading material
+              </Button>
             </div>
 
-            {pendingMaterials.length === 0 ? (
+            {lesson.materials.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Drop PDF, DOC/DOCX, or PPT/PPTX files here to attach to this lesson.
+                No materials yet. Click <em>Add reading material</em> to upload a file
+                students can view, scroll, and have their progress tracked on.
               </div>
             ) : (
               <div className="space-y-2">
-                {pendingMaterials.map((material) => (
+                {lesson.materials.map((material) => (
                   <MaterialChip
                     key={material.material_id}
                     material={material}
-                    onRemove={() => handleRemoveMaterial(material.material_id)}
+                    onPreview={() => setPreviewMaterial(material)}
+                    onRemove={() => void handleRemoveMaterial(material.material_id, material.title)}
+                    removing={removingMaterialId === material.material_id}
                   />
                 ))}
               </div>
@@ -534,41 +572,41 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => handleAddAssessment('quiz')}
+                onClick={() => setBuilderTaskType('activity')}
               >
-                <Plus className="h-3.5 w-3.5" /> Add quiz
+                <Activity className="h-3.5 w-3.5" /> Add activity
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => handleAddAssessment('exam')}
+                onClick={() => setBuilderTaskType('quiz')}
               >
-                <Plus className="h-3.5 w-3.5" /> Add exam
+                <FileText className="h-3.5 w-3.5" /> Add quiz
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => handleAddAssessment('activity')}
+                onClick={() => setBuilderTaskType('exam')}
               >
-                <Plus className="h-3.5 w-3.5" /> Add activity
+                <ClipboardCheck className="h-3.5 w-3.5" /> Add exam
               </Button>
             </div>
 
-            {pendingAssessments.length === 0 ? (
+            {lesson.assessments.length === 0 ? (
               <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
                 No assessments yet. Lessons without assessments unlock the next lesson
                 as soon as they're marked done.
               </div>
             ) : (
               <div className="space-y-2">
-                {pendingAssessments.map((assessment) => (
+                {lesson.assessments.map((assessment) => (
                   <AssessmentChip
                     key={assessment.assignment_id}
                     assessment={assessment}
-                    onRemove={() => handleRemoveAssessment(assessment.assignment_id)}
-                    onToggleOptional={() => handleToggleOptional(assessment.assignment_id)}
+                    onRemove={() => void handleRemoveAssessment(assessment.assignment_id, assessment.title)}
+                    removing={removingAssessmentId === assessment.assignment_id}
                   />
                 ))}
               </div>
@@ -702,6 +740,30 @@ export default function LessonEditorPage() {
           </div>
         </div>
       </footer>
+
+      <CreateAssignmentDialog
+        open={builderTaskType !== null}
+        onOpenChange={(next) => {
+          if (!next) setBuilderTaskType(null);
+        }}
+        classId={classId}
+        lessonId={lesson.id}
+        initialTaskType={builderTaskType ?? undefined}
+        onCreated={() => {
+          setBuilderTaskType(null);
+          void refreshLesson();
+        }}
+      />
+
+      <MaterialPreviewDialog
+        open={previewMaterial !== null}
+        material={previewMaterial ? toPreviewMaterial(previewMaterial, classId) : null}
+        onOpenChange={(next) => {
+          if (!next) setPreviewMaterial(null);
+        }}
+        isTeacher
+        courseId={classId}
+      />
     </div>
   );
 }

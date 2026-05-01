@@ -102,6 +102,48 @@ const DEFAULT_PROCTORING_POLICY: Record<string, unknown> = {
 type AssignmentInputWithAliases = Partial<CreateAssignmentInput & UpdateAssignmentInput> & Record<string, unknown>;
 
 /**
+ * Attach an assignment to a specific lesson via lesson_assessments. Used when
+ * the create flow targets a known lesson (the new lesson-builder path).
+ * Verifies the lesson belongs to the course before linking; idempotent on
+ * the unique (assignment_id) constraint.
+ */
+const attachAssignmentToLesson = async (
+  courseId: string,
+  lessonId: string,
+  assignmentId: string
+): Promise<void> => {
+  const { data: lesson, error: lessonErr } = await supabaseAdmin
+    .from('lessons')
+    .select('id, course_id')
+    .eq('id', lessonId)
+    .maybeSingle();
+  if (lessonErr || !lesson || (lesson as { course_id?: string }).course_id !== courseId) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Lesson does not belong to this course',
+      400
+    );
+  }
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('lesson_assessments')
+    .insert({
+      lesson_id: lessonId,
+      assignment_id: assignmentId,
+      is_optional: false,
+      sort_order: 0,
+    });
+  if (linkErr && (linkErr as { code?: string }).code !== '23505') {
+    logger.warn('Could not attach assignment to lesson', {
+      courseId,
+      lessonId,
+      assignmentId,
+      error: linkErr.message,
+    });
+  }
+};
+
+/**
  * D6/D10 plumbing: when an assignment is created through the legacy flow
  * (CreateAssignmentDialog) and isn't already linked to a lesson, attach it
  * to the course's auto-generated General lesson so the lesson model stays
@@ -1020,10 +1062,15 @@ export const createAssignment = async (
     dueDate: data.due_date || '',
   });
 
-  // D6 — every assessment belongs to a lesson. If the legacy create flow
-  // produced an assignment without an owning lesson, park it in the
-  // course's auto-generated General lesson so the lock state stays sane.
-  await ensureAssignmentParkedInGeneralLesson(courseId, data.id);
+  // D6 — every assessment belongs to a lesson. The new lesson-builder flow
+  // passes lesson_id directly so the new assignment lands in the right
+  // lesson; the legacy flow (no lesson_id) falls back to parking in the
+  // course's auto-generated General lesson.
+  if (input.lesson_id) {
+    await attachAssignmentToLesson(courseId, input.lesson_id, data.id);
+  } else {
+    await ensureAssignmentParkedInGeneralLesson(courseId, data.id);
+  }
 
   try {
     let notificationActor:

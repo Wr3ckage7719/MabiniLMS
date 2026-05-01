@@ -113,6 +113,9 @@ export const createAssignmentSchema = z.object({
   exam_duration_minutes: z.number().int().min(5).max(300).optional(),
   proctoring_policy: proctoringPolicySchema.optional(),
   topics: topicsArraySchema.optional(),
+  // When provided, the new assignment is attached to this lesson via
+  // lesson_assessments instead of being parked in the course's General lesson.
+  lesson_id: z.string().uuid('Invalid lesson ID').optional(),
 }).superRefine((value, ctx) => {
   if (value.submission_open_at && value.submission_close_at) {
     const openAt = new Date(value.submission_open_at).getTime();

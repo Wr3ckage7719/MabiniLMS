@@ -37,6 +37,9 @@ export interface AssignmentData {
   submission_close_at?: string | null;
   instructions?: string;
   topics?: string[];
+  // When provided, the new assignment is attached to this lesson via
+  // lesson_assessments instead of being parked in the course's General lesson.
+  lesson_id?: string;
 }
 
 export interface SubmissionData {

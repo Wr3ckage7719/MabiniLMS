@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
   Bell,
-  ClipboardCheck,
   Copy,
-  FileText,
   Image as ImageIcon,
   Palette,
   Plus,
@@ -15,10 +12,7 @@ import {
   BookOpen,
   Upload,
   Download,
-  Trash2,
-  Tag,
 } from 'lucide-react';
-import { getTaskTypeMeta } from '@/lib/task-types';
 import { LessonListBoard } from '@/components/lessons/LessonListBoard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,8 +43,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssignmentDialog';
-import { TeacherAssignmentDetail } from '@/components/TeacherAssignmentDetail';
 import { StudentDetailDialog } from '@/components/StudentDetailDialog';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { AnnouncementActions } from '@/components/AnnouncementActions';
@@ -58,7 +50,6 @@ import { TeacherClassPeople } from '@/components/TeacherClassPeople';
 import { TeacherClassInsights } from '@/components/TeacherClassInsights';
 import { useAnnouncements } from '@/hooks-api/useAnnouncements';
 import { useAssignments } from '@/hooks-api/useAssignments';
-import { useMaterials } from '@/hooks-api/useMaterials';
 import {
   DiscussionPost,
   useDeleteDiscussionPost,
@@ -69,9 +60,7 @@ import {
 import { useStudents } from '@/hooks-api/useStudents';
 import { useCourseSubmissions } from '@/hooks/useTeacherData';
 import { announcementsService } from '@/services/announcements.service';
-import { assignmentsService } from '@/services/assignments.service';
 import { coursesService } from '@/services/courses.service';
-import { materialsService } from '@/services/materials.service';
 import {
   buildCourseMetadata,
   parseCourseMetadataFromDescription,
@@ -83,13 +72,12 @@ import { batchService } from '@/services/batch.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
-import { Announcement as ClassAnnouncement, type LearningMaterial } from '@/lib/data';
+import { Announcement as ClassAnnouncement } from '@/lib/data';
 import { useSearchParams } from 'react-router-dom';
 import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
-import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -160,41 +148,9 @@ interface TeacherDiscussionPost {
   isHidden: boolean;
 }
 
-const CREATE_TASK_OPTIONS: Array<{
-  id: TaskType;
-  label: string;
-  description: string;
-  icon: typeof BookOpen;
-}> = [
-  {
-    id: 'reading_material',
-    label: 'Reading Material',
-    description: 'Upload references and class resources',
-    icon: BookOpen,
-  },
-  {
-    id: 'activity',
-    label: 'Activity',
-    description: 'Create a graded submission task',
-    icon: Activity,
-  },
-  {
-    id: 'quiz',
-    label: 'Quiz',
-    description: 'Build a scored quiz flow',
-    icon: FileText,
-  },
-  {
-    id: 'exam',
-    label: 'Exam',
-    description: 'Set up a proctored assessment',
-    icon: ClipboardCheck,
-  },
-];
+type TeacherClassTab = 'lessons' | 'stream' | 'people' | 'submissions' | 'insights';
 
-type TeacherClassTab = 'lessons' | 'stream' | 'classwork' | 'people' | 'submissions' | 'insights';
-
-const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['lessons', 'stream', 'classwork', 'people', 'submissions', 'insights'];
+const VALID_TEACHER_CLASS_TABS: TeacherClassTab[] = ['lessons', 'stream', 'people', 'submissions', 'insights'];
 
 const parseTeacherClassTab = (value: string | null): TeacherClassTab => {
   if (value && VALID_TEACHER_CLASS_TABS.includes(value as TeacherClassTab)) {
@@ -202,14 +158,6 @@ const parseTeacherClassTab = (value: string | null): TeacherClassTab => {
   }
 
   return 'lessons';
-};
-
-const parseTaskTypeParam = (value: string | null): TaskType | null => {
-  if (value === 'reading_material' || value === 'activity' || value === 'quiz' || value === 'exam') {
-    return value;
-  }
-
-  return null;
 };
 
 const parseGradeInput = (value: string): number | null => {
@@ -295,12 +243,7 @@ export function TeacherClassStream({
   } = useAnnouncements(classId);
   const {
     data: apiAssignments = [],
-    refetch: refetchAssignments,
   } = useAssignments(classId);
-  const {
-    data: apiMaterials = [],
-    refetch: refetchMaterials,
-  } = useMaterials(classId);
   const {
     data: apiDiscussionPosts = [],
     isLoading: discussionPostsLoading,
@@ -325,9 +268,6 @@ export function TeacherClassStream({
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(classCoverImage || null);
   const [savingAppearance, setSavingAppearance] = useState(false);
   const [activeTab, setActiveTab] = useState<TeacherClassTab>('lessons');
-  const [builderTaskType, setBuilderTaskType] = useState<TaskType | null>(null);
-  const [selectedAssignment, setSelectedAssignment] = useState<ClassworkAssignment | null>(null);
-  const [showAssignmentDetail, setShowAssignmentDetail] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<{
     name: string;
     avatar: string;
@@ -344,63 +284,32 @@ export function TeacherClassStream({
   const [submissionFeedback, setSubmissionFeedback] = useState('');
   const [savingSubmissionGrade, setSavingSubmissionGrade] = useState(false);
   const [assignments, setAssignments] = useState<ClassworkAssignment[]>([]);
-  const [classworkTopicFilter, setClassworkTopicFilter] = useState<string>('all');
   const [editingAnnouncement, setEditingAnnouncement] = useState<EditableAnnouncement | null>(null);
   const [editAnnouncementTitle, setEditAnnouncementTitle] = useState('');
   const [editAnnouncementContent, setEditAnnouncementContent] = useState('');
   const [editAnnouncementPinned, setEditAnnouncementPinned] = useState(false);
   const [postingAnnouncement, setPostingAnnouncement] = useState(false);
   const [savingAnnouncementEdit, setSavingAnnouncementEdit] = useState(false);
-  const [deletingAssignmentIds, setDeletingAssignmentIds] = useState<string[]>([]);
-  const [deletingMaterialIds, setDeletingMaterialIds] = useState<string[]>([]);
   const [deletingAnnouncementIds, setDeletingAnnouncementIds] = useState<string[]>([]);
   const [likingDiscussionPostIds, setLikingDiscussionPostIds] = useState<string[]>([]);
   const [hidingDiscussionPostIds, setHidingDiscussionPostIds] = useState<string[]>([]);
   const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
-  const [selectedMaterial, setSelectedMaterial] = useState<LearningMaterial | null>(null);
   const [exportingRegistrar, setExportingRegistrar] = useState(false);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const updateClassRouteState = (
-    nextTab: TeacherClassTab,
-    nextBuilderTaskType: TaskType | null,
-    options?: { replace?: boolean }
-  ) => {
+  const updateClassRouteState = (nextTab: TeacherClassTab) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('view', 'classes');
     nextParams.set('classId', classId);
     nextParams.set('tab', nextTab);
+    nextParams.delete('builder');
 
-    if (nextTab === 'classwork' && nextBuilderTaskType) {
-      nextParams.set('builder', nextBuilderTaskType);
-    } else {
-      nextParams.delete('builder');
-    }
-
-    setSearchParams(nextParams, { replace: options?.replace ?? false });
+    setSearchParams(nextParams);
   };
 
   const handleTabChange = (nextTab: TeacherClassTab) => {
-    const nextBuilderTaskType = nextTab === 'classwork' ? builderTaskType : null;
-
     setActiveTab(nextTab);
-    if (nextTab !== 'classwork' && builderTaskType) {
-      setBuilderTaskType(null);
-    }
-
-    updateClassRouteState(nextTab, nextBuilderTaskType);
-  };
-
-  const openBuilder = (taskType: TaskType) => {
-    setActiveTab('classwork');
-    setBuilderTaskType(taskType);
-    updateClassRouteState('classwork', taskType);
-  };
-
-  const closeBuilder = (replace = true) => {
-    setActiveTab('classwork');
-    setBuilderTaskType(null);
-    updateClassRouteState('classwork', null, { replace });
+    updateClassRouteState(nextTab);
   };
 
   useEffect(() => {
@@ -413,18 +322,12 @@ export function TeacherClassStream({
       return;
     }
 
-    const routeBuilderTaskType = parseTaskTypeParam(searchParams.get('builder'));
-    const routeTabParam = searchParams.get('tab');
-    const nextTab = routeBuilderTaskType ? 'classwork' : parseTeacherClassTab(routeTabParam);
+    const nextTab = parseTeacherClassTab(searchParams.get('tab'));
 
     if (nextTab !== activeTab) {
       setActiveTab(nextTab);
     }
-
-    if (routeBuilderTaskType !== builderTaskType) {
-      setBuilderTaskType(routeBuilderTaskType);
-    }
-  }, [activeTab, builderTaskType, classId, searchParams]);
+  }, [activeTab, classId, searchParams]);
 
   useEffect(() => {
     const nextTheme = classColor || 'blue';
@@ -471,33 +374,6 @@ export function TeacherClassStream({
 
     setAssignments(mappedAssignments);
   }, [apiAssignments, apiSubmissions]);
-
-  // Sorted, deduplicated topic list across this class's assignments — used to
-  // populate the Classwork tab's filter dropdown. Reset filter if the active
-  // topic disappears (e.g. last assignment with that topic was deleted).
-  const availableClassworkTopics = useMemo(() => {
-    const set = new Set<string>();
-    for (const assignment of assignments) {
-      for (const topic of assignment.topics) {
-        set.add(topic);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [assignments]);
-
-  useEffect(() => {
-    if (
-      classworkTopicFilter !== 'all'
-      && !availableClassworkTopics.includes(classworkTopicFilter)
-    ) {
-      setClassworkTopicFilter('all');
-    }
-  }, [availableClassworkTopics, classworkTopicFilter]);
-
-  const filteredClassworkAssignments = useMemo(() => {
-    if (classworkTopicFilter === 'all') return assignments;
-    return assignments.filter((item) => item.topics.includes(classworkTopicFilter));
-  }, [assignments, classworkTopicFilter]);
 
   const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
     return apiSubmissions
@@ -744,71 +620,6 @@ export function TeacherClassStream({
     })();
   };
 
-  const handleDeleteAssignment = (id: string) => {
-    if (deletingAssignmentIds.includes(id)) {
-      return;
-    }
-
-    void (async () => {
-      setDeletingAssignmentIds((previous) => [...previous, id]);
-
-      try {
-        await assignmentsService.deleteAssignment(classId, id);
-        setAssignments((previous) => previous.filter((assignment) => assignment.id !== id));
-        await refetchAssignments();
-        toast({
-          title: 'Classwork removed',
-          description: 'The selected classwork item has been deleted.',
-        });
-      } catch (error: any) {
-        const message = error?.response?.data?.message || error?.message || 'Failed to delete classwork';
-        toast({
-          title: 'Delete failed',
-          description: message,
-          variant: 'destructive',
-        });
-      } finally {
-        setDeletingAssignmentIds((previous) => previous.filter((assignmentId) => assignmentId !== id));
-      }
-    })();
-  };
-
-  const handleDeleteMaterial = (material: LearningMaterial) => {
-    if (deletingMaterialIds.includes(material.id)) {
-      return;
-    }
-
-    void (async () => {
-      setDeletingMaterialIds((previous) => [...previous, material.id]);
-
-      try {
-        await materialsService.delete(material.id);
-        await refetchMaterials();
-
-        toast({
-          title: 'Material deleted',
-          description: 'The reading material and hosted file were removed.',
-        });
-      } catch (error: any) {
-        const message =
-          error?.response?.data?.error?.message
-          || error?.response?.data?.message
-          || error?.message
-          || 'Failed to delete material';
-
-        toast({
-          title: 'Delete failed',
-          description: message,
-          variant: 'destructive',
-        });
-      } finally {
-        setDeletingMaterialIds((previous) =>
-          previous.filter((materialId) => materialId !== material.id)
-        );
-      }
-    })();
-  };
-
   const handleExportRegistrar = () => {
     if (exportingRegistrar) return;
     void (async () => {
@@ -841,19 +652,6 @@ export function TeacherClassStream({
         setExportingRegistrar(false);
       }
     })();
-  };
-
-  const handleDownloadMaterial = (material: LearningMaterial) => {
-    if (!material.url) {
-      toast({
-        title: 'Material link unavailable',
-        description: 'This material does not have a valid file URL yet.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    window.open(material.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteAnnouncement = (announcementId: string) => {
@@ -1110,32 +908,6 @@ export function TeacherClassStream({
 
   const currentGradient = gradients[selectedTheme] || gradients.blue;
 
-  const isFullScreenBuilder = activeTab === 'classwork' && Boolean(builderTaskType);
-
-  if (isFullScreenBuilder && builderTaskType) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] bg-background py-3 md:py-6">
-        <div className="mx-auto w-full max-w-[1600px] px-3 md:px-6 lg:px-8">
-          <CreateAssignmentDialog
-            open={true}
-            isPage
-            classId={classId}
-            initialTaskType={builderTaskType}
-            onOpenChange={(nextOpen) => {
-              if (!nextOpen) {
-                closeBuilder(true);
-              }
-            }}
-            onCreated={() => {
-              closeBuilder(true);
-              void Promise.all([refetchAssignments(), refetchMaterials()]);
-            }}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-0 animate-fade-in">
       {/* Theme Banner */}
@@ -1215,16 +987,6 @@ export function TeacherClassStream({
             Stream
           </button>
           <button
-            onClick={() => handleTabChange('classwork')}
-            className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
-              activeTab === 'classwork'
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Classwork
-          </button>
-          <button
             onClick={() => handleTabChange('people')}
             className={`px-1 md:px-2 py-3 font-medium text-sm transition-colors ${
               activeTab === 'people'
@@ -1301,9 +1063,9 @@ export function TeacherClassStream({
                 variant="ghost"
                 size="sm"
                 className="w-full text-xs text-primary hover:bg-blue-50 rounded-lg"
-                onClick={() => handleTabChange('classwork')}
+                onClick={() => handleTabChange('lessons')}
               >
-                View all
+                View lessons
               </Button>
             </CardContent>
           </Card>
@@ -1838,323 +1600,6 @@ export function TeacherClassStream({
             </>
           )}
 
-          {/* Classwork Tab Content */}
-          {activeTab === 'classwork' && (
-            <div className="space-y-4">
-              {/* Topic filter + Create button */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
-                  <SelectTrigger
-                    className="w-full sm:w-56 rounded-lg"
-                    aria-label="Filter classwork by topic"
-                  >
-                    <Tag className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All topics</SelectItem>
-                    {availableClassworkTopics.length === 0 ? (
-                      <SelectItem value="__none__" disabled>
-                        No topics yet
-                      </SelectItem>
-                    ) : (
-                      availableClassworkTopics.map((topic) => (
-                        <SelectItem key={topic} value={topic}>
-                          {topic}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      className="rounded-lg font-semibold shadow-md hover:shadow-lg transition-all duration-300"
-                      data-testid="create-task-button"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create task
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-72 rounded-xl">
-                    {CREATE_TASK_OPTIONS.map((taskOption) => {
-                      const Icon = taskOption.icon;
-                      const optionMeta = getTaskTypeMeta(taskOption.id);
-
-                      return (
-                        <DropdownMenuItem
-                          key={taskOption.id}
-                          className="rounded-lg cursor-pointer py-3"
-                          data-testid={`create-task-option-${taskOption.id}`}
-                          onClick={() => openBuilder(taskOption.id)}
-                        >
-                          <div className={`mr-3 rounded-lg p-2 ${optionMeta.iconBg} ${optionMeta.iconText}`}>
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{taskOption.label}</p>
-                            <p className="text-xs text-muted-foreground">{taskOption.description}</p>
-                          </div>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-
-              {/* Classwork Items */}
-              <div className="space-y-3">
-                {filteredClassworkAssignments.length > 0 ? (
-                  filteredClassworkAssignments.map((item, idx) => {
-                    const itemMeta = getTaskTypeMeta(item.rawType);
-                    const ItemIcon = itemMeta.icon;
-                    return (
-                    <Card
-                      key={item.id}
-                      className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group cursor-pointer"
-                      onClick={() => {
-                        setSelectedAssignment(item);
-                        setShowAssignmentDetail(true);
-                      }}
-                      style={{
-                        animation: `slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 50}ms both`,
-                      }}
-                    >
-                      <CardContent className="p-4 md:p-5">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-start gap-3 flex-1 min-w-0">
-                            <div className={`p-2 rounded-lg flex-shrink-0 mt-0.5 ${itemMeta.iconBg}`}>
-                              <ItemIcon className={`h-4 w-4 ${itemMeta.iconText}`} />
-                            </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                                {item.title}
-                              </h3>
-                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border rounded-full shrink-0 ${itemMeta.badgeClass}`}>
-                                {itemMeta.label}
-                              </Badge>
-                              {item.dueSoon && (
-                                <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs font-medium rounded-full">
-                                  Due Soon
-                                </Badge>
-                              )}
-                              {item.status === 'completed' && (
-                                <Badge className="bg-green-100 text-green-700 border-green-200 text-xs font-medium rounded-full">
-                                  Done
-                                </Badge>
-                              )}
-                            </div>
-
-                            {/* Description */}
-                            {item.description && (
-                              <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                                {item.description}
-                              </p>
-                            )}
-                            
-                            <p className="text-xs text-muted-foreground mb-3 font-medium">Due: {item.dueDate}</p>
-
-                            {item.topics.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mb-3">
-                                {item.topics.map((topic) => (
-                                  <Badge
-                                    key={topic}
-                                    variant="outline"
-                                    className="rounded-full text-[10px] px-2 py-0 h-5 border-primary/40 bg-primary/5 text-primary"
-                                  >
-                                    {topic}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Progress Bar */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs text-muted-foreground">
-                                  {item.submitted} of {item.total} submitted
-                                </p>
-                                <p className="text-xs font-medium text-primary">
-                                  {Math.round((item.submitted / item.total) * 100)}%
-                                </p>
-                              </div>
-                              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-500"
-                                  style={{ width: `${(item.submitted / item.total) * 100}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          </div>
-                          </div>
-
-                          {/* Action Menu */}
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                className="text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all rounded-lg flex-shrink-0"
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="rounded-lg">
-                              <DropdownMenuItem 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedAssignment(item);
-                                  setShowAssignmentDetail(true);
-                                }}
-                              >
-                                View Details
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem 
-                                className="text-destructive"
-                                disabled={deletingAssignmentIds.includes(item.id)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteAssignment(item.id);
-                                }}
-                              >
-                                {deletingAssignmentIds.includes(item.id) ? 'Deleting...' : 'Delete'}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );})
-                ) : (
-                  <Card className="border-0 shadow-sm">
-                    <CardContent className="p-12 text-center">
-                      <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-                      {classworkTopicFilter === 'all' ? (
-                        <>
-                          <p className="text-muted-foreground font-medium">No assignments yet</p>
-                          <p className="text-xs text-muted-foreground mt-1">Create one to get started</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-muted-foreground font-medium">
-                            No assignments tagged "{classworkTopicFilter}"
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setClassworkTopicFilter('all')}
-                            className="text-xs text-primary hover:underline mt-1"
-                          >
-                            Clear filter
-                          </button>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {apiMaterials.length > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-foreground">Reading Materials</h3>
-                      <Badge variant="outline" className="rounded-full text-xs">
-                        {apiMaterials.length}
-                      </Badge>
-                    </div>
-
-                    {apiMaterials.map((material, idx) => (
-                      <Card
-                        key={material.id}
-                        className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden"
-                        style={{
-                          animation: `slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) ${idx * 50}ms both`,
-                        }}
-                      >
-                        <CardContent className="p-4 md:p-5">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
-                                <BookOpen className="h-4 w-4 text-primary flex-shrink-0" />
-                                <h3 className="font-semibold text-foreground truncate">
-                                  {material.title}
-                                </h3>
-                              </div>
-
-                              {material.description && (
-                                <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                                  {material.description}
-                                </p>
-                              )}
-
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <Badge variant="outline" className="rounded-full text-xs">
-                                  {material.fileType.toUpperCase()}
-                                </Badge>
-                                <Badge variant="outline" className="rounded-full text-xs">
-                                  {material.fileSize}
-                                </Badge>
-                                <Badge variant="outline" className="rounded-full text-xs">
-                                  {material.downloads} downloads
-                                </Badge>
-                              </div>
-
-                              <p className="text-xs text-muted-foreground">
-                                Uploaded: {formatDateTime(material.uploadedDate)}
-                              </p>
-                            </div>
-
-                            <div className="flex flex-col items-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="rounded-lg"
-                                disabled={!material.url}
-                                onClick={() => {
-                                  if (!material.url) {
-                                    return;
-                                  }
-                                  setSelectedMaterial(material);
-                                }}
-                              >
-                                Open
-                              </Button>
-
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="rounded-lg"
-                                disabled={!material.url}
-                                onClick={() => {
-                                  handleDownloadMaterial(material);
-                                }}
-                              >
-                                <Download className="h-4 w-4 mr-1.5" />
-                                Download
-                              </Button>
-
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="rounded-lg text-destructive hover:text-destructive"
-                                disabled={deletingMaterialIds.includes(material.id)}
-                                onClick={() => {
-                                  handleDeleteMaterial(material);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-1.5" />
-                                {deletingMaterialIds.includes(material.id) ? 'Deleting...' : 'Delete'}
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* People Tab Content */}
           {activeTab === 'people' && (
@@ -2294,47 +1739,6 @@ export function TeacherClassStream({
             />
           </div>
         </div>
-      )}
-
-      <MaterialPreviewDialog
-        open={Boolean(selectedMaterial)}
-        material={selectedMaterial}
-        isTeacher
-        courseId={classId}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedMaterial(null);
-          }
-        }}
-        onDownload={handleDownloadMaterial}
-      />
-
-      {/* Teacher Assignment Detail Dialog */}
-      {selectedAssignment && (
-        <TeacherAssignmentDetail
-          classId={classId}
-          assignment={selectedAssignment ? {
-            id: String(selectedAssignment.id),
-            title: selectedAssignment.title,
-            description: selectedAssignment.description,
-            dueDate: selectedAssignment.dueDate,
-            points: selectedAssignment.points,
-            type: selectedAssignment.type,
-            rawType: selectedAssignment.rawType,
-            topics: selectedAssignment.topics,
-            acceptingSubmissions: selectedAssignment.acceptingSubmissions,
-            submissionOpenAt: selectedAssignment.submissionOpenAt,
-            submissionCloseAt: selectedAssignment.submissionCloseAt,
-          } : null}
-          open={showAssignmentDetail}
-          onOpenChange={(open) => {
-            setShowAssignmentDetail(open);
-            if (!open) setSelectedAssignment(null);
-          }}
-          onAssignmentChanged={() => {
-            void refetchAssignments();
-          }}
-        />
       )}
 
       {/* Student Detail Dialog */}
