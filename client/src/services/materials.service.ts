@@ -8,6 +8,9 @@ export interface CreateMaterialPayload {
   type: MaterialType;
   file_url?: string;
   file?: File;
+  // When provided, the new material is attached to this lesson via
+  // lesson_materials instead of being parked in the course's General lesson.
+  lesson_id?: string;
 }
 
 export interface CreateMaterialRequestOptions {
@@ -112,6 +115,10 @@ export const materialsService = {
 
       if (payload.file_url) {
         formData.append('file_url', payload.file_url);
+      }
+
+      if (payload.lesson_id) {
+        formData.append('lesson_id', payload.lesson_id);
       }
 
       return apiClient.post(`/courses/${courseId}/materials`, formData, {

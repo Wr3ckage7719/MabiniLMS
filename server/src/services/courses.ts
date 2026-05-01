@@ -1244,11 +1244,51 @@ export const createMaterial = async (
     });
   }
 
-  // D10 — park the material in the course's General lesson if it isn't
-  // already linked to one, so the lesson model owns every file.
-  await ensureMaterialParkedInGeneralLesson(courseId, String(data.id));
+  // D10 — every material belongs to a lesson. The new lesson-builder flow
+  // passes lesson_id directly; the legacy flow (no lesson_id) falls back to
+  // parking in the course's auto-generated General lesson.
+  if (input.lesson_id) {
+    await attachMaterialToLesson(courseId, input.lesson_id, String(data.id));
+  } else {
+    await ensureMaterialParkedInGeneralLesson(courseId, String(data.id));
+  }
 
   return data as CourseMaterial;
+};
+
+const attachMaterialToLesson = async (
+  courseId: string,
+  lessonId: string,
+  materialId: string
+): Promise<void> => {
+  const { data: lesson, error: lessonErr } = await supabaseAdmin
+    .from('lessons')
+    .select('id, course_id')
+    .eq('id', lessonId)
+    .maybeSingle();
+  if (lessonErr || !lesson || (lesson as { course_id?: string }).course_id !== courseId) {
+    throw new ApiError(
+      ErrorCode.VALIDATION_ERROR,
+      'Lesson does not belong to this course',
+      400
+    );
+  }
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('lesson_materials')
+    .insert({
+      lesson_id: lessonId,
+      material_id: materialId,
+      sort_order: 0,
+    });
+  if (linkErr && (linkErr as { code?: string }).code !== '23505') {
+    logger.warn('Could not attach material to lesson', {
+      courseId,
+      lessonId,
+      materialId,
+      error: linkErr.message,
+    });
+  }
 };
 
 const ensureMaterialParkedInGeneralLesson = async (

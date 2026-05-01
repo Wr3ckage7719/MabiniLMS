@@ -26,8 +26,7 @@ export function TeacherClassesView({
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('view', 'classes');
     nextParams.set('classId', classId);
-    nextParams.set('tab', 'classwork');
-    nextParams.delete('builder');
+    nextParams.set('tab', 'lessons');
     setSearchParams(nextParams, { replace: false });
   };
 
@@ -38,7 +37,6 @@ export function TeacherClassesView({
     nextParams.set('view', 'classes');
     nextParams.delete('classId');
     nextParams.delete('tab');
-    nextParams.delete('builder');
     setSearchParams(nextParams, { replace: true });
   };
 
