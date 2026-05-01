@@ -69,6 +69,19 @@ const installSupabaseMock = (opts: MockOptions): void => {
       } as any
     }
 
+    // Lesson-aware override: tests in this file pre-date the lesson model,
+    // so we report "no owning lesson" and let the legacy required-materials
+    // gate handle the assertion. Lesson-bound gating has its own coverage.
+    if (table === 'lesson_assessments') {
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          }),
+        }),
+      } as any
+    }
+
     throw new Error(`Unexpected table mock: ${table}`)
   })
 }

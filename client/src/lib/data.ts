@@ -119,6 +119,85 @@ export interface LearningMaterial {
   url?: string;
 }
 
+// ============================================
+// Lesson model (LM-centric flow)
+// ============================================
+//
+// Lessons are the unit of progression: each lesson owns its files, its
+// completion rule, and the assessments that unlock after it. Lessons can be
+// chained so the next one stays locked until the previous lesson and its
+// assessments are cleared. The shapes here mirror what the backend at
+// /api/lessons returns.
+
+export type LessonStatus = 'locked' | 'active' | 'done' | 'draft';
+
+export type LessonCompletionRule =
+  | { type: 'view_all_files' }
+  | { type: 'mark_as_done' }
+  | { type: 'time_on_material'; min_minutes: number };
+
+export interface LessonAssessmentRef {
+  assignment_id: string;
+  title: string;
+  raw_type: 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project';
+  points: number;
+  is_optional?: boolean;
+  submitted?: boolean;
+  graded?: boolean;
+  score_percent?: number | null;
+  due_date?: string | null;
+}
+
+export interface LessonMaterialRef {
+  material_id: string;
+  title: string;
+  file_type: 'pdf' | 'doc' | 'docx' | 'ppt' | 'pptx' | 'image' | 'video' | 'archive' | 'other';
+  file_size: string;
+  url?: string;
+  viewed?: boolean;
+  view_seconds?: number;
+}
+
+export interface LessonChain {
+  next_lesson_id: string | null;
+  unlock_on_submit: boolean;
+  unlock_on_pass: boolean;
+  pass_threshold_percent?: number | null;
+}
+
+export interface LessonUnlockBlocker {
+  lesson_id: string;
+  lesson_title: string;
+  reason: 'predecessor_not_done' | 'predecessor_assessment_pending' | 'predecessor_assessment_failed';
+}
+
+export interface Lesson {
+  id: string;
+  classId: string;
+  ordering: number;
+  title: string;
+  description: string | null;
+  topics: string[];
+  isPublished: boolean;
+  createdAt: string;
+  completionRule: LessonCompletionRule;
+  materials: LessonMaterialRef[];
+  assessments: LessonAssessmentRef[];
+  chain: LessonChain;
+
+  // Student-derived state (computed from progress + chain). When teacher
+  // is viewing the same lesson, this is just the published/draft flag.
+  status: LessonStatus;
+  unlockBlocker?: LessonUnlockBlocker | null;
+  doneAt?: string | null;
+
+  // Teacher-derived rollup. Optional because student responses skip it.
+  stats?: {
+    completed_students: number;
+    total_students: number;
+  };
+}
+
 export const CLASS_COLORS: Record<string, string> = {
   blue: 'bg-class-blue',
   teal: 'bg-class-teal',

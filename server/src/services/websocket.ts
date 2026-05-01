@@ -146,6 +146,13 @@ export enum SocketEvent {
   ASSIGNMENT_CREATED = 'assignment_created',
   ASSIGNMENT_UPDATED = 'assignment_updated',
   MATERIAL_ADDED = 'material_added',
+
+  // Lesson events (LM-centric flow)
+  LESSON_CREATED = 'lesson_created',
+  LESSON_UPDATED = 'lesson_updated',
+  LESSON_DELETED = 'lesson_deleted',
+  LESSON_REORDERED = 'lesson_reordered',
+  LESSON_MARKED_DONE = 'lesson_marked_done',
   
   // Grade events
   GRADE_RELEASED = 'grade_released',
@@ -556,6 +563,57 @@ export const notifyStandingUpdated = async (
   });
 };
 
+// ============================================
+// Lesson event helpers (LM-centric flow)
+// ============================================
+
+const lessonPayload = (lesson: { id: string; classId: string; title: string; ordering: number; isPublished: boolean }) => ({
+  lesson_id: lesson.id,
+  course_id: lesson.classId,
+  title: lesson.title,
+  ordering: lesson.ordering,
+  is_published: lesson.isPublished,
+  ts: new Date().toISOString(),
+});
+
+export const notifyLessonCreated = (
+  courseId: string,
+  lesson: { id: string; classId: string; title: string; ordering: number; isPublished: boolean }
+): void => {
+  void sendToCourse(courseId, SocketEvent.LESSON_CREATED, lessonPayload(lesson));
+};
+
+export const notifyLessonUpdated = (
+  courseId: string,
+  lesson: { id: string; classId: string; title: string; ordering: number; isPublished: boolean }
+): void => {
+  void sendToCourse(courseId, SocketEvent.LESSON_UPDATED, lessonPayload(lesson));
+};
+
+export const notifyLessonDeleted = (courseId: string, lessonId: string): void => {
+  void sendToCourse(courseId, SocketEvent.LESSON_DELETED, {
+    lesson_id: lessonId,
+    course_id: courseId,
+    ts: new Date().toISOString(),
+  });
+};
+
+export const notifyLessonReordered = (courseId: string): void => {
+  void sendToCourse(courseId, SocketEvent.LESSON_REORDERED, {
+    course_id: courseId,
+    ts: new Date().toISOString(),
+  });
+};
+
+export const notifyLessonMarkedDone = (courseId: string, lessonId: string, studentId: string): void => {
+  void sendToCourse(courseId, SocketEvent.LESSON_MARKED_DONE, {
+    lesson_id: lessonId,
+    course_id: courseId,
+    student_id: studentId,
+    ts: new Date().toISOString(),
+  });
+};
+
 export default {
   initializeWebSocket,
   getIO,
@@ -574,5 +632,10 @@ export default {
   notifyGradeReleased,
   notifySubmissionReceived,
   notifyStandingUpdated,
+  notifyLessonCreated,
+  notifyLessonUpdated,
+  notifyLessonDeleted,
+  notifyLessonReordered,
+  notifyLessonMarkedDone,
   SocketEvent,
 };

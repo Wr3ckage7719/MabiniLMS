@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode } from '../types/index.js';
 import logger from '../utils/logger.js';
+import { findOwningLessonId, isStudentAllowedToSubmit } from './lessons.js';
 
 // ============================================
 // Types
@@ -221,11 +222,37 @@ export const getAssessmentLockState = async (
  * Throws a 423 Locked ApiError if the student has not met the required-LM
  * threshold for this assessment. Pass through silently when the gate is
  * disabled or no requirements are configured.
+ *
+ * Lesson-aware: if the assignment is bound to a non-general lesson, the
+ * lesson's done-state is the gate. The legacy required-materials list only
+ * applies to assignments that aren't part of the lesson model (orphan or
+ * legacy data) — after the 038 backfill that's effectively no-one, but the
+ * fallback is preserved so old courses keep working.
  */
 export const assertAssessmentUnlocked = async (
   assignmentId: string,
   userId: string
 ): Promise<void> => {
+  const lessonId = await findOwningLessonId(assignmentId);
+  if (lessonId) {
+    const { allowed, lesson } = await isStudentAllowedToSubmit(lessonId, userId);
+    if (!allowed) {
+      throw new ApiError(
+        ErrorCode.LOCKED,
+        'Mark this lesson as done before starting the assessment.',
+        423,
+        {
+          reason: 'lesson_gating',
+          lesson_id: lessonId,
+          lesson_title: lesson?.title ?? null,
+        }
+      );
+    }
+    // Lesson-bound and lesson is done (or general). Skip the legacy gate —
+    // the lesson model is the source of truth here.
+    return;
+  }
+
   const state = await getAssessmentLockState(assignmentId, userId);
   if (!state.locked) return;
 

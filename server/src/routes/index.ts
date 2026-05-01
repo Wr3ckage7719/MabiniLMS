@@ -18,3 +18,4 @@ export { default as announcementRoutes } from './announcements.js';
 export { default as invitationRoutes } from './invitations.js';
 export { default as discussionRoutes } from './discussions.js';
 export { default as competencyRoutes } from './competency.js';
+export { default as lessonRoutes } from './lessons.js';

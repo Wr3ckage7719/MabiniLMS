@@ -101,6 +101,87 @@ const DEFAULT_PROCTORING_POLICY: Record<string, unknown> = {
 
 type AssignmentInputWithAliases = Partial<CreateAssignmentInput & UpdateAssignmentInput> & Record<string, unknown>;
 
+/**
+ * D6/D10 plumbing: when an assignment is created through the legacy flow
+ * (CreateAssignmentDialog) and isn't already linked to a lesson, attach it
+ * to the course's auto-generated General lesson so the lesson model stays
+ * the source of truth for gating. Idempotent — safe to call repeatedly.
+ */
+const ensureAssignmentParkedInGeneralLesson = async (
+  courseId: string,
+  assignmentId: string
+): Promise<void> => {
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('lesson_assessments')
+    .select('lesson_id')
+    .eq('assignment_id', assignmentId)
+    .maybeSingle();
+  if (!existingErr && existing) return;
+
+  const { data: general, error: generalErr } = await supabaseAdmin
+    .from('lessons')
+    .select('id')
+    .eq('course_id', courseId)
+    .eq('is_general', true)
+    .maybeSingle();
+
+  let generalId = (general as { id?: string } | null)?.id;
+
+  if (!generalId || generalErr) {
+    // No General lesson yet (course created before 038 backfill, or migration
+    // pending) — create one on demand so the link can land.
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from('lessons')
+      .insert({
+        course_id: courseId,
+        title: 'General',
+        description: 'Holds existing assignments and materials that were created before lessons. Split or rename as needed.',
+        topics: [],
+        sort_order: 9999,
+        is_published: true,
+        is_general: true,
+        completion_rule_type: 'mark_as_done',
+        completion_rule_min_minutes: null,
+        next_lesson_id: null,
+        unlock_on_submit: true,
+        unlock_on_pass: false,
+        pass_threshold_percent: null,
+      })
+      .select('id')
+      .single();
+    if (createErr || !created) {
+      logger.warn('Could not auto-create General lesson when parking assignment', {
+        courseId,
+        assignmentId,
+        error: createErr?.message,
+      });
+      return;
+    }
+    generalId = (created as { id: string }).id;
+  }
+
+  if (!generalId) return;
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('lesson_assessments')
+    .insert({
+      lesson_id: generalId,
+      assignment_id: assignmentId,
+      is_optional: false,
+      sort_order: 0,
+    });
+  if (linkErr) {
+    // Unique-violation means a concurrent caller already linked it — fine.
+    if ((linkErr as { code?: string }).code !== '23505') {
+      logger.warn('Could not park assignment in General lesson', {
+        courseId,
+        assignmentId,
+        error: linkErr.message,
+      });
+    }
+  }
+};
+
 const resolveModeValue = (value: unknown): 'sequence' | 'random' | undefined => {
   if (value === 'sequence' || value === 'random') {
     return value;
@@ -938,6 +1019,11 @@ export const createAssignment = async (
     assignmentType: effectiveAssignmentType,
     dueDate: data.due_date || '',
   });
+
+  // D6 — every assessment belongs to a lesson. If the legacy create flow
+  // produced an assignment without an owning lesson, park it in the
+  // course's auto-generated General lesson so the lock state stays sane.
+  await ensureAssignmentParkedInGeneralLesson(courseId, data.id);
 
   try {
     let notificationActor:

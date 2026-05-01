@@ -30,6 +30,7 @@ import { AnnouncementCard } from '@/components/AnnouncementCard';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
 import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 import { StudentClassStream } from '@/components/StudentClassStream';
+import { LessonsTab } from '@/components/lessons/LessonsTab';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -480,24 +481,27 @@ export default function ClassDetail() {
           );
         })()}
 
-        <Tabs defaultValue={isMobile ? 'classwork' : 'stream'} className="space-y-3 md:space-y-4 lg:space-y-6">
+        <Tabs defaultValue="lessons" className="space-y-3 md:space-y-4 lg:space-y-6">
           <TabsList className="bg-secondary/60 border border-border/70 p-1 rounded-2xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">
+            <TabsTrigger value="lessons" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
+              <Book className="h-3.5 w-3.5 md:hidden" />
+              Lessons
+            </TabsTrigger>
             <TabsTrigger value="stream" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <Monitor className="h-3.5 w-3.5 md:hidden" />
               Stream
             </TabsTrigger>
-            <TabsTrigger value="classwork" className="md:hidden flex-col rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] px-2 py-1.5 gap-1">
-              <ClipboardList className="h-3.5 w-3.5" />
-              Classwork
-            </TabsTrigger>
-            <TabsTrigger value="materials" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Materials</TabsTrigger>
-            <TabsTrigger value="assignments" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Assignments</TabsTrigger>
             <TabsTrigger value="people" className="flex-col md:flex-row rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none text-[11px] md:text-sm px-2 py-1.5 md:px-3 md:py-1.5 gap-1">
               <UserRound className="h-3.5 w-3.5 md:hidden" />
               People
             </TabsTrigger>
             <TabsTrigger value="grades" className="hidden md:inline-flex rounded-md md:rounded-lg data-[state=active]:shadow-sm text-xs md:text-sm px-2 py-1 md:px-3 md:py-1.5">Grades</TabsTrigger>
           </TabsList>
+
+          {/* Lessons — primary entry into all course content. */}
+          <TabsContent value="lessons" className="space-y-3 md:space-y-4">
+            <LessonsTab classId={classId} />
+          </TabsContent>
 
           {/* Stream */}
           <TabsContent value="stream" className="space-y-3 md:space-y-4 lg:space-y-6">
@@ -533,341 +537,6 @@ export default function ClassDetail() {
             )}
           </TabsContent>
 
-          {/* Mobile Classwork */}
-          <TabsContent value="classwork" className="md:hidden space-y-3">
-            {availableTopics.length > 0 && (
-              <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
-                <SelectTrigger
-                  className="w-full rounded-lg h-9 text-[12px]"
-                  aria-label="Filter classwork by topic"
-                >
-                  <Tag className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All topics</SelectItem>
-                  {availableTopics.map((topic) => (
-                    <SelectItem key={topic} value={topic}>
-                      {topic}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            <div className="space-y-1.5">
-              <h3 className="font-semibold text-[13px]">Assignments</h3>
-              {filteredAssignments.length > 0 ? (
-                filteredAssignments.map((a) => {
-                  const meta = getTaskTypeMeta(a.rawType || a.type);
-                  const Icon = meta.icon;
-                  const assignmentTypeLabel = meta.label;
-                  return (
-                    <Card
-                      key={`mobile-assignment-${a.id}`}
-                      className="rounded-[14px] border border-border/70 shadow-none cursor-pointer transition-colors active:bg-muted/40"
-                      onClick={() => setSelectedAssignment(a)}
-                    >
-                      <CardContent className="p-3">
-                        <div className="flex items-start gap-2.5">
-                          <div className={`mt-0.5 p-2 rounded-lg ${a.status === 'late' ? 'bg-destructive/10' : meta.iconBg}`}>
-                            <Icon className={`h-3.5 w-3.5 ${a.status === 'late' ? 'text-destructive' : meta.iconText}`} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium leading-tight line-clamp-2">{a.title}</p>
-                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{a.description}</p>
-                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0.5 h-5 border ${meta.badgeClass}`}>
-                                {assignmentTypeLabel}
-                              </Badge>
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-5">
-                                {a.points} pts
-                              </Badge>
-                              {a.status === 'submitted' && (
-                                <Badge className="text-[10px] px-1.5 py-0.5 h-5 bg-blue-500 hover:bg-blue-500">Submitted</Badge>
-                              )}
-                              {a.status === 'graded' && (
-                                <Badge className="text-[10px] px-1.5 py-0.5 h-5 bg-green-600 hover:bg-green-600">Graded</Badge>
-                              )}
-                              {a.status === 'late' && (
-                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 h-5">Late</Badge>
-                              )}
-                            </div>
-                            {(a.topics ?? []).length > 0 && (
-                              <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                                {(a.topics ?? []).map((topic) => (
-                                  <Badge
-                                    key={topic}
-                                    variant="outline"
-                                    className="text-[10px] px-1.5 py-0.5 h-5 rounded-full border-primary/40 bg-primary/5 text-primary"
-                                  >
-                                    {topic}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            <p className={`text-[11px] mt-1 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
-                              Due {formatShortDate(a.dueDate)}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              ) : (
-                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
-                  {classworkTopicFilter === 'all' ? (
-                    'No assignments yet'
-                  ) : (
-                    <>
-                      No assignments tagged "{classworkTopicFilter}".{' '}
-                      <button
-                        type="button"
-                        onClick={() => setClassworkTopicFilter('all')}
-                        className="text-primary hover:underline"
-                      >
-                        Clear filter
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <h3 className="font-semibold text-[13px]">Materials</h3>
-              {materials.length > 0 ? (
-                materials.map((material) => {
-                  const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
-                  return (
-                    <Card
-                      key={`mobile-material-${material.id}`}
-                      className={`rounded-[14px] border border-border/70 shadow-none transition-colors ${material.url ? 'cursor-pointer active:bg-muted/40' : ''}`}
-                      onClick={() => {
-                        if (material.url) {
-                          handleOpenMaterial(material);
-                        }
-                      }}
-                    >
-                      <CardContent className="p-3">
-                        <div className="flex items-start gap-2.5">
-                          <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
-                            <Icon className="h-3.5 w-3.5 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium leading-tight line-clamp-2">{material.title}</p>
-                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{material.description}</p>
-                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 h-5 capitalize">
-                                {material.fileType}
-                              </Badge>
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-5">
-                                {material.fileSize}
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-2">
-                          Added {formatShortDate(material.uploadedDate)}
-                        </p>
-                        {material.url ? (
-                          <div className="mt-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-8 text-[11px] w-full"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenMaterial(material);
-                              }}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                            </Button>
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              ) : (
-                <div className="rounded-[14px] border border-border/70 bg-card px-3 py-4 text-xs text-muted-foreground text-center">
-                  No materials uploaded yet
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* Materials */}
-          <TabsContent value="materials" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-3 mb-3 md:mb-4 lg:mb-6">
-              <h3 className="font-semibold text-base md:text-lg">Learning Materials</h3>
-            </div>
-            <div className="space-y-1 md:space-y-2 lg:space-y-3 animate-stagger">
-              {materials.map((material, idx) => {
-                const Icon = FILE_TYPE_ICONS[material.fileType] || FileText;
-                return (
-                  <Card
-                    key={material.id}
-                    className={`border-0 shadow-sm card-interactive hover:shadow-md transition-all ${material.url ? 'cursor-pointer' : ''}`}
-                    style={{
-                      animation: `fade-in 0.4s ease-out ${idx * 50}ms both`,
-                    }}
-                    onClick={() => {
-                      if (material.url) {
-                        handleOpenMaterial(material);
-                      }
-                    }}
-                    onKeyDown={(event) => handleMaterialCardKeyDown(event, material)}
-                    role={material.url ? 'button' : undefined}
-                    tabIndex={material.url ? 0 : -1}
-                  >
-                    <CardContent className="p-2 md:p-4 lg:p-5">
-                      <div className="flex flex-col gap-2 md:gap-3">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 md:p-3 rounded-lg md:rounded-xl bg-primary/10 flex-shrink-0">
-                            <Icon className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm md:text-base truncate">{material.title}</p>
-                            <p className="text-xs md:text-sm text-muted-foreground mt-0.5 line-clamp-2">{material.description}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 md:gap-3 flex-wrap text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-md bg-secondary/50 text-xs">
-                            {material.fileSize}
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-md bg-secondary/50 capitalize text-xs">
-                            {material.fileType}
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-1.5 md:px-2 py-0.5 md:py-1 rounded-md bg-secondary/50 text-xs">
-                            <Download className="h-3 w-3" /> {material.downloads}
-                          </span>
-                          <span className="text-muted-foreground ml-auto text-xs hidden md:inline">
-                            {material.uploadedBy}
-                          </span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-              {materials.length === 0 && (
-                <div className="text-center py-8 md:py-12 text-muted-foreground">
-                  <Book className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 md:mb-3 opacity-30" />
-                  <p className="text-sm md:text-base">No materials uploaded yet</p>
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* Assignments */}
-          <TabsContent value="assignments" className="hidden md:block space-y-2 md:space-y-3 lg:space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-semibold text-sm md:text-base">All Assignments</h3>
-              {availableTopics.length > 0 && (
-                <Select value={classworkTopicFilter} onValueChange={setClassworkTopicFilter}>
-                  <SelectTrigger
-                    className="w-56 rounded-lg h-9"
-                    aria-label="Filter assignments by topic"
-                  >
-                    <Tag className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All topics</SelectItem>
-                    {availableTopics.map((topic) => (
-                      <SelectItem key={topic} value={topic}>
-                        {topic}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div className="space-y-1 md:space-y-2 lg:space-y-3 animate-stagger">
-              {filteredAssignments.map((a) => {
-                const meta = getTaskTypeMeta(a.rawType || a.type);
-                const Icon = meta.icon;
-                return (
-                  <Card
-                    key={a.id}
-                    className="border-0 shadow-sm card-interactive cursor-pointer"
-                    onClick={() => setSelectedAssignment(a)}
-                  >
-                    <CardContent className="p-2 md:p-4 flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
-                      <div className={`p-2 md:p-3 rounded-lg md:rounded-xl flex-shrink-0 ${a.status === 'late' ? 'bg-destructive/10' : meta.iconBg}`}>
-                        <Icon className={`h-4 w-4 md:h-5 md:w-5 ${a.status === 'late' ? 'text-destructive' : meta.iconText}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm md:text-base truncate">{a.title}</p>
-                        <p className="text-xs md:text-sm text-muted-foreground mt-0.5 truncate">{a.description}</p>
-                        {(a.topics ?? []).length > 0 && (
-                          <div className="mt-1 flex items-center gap-1 flex-wrap">
-                            {(a.topics ?? []).map((topic) => (
-                              <Badge
-                                key={topic}
-                                variant="outline"
-                                className="rounded-full text-[10px] px-1.5 py-0 h-5 border-primary/40 bg-primary/5 text-primary"
-                              >
-                                {topic}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 md:gap-3 flex-wrap md:flex-nowrap md:shrink-0">
-                        <Badge variant="outline" className={`text-xs border ${meta.badgeClass}`}>
-                          {meta.label}
-                        </Badge>
-                        <div className="text-right">
-                          <p className="text-xs md:text-sm font-medium">{a.points} pts</p>
-                          <p className={`text-xs mt-0.5 ${a.status === 'late' ? 'text-destructive' : 'text-muted-foreground'}`}>
-                            Due {new Date(a.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </p>
-                        </div>
-                        {a.status === 'submitted' && (
-                          <Badge className="text-xs bg-blue-500 hover:bg-blue-500">Submitted</Badge>
-                        )}
-                        {a.status === 'graded' && (
-                          <Badge className="text-xs bg-green-600 hover:bg-green-600">Graded</Badge>
-                        )}
-                        {a.status === 'late' && (
-                          <Badge variant="destructive" className="text-xs">Late</Badge>
-                        )}
-                        {a.attachments && (
-                          <Badge variant="secondary" className="text-xs">
-                            <Paperclip className="h-3 w-3 mr-1" /> {a.attachments}
-                          </Badge>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-              {filteredAssignments.length === 0 && (
-                <div className="text-center py-8 md:py-12 text-muted-foreground">
-                  <FileText className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 md:mb-3 opacity-30" />
-                  {classworkTopicFilter === 'all' ? (
-                    <p className="text-sm md:text-base">No assignments yet</p>
-                  ) : (
-                    <>
-                      <p className="text-sm md:text-base">
-                        No assignments tagged "{classworkTopicFilter}"
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setClassworkTopicFilter('all')}
-                        className="text-sm text-primary hover:underline mt-1"
-                      >
-                        Clear filter
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </TabsContent>
 
           {/* People */}
           <TabsContent value="people" className="space-y-3 md:space-y-4 lg:space-y-6">
