@@ -3,6 +3,7 @@ import { apiClient } from '@/services/api-client';
 import { transformMaterials } from '@/services/data-transformer';
 import { LearningMaterial } from '@/lib/data';
 import { materialsService, MaterialEngagementRecord } from '@/services/materials.service';
+import { precacheMaterialUrls } from '@/services/material-cache.service';
 
 export function useMaterials(courseId?: string): UseQueryResult<LearningMaterial[], Error> {
   return useQuery({
@@ -10,7 +11,12 @@ export function useMaterials(courseId?: string): UseQueryResult<LearningMaterial
     queryFn: async () => {
       if (!courseId) return [];
       const response = await apiClient.get(`/courses/${courseId}/materials`);
-      return transformMaterials(response.data || []);
+      const materials = transformMaterials(response.data || []);
+      // Warm the offline material cache for everything the student can see.
+      // The SW skips files larger than the configured threshold so this is
+      // safe even with a long materials list.
+      precacheMaterialUrls(materials.map((material) => material.url ?? null));
+      return materials;
     },
     staleTime: 60 * 1000, // 1 minute
   });

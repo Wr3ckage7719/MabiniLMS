@@ -1357,6 +1357,18 @@ export const submitAssignment = async (
   const submissionOpenAtRaw = (assignment as AssignmentWithCourse).submission_open_at;
   const submissionCloseAtRaw = (assignment as AssignmentWithCourse).submission_close_at;
 
+  // Trust the device timestamp only if it's not in the future relative to the
+  // server clock — clamping like this prevents a clock-skewed device from
+  // submitting "before" a close window that has already passed on the server.
+  const clientSubmittedAt = (() => {
+    if (!input.client_submitted_at) return null;
+    const parsed = new Date(input.client_submitted_at);
+    if (!Number.isFinite(parsed.getTime())) return null;
+    return parsed > now ? null : parsed;
+  })();
+  const effectiveSubmittedAt = clientSubmittedAt ?? now;
+  let submittedAfterClose = false;
+
   if (typeof submissionsOpen === 'boolean' && !submissionsOpen) {
     throw new ApiError(
       ErrorCode.FORBIDDEN,
@@ -1367,7 +1379,7 @@ export const submitAssignment = async (
 
   if (typeof submissionOpenAtRaw === 'string') {
     const submissionOpenAt = new Date(submissionOpenAtRaw);
-    if (Number.isFinite(submissionOpenAt.getTime()) && now < submissionOpenAt) {
+    if (Number.isFinite(submissionOpenAt.getTime()) && effectiveSubmittedAt < submissionOpenAt) {
       throw new ApiError(
         ErrorCode.FORBIDDEN,
         'Submissions are not open yet for this assignment',
@@ -1378,12 +1390,23 @@ export const submitAssignment = async (
 
   if (typeof submissionCloseAtRaw === 'string') {
     const submissionCloseAt = new Date(submissionCloseAtRaw);
-    if (Number.isFinite(submissionCloseAt.getTime()) && now > submissionCloseAt) {
+    if (Number.isFinite(submissionCloseAt.getTime()) && effectiveSubmittedAt > submissionCloseAt) {
       throw new ApiError(
         ErrorCode.FORBIDDEN,
         'Submission window has closed for this assignment',
         403
       );
+    }
+
+    // Offline-replayed submission: the device captured the work before the
+    // window closed but the sync engine only delivered it afterwards. Accept
+    // it but flag for teacher review per the offline-first conflict policy.
+    if (
+      Number.isFinite(submissionCloseAt.getTime())
+      && clientSubmittedAt !== null
+      && now > submissionCloseAt
+    ) {
+      submittedAfterClose = true;
     }
   }
 
@@ -1400,9 +1423,11 @@ export const submitAssignment = async (
     teacherEmail: assignment.course.teacher.email,
   });
 
-  // Determine if late
+  // Determine if late — use the device-side timestamp when present so a
+  // student who tapped Submit before the deadline isn't penalised because the
+  // sync engine only drained the queue afterwards.
   const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
-  const isLate = dueDate && now > dueDate;
+  const isLate = dueDate && effectiveSubmittedAt > dueDate;
 
   const { data: studentProfile } = await supabaseAdmin
     .from('profiles')
@@ -1451,7 +1476,9 @@ export const submitAssignment = async (
         provider_checksum: storageSnapshot.providerChecksum,
         submission_snapshot_at: storageSnapshot.snapshotAt,
         content: input.content || null,
-        submitted_at: new Date().toISOString(),
+        submitted_at: effectiveSubmittedAt.toISOString(),
+        client_submitted_at: clientSubmittedAt ? clientSubmittedAt.toISOString() : null,
+        submitted_after_close: submittedAfterClose,
         status: targetStatus,
       })
       .eq('id', existing.id)
@@ -1535,7 +1562,9 @@ export const submitAssignment = async (
       provider_checksum: storageSnapshot.providerChecksum,
       submission_snapshot_at: storageSnapshot.snapshotAt,
       content: input.content || null,
-      submitted_at: new Date().toISOString(),
+      submitted_at: effectiveSubmittedAt.toISOString(),
+      client_submitted_at: clientSubmittedAt ? clientSubmittedAt.toISOString() : null,
+      submitted_after_close: submittedAfterClose,
       status: targetStatus,
     })
     .select()

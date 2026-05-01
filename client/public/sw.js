@@ -1,5 +1,6 @@
 // Service Worker for Mabini Classroom PWA
 const CACHE_NAME = 'mabini-classroom-v3';
+const MATERIALS_CACHE_NAME = 'mabini-materials-v1';
 const OFFLINE_URL = '/offline.html';
 
 // Assets to cache on install
@@ -8,6 +9,90 @@ const PRECACHE_ASSETS = [
   '/offline.html',
   '/manifest.json'
 ];
+
+// Material files larger than this are skipped during pre-cache to keep the
+// student's device storage under control. Matches the pivot spec's pragmatic
+// 50 MB ceiling for offline LM caching.
+const MATERIAL_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+
+// In-memory whitelist of material URLs the page has registered with the SW.
+// We persist it into the materials cache so it survives SW restarts.
+const REGISTERED_MATERIALS_KEY = '/__mabini-registered-materials__';
+
+const loadRegisteredMaterialUrls = async () => {
+  try {
+    const cache = await caches.open(MATERIALS_CACHE_NAME);
+    const response = await cache.match(REGISTERED_MATERIALS_KEY);
+    if (!response) return new Set();
+    const data = await response.json();
+    if (!Array.isArray(data)) return new Set();
+    return new Set(data.filter((value) => typeof value === 'string'));
+  } catch {
+    return new Set();
+  }
+};
+
+const saveRegisteredMaterialUrls = async (urlSet) => {
+  try {
+    const cache = await caches.open(MATERIALS_CACHE_NAME);
+    const body = JSON.stringify(Array.from(urlSet));
+    await cache.put(
+      REGISTERED_MATERIALS_KEY,
+      new Response(body, { headers: { 'Content-Type': 'application/json' } })
+    );
+  } catch {
+    // Storage failures should never break navigation.
+  }
+};
+
+const isMaterialRequest = async (request) => {
+  if (request.method !== 'GET') return false;
+  const registered = await loadRegisteredMaterialUrls();
+  return registered.has(request.url);
+};
+
+const cacheMaterialUrl = async (url) => {
+  try {
+    const response = await fetch(url, { credentials: 'omit' });
+    if (!response.ok) return false;
+
+    const contentLengthHeader = response.headers.get('Content-Length');
+    const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
+    if (Number.isFinite(contentLength) && contentLength > MATERIAL_CACHE_MAX_BYTES) {
+      return false;
+    }
+
+    const cache = await caches.open(MATERIALS_CACHE_NAME);
+    await cache.put(url, response.clone());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const handleCacheMaterialUrlsMessage = async (urls) => {
+  if (!Array.isArray(urls)) return;
+
+  const registered = await loadRegisteredMaterialUrls();
+  for (const url of urls) {
+    if (typeof url !== 'string' || !url) continue;
+    registered.add(url);
+  }
+  await saveRegisteredMaterialUrls(registered);
+
+  // Best-effort: cache anything that isn't already cached.
+  const cache = await caches.open(MATERIALS_CACHE_NAME);
+  for (const url of urls) {
+    if (typeof url !== 'string' || !url) continue;
+    const existing = await cache.match(url);
+    if (existing) continue;
+    await cacheMaterialUrl(url);
+  }
+};
+
+const handlePurgeMaterialCacheMessage = async () => {
+  await caches.delete(MATERIALS_CACHE_NAME);
+};
 
 // Install event - cache core assets
 self.addEventListener('install', (event) => {
@@ -20,13 +105,14 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches but keep the materials cache alive
+// across SW upgrades so already-downloaded LMs stay available offline.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name !== CACHE_NAME && name !== MATERIALS_CACHE_NAME)
           .map((name) => caches.delete(name))
       );
     })
@@ -35,7 +121,9 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event - network first for app shell; cache-first for registered
+// material URLs so a student who has already opened a PDF/video online can
+// keep reading it offline.
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
@@ -43,38 +131,81 @@ self.addEventListener('fetch', (event) => {
   // Skip API requests (don't cache)
   if (event.request.url.includes('/api/')) return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clone response for caching
-        const responseClone = response.clone();
-        
-        // Cache successful responses
-        if (response.status === 200) {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        
-        return response;
-      })
-      .catch(() => {
-        // Network failed, try cache
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          
-          // If it's a navigation request, show offline page
-          if (event.request.mode === 'navigate') {
-            return caches.match(OFFLINE_URL);
-          }
-          
-          return new Response('Offline', { status: 503 });
-        });
-      })
-  );
+  event.respondWith(handleFetch(event.request));
 });
+
+const handleFetch = async (request) => {
+  if (await isMaterialRequest(request)) {
+    return handleMaterialFetch(request);
+  }
+  return handleAppShellFetch(request);
+};
+
+const handleMaterialFetch = async (request) => {
+  const cache = await caches.open(MATERIALS_CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) {
+    // Refresh in the background so updated material content propagates the
+    // next time the student opens it online.
+    fetch(request, { credentials: 'omit' })
+      .then((response) => {
+        if (response && response.status === 200) {
+          const contentLengthHeader = response.headers.get('Content-Length');
+          const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
+          if (!Number.isFinite(contentLength) || contentLength <= MATERIAL_CACHE_MAX_BYTES) {
+            cache.put(request, response.clone());
+          }
+        }
+      })
+      .catch(() => undefined);
+    return cached;
+  }
+
+  try {
+    const response = await fetch(request);
+    if (response && response.status === 200) {
+      const contentLengthHeader = response.headers.get('Content-Length');
+      const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
+      if (!Number.isFinite(contentLength) || contentLength <= MATERIAL_CACHE_MAX_BYTES) {
+        cache.put(request, response.clone());
+      }
+    }
+    return response;
+  } catch {
+    return new Response('Material is not available offline yet.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+};
+
+const handleAppShellFetch = (request) => {
+  return fetch(request)
+    .then((response) => {
+      const responseClone = response.clone();
+
+      if (response.status === 200) {
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(request, responseClone);
+        });
+      }
+
+      return response;
+    })
+    .catch(() => {
+      return caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+
+        if (request.mode === 'navigate') {
+          return caches.match(OFFLINE_URL);
+        }
+
+        return new Response('Offline', { status: 503 });
+      });
+    });
+};
 
 const toAbsoluteUrl = (url) => {
   try {
@@ -221,4 +352,20 @@ self.addEventListener('pushsubscriptionchange', (event) => {
       });
     })
   );
+});
+
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+
+  switch (data.type) {
+    case 'mabini:cache-material-urls':
+      event.waitUntil(handleCacheMaterialUrlsMessage(data.urls));
+      break;
+    case 'mabini:purge-material-cache':
+      event.waitUntil(handlePurgeMaterialCacheMessage());
+      break;
+    default:
+      break;
+  }
 });

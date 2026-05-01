@@ -96,6 +96,7 @@ export interface SubmissionRequestPayload {
   drive_file_name?: string;
   content?: string;
   sync_key: string;
+  client_submitted_at?: string;
 }
 
 const buildSubmissionContent = (data: SubmissionData): string | undefined => {
@@ -130,6 +131,7 @@ const buildSubmissionPayload = (
     drive_file_name: providerFileName,
     content: buildSubmissionContent(data),
     sync_key: syncKey,
+    client_submitted_at: new Date().toISOString(),
   };
 };
 

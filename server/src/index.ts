@@ -29,6 +29,7 @@ import {
   announcementRoutes,
   invitationRoutes,
   discussionRoutes,
+  competencyRoutes,
 } from './routes/index.js';
 
 dotenv.config();
@@ -356,6 +357,7 @@ app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limitin
 app.use('/api/invitations', invitationRoutes);
 app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
 app.use('/api', discussionRoutes); // Course discussion stream routes
+app.use('/api/competency', competencyRoutes); // TESDA competency overlay
 
 // Error handlers (must be last)
 app.use(notFoundHandler);

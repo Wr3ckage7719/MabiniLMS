@@ -194,6 +194,11 @@ export const createSubmissionSchema = z.object({
   drive_file_name: z.string().trim().min(1, 'File name is required').optional(),
   content: z.string().optional(), // Optional text content
   sync_key: z.string().min(1).max(100).optional(),
+  // Device-side timestamp captured when the student tapped Submit. When the
+  // submission was buffered offline, this is the canonical "submitted at" the
+  // server uses for the close-window check; falls back to server clock when
+  // absent.
+  client_submitted_at: z.string().datetime().optional(),
 }).superRefine((value, ctx) => {
   const fileId = value.provider_file_id || value.drive_file_id;
 
@@ -336,6 +341,8 @@ export interface Submission {
   storage_metadata_complete?: boolean;
   storage_consistency_issues?: SubmissionStorageConsistencyIssue[];
   submitted_at: string;
+  client_submitted_at?: string | null;
+  submitted_after_close?: boolean;
   status: SubmissionStatus;
 }
 

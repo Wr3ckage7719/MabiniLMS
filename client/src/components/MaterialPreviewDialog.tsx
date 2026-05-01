@@ -1001,13 +1001,7 @@ export function MaterialPreviewDialog({
 
       const nowIso = new Date().toISOString();
 
-      try {
-        await materialsService.updateMyProgress(material.id, {
-          progress_percent: 100,
-          completed: true,
-          last_viewed_at: nowIso,
-        });
-
+      const applyOptimisticProgress = (queued: boolean) => {
         finalizeViewSession({
           forceComplete: true,
           forceScrollPercent: 100,
@@ -1028,17 +1022,58 @@ export function MaterialPreviewDialog({
         });
 
         toast({
-          title: 'Marked as done',
-          description: 'Your reading progress was saved successfully.',
+          title: queued ? 'Marked as done (offline)' : 'Marked as done',
+          description: queued
+            ? 'Your progress will sync automatically when you reconnect.'
+            : 'Your reading progress was saved successfully.',
         });
 
         onOpenChange(false);
-      } catch (error) {
-        toast({
-          title: 'Unable to mark as done',
-          description: resolveApiErrorMessage(error, 'Please try again.'),
-          variant: 'destructive',
+      };
+
+      const isOffline =
+        typeof navigator !== 'undefined' && navigator.onLine === false;
+
+      if (isOffline) {
+        const { enqueueProgressEvent } = await import(
+          '@/services/material-progress-queue.service'
+        );
+        enqueueProgressEvent('updateMyProgress', material.id, {
+          progress_percent: 100,
+          completed: true,
+          last_viewed_at: nowIso,
         });
+        applyOptimisticProgress(true);
+        setMarkingDone(false);
+        return;
+      }
+
+      try {
+        await materialsService.updateMyProgress(material.id, {
+          progress_percent: 100,
+          completed: true,
+          last_viewed_at: nowIso,
+        });
+
+        applyOptimisticProgress(false);
+      } catch (error: any) {
+        if (!error?.response) {
+          const { enqueueProgressEvent } = await import(
+            '@/services/material-progress-queue.service'
+          );
+          enqueueProgressEvent('updateMyProgress', material.id, {
+            progress_percent: 100,
+            completed: true,
+            last_viewed_at: nowIso,
+          });
+          applyOptimisticProgress(true);
+        } else {
+          toast({
+            title: 'Unable to mark as done',
+            description: resolveApiErrorMessage(error, 'Please try again.'),
+            variant: 'destructive',
+          });
+        }
       } finally {
         setMarkingDone(false);
       }
