@@ -154,6 +154,9 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
             <span className="uppercase">{fileIconLabel(material.file_type)}</span>
             {' · '}
             {material.file_size}
+            {typeof material.page_count === 'number' && material.page_count > 0
+              ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
+              : ''}
             {material.viewed ? ' · viewed' : ''}
           </p>
         </div>
@@ -193,14 +196,14 @@ export default function LessonDetailPage() {
   };
 
   const handleOpenMaterial = (material: LessonMaterialRef) => {
-    if (material.url && material.url !== '#') {
-      window.open(material.url, '_blank', 'noopener,noreferrer');
-    } else {
+    if (!material.url || material.url === '#') {
       toast({
         title: 'Material link unavailable',
         description: 'This material does not have a downloadable file yet.',
       });
+      return;
     }
+    navigate(`/class/${classId}/lessons/${lessonId}/materials/${material.material_id}`);
   };
 
   const handleOpenAssessment = (assignmentId: string) => {

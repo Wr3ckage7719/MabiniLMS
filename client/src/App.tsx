@@ -16,6 +16,9 @@ import GradesPage from "./pages/GradesPage";
 import CompetencyPortfolioPage from "./pages/CompetencyPortfolioPage";
 import LessonDetailPage from "./pages/LessonDetailPage";
 import LessonEditorPage from "./pages/LessonEditorPage";
+import MaterialUploadPage from "./pages/MaterialUploadPage";
+import AssignmentBuilderPage from "./pages/AssignmentBuilderPage";
+import MaterialReaderPage from "./pages/MaterialReaderPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import GoogleStudentSetupPage from "./pages/GoogleStudentSetupPage";
@@ -107,6 +110,30 @@ const AppRoutes = () => (
       element={(
         <ProtectedRoute>
           <LessonDetailPage />
+        </ProtectedRoute>
+      )}
+    />
+    <Route
+      path="/class/:id/lessons/:lessonId/new/reading-material"
+      element={(
+        <ProtectedRoute role="teacher">
+          <MaterialUploadPage />
+        </ProtectedRoute>
+      )}
+    />
+    <Route
+      path="/class/:id/lessons/:lessonId/new/:taskType"
+      element={(
+        <ProtectedRoute role="teacher">
+          <AssignmentBuilderPage />
+        </ProtectedRoute>
+      )}
+    />
+    <Route
+      path="/class/:id/lessons/:lessonId/materials/:materialId"
+      element={(
+        <ProtectedRoute>
+          <MaterialReaderPage />
         </ProtectedRoute>
       )}
     />

@@ -48,6 +48,7 @@ export interface LessonMaterialRef {
   url: string | null;
   viewed: boolean;
   view_seconds: number;
+  page_count: number | null;
 }
 
 export interface LessonAssessmentRef {
@@ -229,16 +230,19 @@ const loadSingleLessonRow = async (
   return (data as LessonRow | null) ?? null;
 };
 
+interface LessonMaterialJoinRowItem {
+  id: string;
+  title: string;
+  type: string | null;
+  file_url: string | null;
+  file_size: number | null;
+  page_count: number | null;
+}
+
 interface LessonMaterialJoinRow {
   material_id: string;
   sort_order: number;
-  course_materials: {
-    id: string;
-    title: string;
-    type: string | null;
-    file_url: string | null;
-    file_size: number | null;
-  } | { id: string; title: string; type: string | null; file_url: string | null; file_size: number | null }[] | null;
+  course_materials: LessonMaterialJoinRowItem | LessonMaterialJoinRowItem[] | null;
 }
 
 const formatBytes = (bytes: number | null): string => {
@@ -248,27 +252,51 @@ const formatBytes = (bytes: number | null): string => {
   return `${(bytes / 1024).toFixed(0)} KB`;
 };
 
+const isMissingPageCountSelectError = (err: { message?: string; details?: string; code?: string } | null): boolean => {
+  if (!err) return false;
+  const text = `${err.message || ''} ${err.details || ''}`.toLowerCase();
+  return text.includes('page_count') && (err.code === '42703' || text.includes('does not exist') || text.includes('could not find'));
+};
+
 const loadMaterialsByLesson = async (
   lessonIds: string[]
 ): Promise<Map<string, LessonMaterialJoinRow[]>> => {
   if (lessonIds.length === 0) return new Map();
-  const { data, error } = await supabaseAdmin
+
+  let { data, error } = await supabaseAdmin
     .from('lesson_materials')
     .select(`
       lesson_id,
       material_id,
       sort_order,
-      course_materials:course_materials!inner(id, title, type, file_url, file_size)
+      course_materials:course_materials!inner(id, title, type, file_url, file_size, page_count)
     `)
     .in('lesson_id', lessonIds)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
+
+  if (error && isMissingPageCountSelectError(error as { message?: string; details?: string; code?: string })) {
+    const fallback = await supabaseAdmin
+      .from('lesson_materials')
+      .select(`
+        lesson_id,
+        material_id,
+        sort_order,
+        course_materials:course_materials!inner(id, title, type, file_url, file_size)
+      `)
+      .in('lesson_id', lessonIds)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
+
   if (error) {
     logger.error('Failed to load lesson materials', { error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load lesson materials', 500);
   }
   const byLesson = new Map<string, LessonMaterialJoinRow[]>();
-  for (const row of (data ?? []) as Array<LessonMaterialJoinRow & { lesson_id: string }>) {
+  for (const row of (data ?? []) as unknown as Array<LessonMaterialJoinRow & { lesson_id: string }>) {
     const list = byLesson.get(row.lesson_id) ?? [];
     list.push(row);
     byLesson.set(row.lesson_id, list);
@@ -595,6 +623,7 @@ const toMaterialRefs = (
       url: cm?.file_url ?? null,
       viewed: Boolean(progress?.completed) || (progress?.progress_percent ?? 0) > 0,
       view_seconds: 0,
+      page_count: cm?.page_count ?? null,
     };
   });
 };

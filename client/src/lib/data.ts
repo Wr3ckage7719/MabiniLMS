@@ -156,6 +156,7 @@ export interface LessonMaterialRef {
   url?: string;
   viewed?: boolean;
   view_seconds?: number;
+  page_count?: number | null;
 }
 
 export interface LessonChain {
