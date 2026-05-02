@@ -7,7 +7,6 @@ import {
   FileText,
   ClipboardList,
   Loader2,
-  ExternalLink,
   ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,17 +18,19 @@ import { useClass } from '@/hooks-api/useClasses';
 import type { Lesson, LessonAssessmentRef, LessonMaterialRef } from '@/lib/data';
 
 const completionRuleCopy = (lesson: Lesson): string => {
-  switch (lesson.completionRule.type) {
-    case 'view_all_files':
-      return 'Open every file at least once, then mark the lesson as done.';
-    case 'time_on_material':
-      return `Spend at least ${lesson.completionRule.min_minutes} minutes on the materials, then mark the lesson as done.`;
-    case 'mark_as_done':
-    default:
-      return 'Read the materials, then mark the lesson as done.';
+  if (lesson.materials.length === 0) {
+    return 'Mark this lesson as done to unlock the assessments.';
   }
+  if (lesson.completionRule.type === 'time_on_material') {
+    return `Open every file and spend at least ${lesson.completionRule.min_minutes} minutes reading, then mark the lesson as done.`;
+  }
+  return 'Open every file at least once, then mark the lesson as done.';
 };
 
+// Regardless of the teacher-set completion rule, students must open every
+// attached material before they can mark a lesson as done. The assessment
+// gate downstream relies on this: a student should not be able to skip the
+// reading and jump straight to the quiz/exam.
 const computeMarkDoneEligibility = (
   lesson: Lesson
 ): { canMark: boolean; reason: string | null } => {
@@ -39,29 +40,29 @@ const computeMarkDoneEligibility = (
   if (lesson.status === 'locked') {
     return { canMark: false, reason: 'Locked by chain.' };
   }
-  switch (lesson.completionRule.type) {
-    case 'view_all_files': {
-      const hasFiles = lesson.materials.length > 0;
-      if (!hasFiles) return { canMark: true, reason: null };
-      const allViewed = lesson.materials.every((m) => m.viewed);
-      return allViewed
-        ? { canMark: true, reason: null }
-        : { canMark: false, reason: 'Open every file at least once first.' };
+
+  if (lesson.materials.length > 0) {
+    const allViewed = lesson.materials.every((m) => m.viewed);
+    if (!allViewed) {
+      return { canMark: false, reason: 'Open every file at least once first.' };
     }
-    case 'time_on_material': {
-      const minSeconds = lesson.completionRule.min_minutes * 60;
-      const totalSeconds = lesson.materials.reduce(
-        (sum, m) => sum + (m.view_seconds ?? 0),
-        0
-      );
-      return totalSeconds >= minSeconds
-        ? { canMark: true, reason: null }
-        : { canMark: false, reason: `Spend at least ${lesson.completionRule.min_minutes} minutes reading first.` };
-    }
-    case 'mark_as_done':
-    default:
-      return { canMark: true, reason: null };
   }
+
+  if (lesson.completionRule.type === 'time_on_material') {
+    const minSeconds = lesson.completionRule.min_minutes * 60;
+    const totalSeconds = lesson.materials.reduce(
+      (sum, m) => sum + (m.view_seconds ?? 0),
+      0
+    );
+    if (totalSeconds < minSeconds) {
+      return {
+        canMark: false,
+        reason: `Spend at least ${lesson.completionRule.min_minutes} minutes reading first.`,
+      };
+    }
+  }
+
+  return { canMark: true, reason: null };
 };
 
 const fileIconLabel = (fileType: LessonMaterialRef['file_type']): string => {
@@ -139,6 +140,7 @@ interface MaterialRowProps {
 }
 
 function MaterialRow({ material, onOpen }: MaterialRowProps) {
+  const viewed = Boolean(material.viewed);
   return (
     <Card
       className="border cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all"
@@ -157,10 +159,18 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
             {typeof material.page_count === 'number' && material.page_count > 0
               ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
               : ''}
-            {material.viewed ? ' · viewed' : ''}
           </p>
         </div>
-        <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        {viewed ? (
+          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
+            <CheckCircle2 className="h-3 w-3 mr-1" /> Read
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[10px] flex-shrink-0">
+            Tap to open
+          </Badge>
+        )}
+        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       </CardContent>
     </Card>
   );

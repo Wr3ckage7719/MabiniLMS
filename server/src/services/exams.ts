@@ -534,6 +534,33 @@ const getActiveAttempt = async (
   return parseExamAttempt(data as Record<string, unknown>)
 }
 
+// True once the student has any *terminal* attempt on this assignment —
+// submitted, kicked out for proctoring violations, or timed out. The
+// single-attempt rule blocks new attempts whenever this returns true; the
+// student gets one shot.
+const hasTerminalAttempt = async (
+  assignmentId: string,
+  studentId: string
+): Promise<boolean> => {
+  const { count, error } = await supabaseAdmin
+    .from('exam_attempts')
+    .select('id', { count: 'exact', head: true })
+    .eq('assignment_id', assignmentId)
+    .eq('student_id', studentId)
+    .in('status', ['submitted', 'terminated', 'timed_out'])
+
+  if (error) {
+    logger.error('Failed to check prior exam attempts', {
+      assignmentId,
+      studentId,
+      error: error.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to check prior exam attempts', 500)
+  }
+
+  return (count ?? 0) > 0
+}
+
 const buildAttemptSession = async (
   assignment: AssignmentContext,
   attempt: ExamAttempt
@@ -950,6 +977,18 @@ export const startExamAttempt = async (
     if (activeAttempt) {
       return buildAttemptSession(assignment, activeAttempt)
     }
+  }
+
+  // Single-attempt rule: students get exactly one shot at an exam. If any
+  // prior attempt has already terminated (submitted, proctor-terminated, or
+  // timed out) we refuse to issue a fresh one. Resuming an active attempt
+  // above is the only way back in.
+  if (await hasTerminalAttempt(assignmentId, userId)) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You have already used your attempt for this exam. Only one attempt is allowed.',
+      403
+    )
   }
 
   // LM-gating: starting a new attempt requires the required materials to be

@@ -114,19 +114,6 @@ const shouldSuppressDuplicateRealtimeNotification = (
   return false;
 };
 
-const getAssignmentLabel = (assignmentType?: string): string => {
-  switch ((assignmentType || '').toLowerCase()) {
-    case 'exam':
-      return 'Exam';
-    case 'quiz':
-      return 'Quiz';
-    case 'activity':
-      return 'Activity';
-    default:
-      return 'Assignment';
-  }
-};
-
 const getMaterialLabel = (materialType?: string): string => {
   const normalizedType = (materialType || '').toLowerCase();
   if (!normalizedType || normalizedType === 'reading_material') {
@@ -478,41 +465,16 @@ export function useRealtimeNotifications() {
       }
     );
 
-    // Subscribe to new assignments
+    // Quiz/exam/activity creation no longer surfaces a student notification —
+    // the lesson the assessment belongs to is the unit of progression, so
+    // students discover new assessments through the lesson page (gated until
+    // the lesson is marked done). Cache invalidation still runs so the lesson
+    // list refreshes silently.
     const unsubAssignment = subscribe<any>(
       SocketEvent.ASSIGNMENT_CREATED,
       (data: AssignmentEventPayload) => {
         refreshCourseRealtimeData(data.courseId);
         dispatchNotificationsRefresh();
-
-        if (!isStudent) {
-          return;
-        }
-
-        const assignmentLabel = getAssignmentLabel(data.assignmentType);
-        const courseName = data.courseName || 'your class';
-
-        toast({
-          title: `📝 New ${assignmentLabel}`,
-          description: `New ${assignmentLabel.toLowerCase()} "${data.title || 'Untitled'}" in ${courseName}`,
-        });
-
-        setUnreadCount((prev) => prev + 1);
-        playNotificationSound();
-        void showDeviceNotification(
-          `New ${assignmentLabel} in ${courseName}`,
-          data.title
-            ? `"${data.title}" was just posted.`
-            : `A new ${assignmentLabel.toLowerCase()} was just posted.`,
-          {
-            courseId: data.courseId,
-            assignmentId: data.id,
-            actionUrl: data.courseId ? `/class/${data.courseId}` : undefined,
-            metadata: {
-              course_id: data.courseId,
-            },
-          }
-        );
       }
     );
 
