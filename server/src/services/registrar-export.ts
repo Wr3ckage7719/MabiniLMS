@@ -127,7 +127,7 @@ export const buildRegistrarWorkbook = async (
   // ---- Authorization mirrors the CSV exporter ----
   const { data: course, error: courseError } = await supabaseAdmin
     .from('courses')
-    .select('id, title, description, teacher_id, schedule, room')
+    .select('id, title, description, teacher_id')
     .eq('id', courseId)
     .single()
 

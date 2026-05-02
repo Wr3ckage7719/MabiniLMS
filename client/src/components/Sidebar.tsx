@@ -1,4 +1,4 @@
-import { Home, Calendar, BarChart3, Archive, ChevronLeft, GraduationCap, Clock3, ShieldCheck } from 'lucide-react';
+import { Home, Calendar, BarChart3, Archive, ChevronLeft, GraduationCap, Clock3 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { CLASS_COLORS } from '@/lib/data';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,6 @@ const navItems = [
   { label: 'Upcoming Deadline', icon: Clock3, path: '/upcoming', mobileOnly: true },
   { label: 'Calendar', icon: Calendar, path: '/calendar' },
   { label: 'Grades', icon: BarChart3, path: '/grades' },
-  { label: 'Competency', icon: ShieldCheck, path: '/competency' },
   { label: 'Archived', icon: Archive, path: '/archived' },
 ];
 

@@ -148,26 +148,44 @@ const isStorageObjectMissingError = (message?: string): boolean => {
   return normalized.includes('not found') || normalized.includes('no such file') || normalized.includes('does not exist');
 };
 
-const isMissingCourseMaterialMetadataColumnError = (error?: DatabaseErrorShape | null): boolean => {
+const extractMissingColumnFromError = (error?: DatabaseErrorShape | null): string | null => {
   const message = normalizeDbErrorText(error);
-  return (
-    error?.code === '42703' && (message.includes('file_size') || message.includes('uploaded_by'))
-  ) || (
-    message.includes('column')
-    && (message.includes('file_size') || message.includes('uploaded_by'))
-    && message.includes('does not exist')
-  );
+  const patterns = [
+    /column\s+[a-z0-9_]+\."?([a-z0-9_]+)"?\s+does not exist/i,
+    /column\s+"?([a-z0-9_]+)"?\s+does not exist/i,
+    /could not find the ['"]?([a-z0-9_]+)['"]?\s+column/i,
+    /record\s+"[^"]+"\s+has no field\s+"?([a-z0-9_]+)"?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) {
+      return match[1].toLowerCase();
+    }
+  }
+  return null;
+};
+
+const isMissingNamedColumnError = (
+  error: DatabaseErrorShape | null | undefined,
+  columnName: string
+): boolean => {
+  const missing = extractMissingColumnFromError(error);
+  if (missing) {
+    return missing === columnName.toLowerCase();
+  }
+  const isUndefinedColumnCode = error?.code === '42703' || error?.code === 'PGRST204';
+  if (!isUndefinedColumnCode) {
+    return false;
+  }
+  return normalizeDbErrorText(error).includes(columnName.toLowerCase());
+};
+
+const isMissingCourseMaterialMetadataColumnError = (error?: DatabaseErrorShape | null): boolean => {
+  return isMissingNamedColumnError(error, 'file_size') || isMissingNamedColumnError(error, 'uploaded_by');
 };
 
 const isMissingPageCountColumnError = (error?: DatabaseErrorShape | null): boolean => {
-  const message = normalizeDbErrorText(error);
-  return (
-    error?.code === '42703' && message.includes('page_count')
-  ) || (
-    message.includes('column')
-    && message.includes('page_count')
-    && message.includes('does not exist')
-  );
+  return isMissingNamedColumnError(error, 'page_count');
 };
 
 const toSafeStorageBaseName = (value: string): string => {
@@ -1296,11 +1314,20 @@ export const createMaterial = async (
   }
 
   if (insertError || !createdMaterial) {
-    const insertErrorMessage = (insertError as DatabaseErrorShape | null)?.message;
-    logger.error('Failed to create material', { courseId, error: insertErrorMessage });
+    const dbError = insertError as DatabaseErrorShape | null;
+    const insertErrorMessage = dbError?.message;
+    logger.error('Failed to create material', {
+      courseId,
+      error: insertErrorMessage,
+      details: dbError?.details,
+      hint: dbError?.hint,
+      code: dbError?.code,
+    });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
-      'Failed to create material',
+      insertErrorMessage
+        ? `Failed to create material: ${insertErrorMessage}`
+        : 'Failed to create material',
       500
     );
   }

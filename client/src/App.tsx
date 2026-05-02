@@ -13,7 +13,6 @@ import ClassDetail from "./pages/ClassDetail";
 import CalendarPage from "./pages/CalendarPage";
 import UpcomingPage from "./pages/UpcomingPage";
 import GradesPage from "./pages/GradesPage";
-import CompetencyPortfolioPage from "./pages/CompetencyPortfolioPage";
 import LessonDetailPage from "./pages/LessonDetailPage";
 import LessonEditorPage from "./pages/LessonEditorPage";
 import MaterialUploadPage from "./pages/MaterialUploadPage";
@@ -145,7 +144,6 @@ const AppRoutes = () => (
       <Route path="/upcoming" element={<UpcomingPage />} />
       <Route path="/calendar" element={<CalendarPage />} />
       <Route path="/grades" element={<GradesPage />} />
-      <Route path="/competency" element={<CompetencyPortfolioPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/archived" element={<Dashboard />} />
     </Route>
