@@ -13,14 +13,12 @@ import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, ClipboardList, UserRound, Tag } from 'lucide-react';
+import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, UserRound, Tag } from 'lucide-react';
 import { getTaskTypeMeta, GRADING_PERIOD_LABELS } from '@/lib/task-types';
 import { formatMabiniGradePoint } from '@/lib/grade-points';
 import type { MabiniGradingPeriodKey, WeightedGradeCategory } from '@/services/grades.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { computeCourseCompletion } from '@/lib/course-completion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -439,47 +437,6 @@ export default function ClassDetail() {
             Some class sections could not be loaded. You can still access available data and retry.
           </div>
         )}
-
-        {(() => {
-          const completion = computeCourseCompletion(assignments);
-          if (completion.total === 0) return null;
-          const next = completion.nextItem;
-          return (
-            <Card className="mb-3 md:mb-5 border-0 shadow-sm bg-gradient-to-br from-primary/5 to-primary/0">
-              <CardContent className="p-3 md:p-5">
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <p className="text-xs md:text-sm font-semibold">Course progress</p>
-                  <p className="text-xs md:text-sm font-medium text-primary">
-                    {completion.completed}/{completion.total} done · {completion.percent}%
-                  </p>
-                </div>
-                <Progress value={completion.percent} className="h-2" />
-                {next ? (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAssignment(next)}
-                    className="mt-3 w-full text-left flex items-start gap-3 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 hover:bg-secondary/40 transition-colors"
-                  >
-                    <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary">
-                      <ClipboardList className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Next up</span>
-                      <span className="block text-sm font-medium truncate">{next.title}</span>
-                    </span>
-                    <span className="text-[11px] text-muted-foreground whitespace-nowrap self-center">
-                      {next.points} pts
-                    </span>
-                  </button>
-                ) : (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    All caught up — nothing left to submit.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })()}
 
         <Tabs defaultValue="lessons" className="space-y-3 md:space-y-4 lg:space-y-6">
           <TabsList className="bg-secondary/60 border border-border/70 p-1 rounded-2xl w-full grid grid-cols-3 md:flex md:justify-center md:gap-1 md:p-1 overflow-x-auto flex-nowrap scrollbar-hide h-auto md:h-10">

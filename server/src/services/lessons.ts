@@ -621,7 +621,12 @@ const toMaterialRefs = (
       file_type: cm?.type ?? 'other',
       file_size: formatBytes(cm?.file_size ?? null),
       url: cm?.file_url ?? null,
-      viewed: Boolean(progress?.completed) || (progress?.progress_percent ?? 0) > 0,
+      // A material is only considered "read" once the student walks all the
+      // way to the end (reader sets completed=true on reaching the last page,
+      // or progress_percent rolls over to 100). Just opening it no longer
+      // counts — the lesson gate downstream relies on this being a real
+      // signal that the file has been browsed end-to-end.
+      viewed: Boolean(progress?.completed),
       view_seconds: 0,
       page_count: cm?.page_count ?? null,
     };

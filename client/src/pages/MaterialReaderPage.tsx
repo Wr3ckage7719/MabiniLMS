@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { materialsService } from '@/services/materials.service';
 import {
@@ -43,10 +44,11 @@ const detectKindFromUrl = (url: string, declaredType?: string): FileKind => {
   return 'unsupported';
 };
 
-// Split DOCX HTML into virtual "pages" by character budget so the reader can
-// page through long documents. Each page tries to break at a paragraph
-// boundary so headings stay attached to their content.
-const PAGE_CHAR_BUDGET = 1800;
+// Split DOCX HTML into reader pages by character budget so long documents
+// paginate naturally. The budget is sized so a typical resume-sized DOCX
+// (~3.5K printable chars) lands on a single page; longer documents paginate
+// at paragraph boundaries to avoid splitting headings from their content.
+const PAGE_CHAR_BUDGET = 3500;
 
 const splitDocxHtmlIntoPages = (html: string): string[] => {
   if (!html.trim()) return [''];
@@ -106,6 +108,7 @@ export default function MaterialReaderPage() {
   const sessionStartRef = useRef<number>(Date.now());
   const trackingStartedRef = useRef(false);
   const finalizedRef = useRef(false);
+  const reachedEndRef = useRef(false);
 
   // Load material metadata
   useEffect(() => {
@@ -154,7 +157,7 @@ export default function MaterialReaderPage() {
     void trackViewStart(meta.id);
   }, [meta]);
 
-  // PDF load
+  // PDF load — render at 2x for sharpness on Retina/HiDPI displays.
   useEffect(() => {
     if (!meta || meta.kind !== 'pdf') return;
     let active = true;
@@ -232,7 +235,9 @@ export default function MaterialReaderPage() {
     };
   }, [meta]);
 
-  // Single-page kinds
+  // Single-page kinds — image / video / single-page DOCX. The reader still
+  // marks the material as fully read once the page has been visited; the
+  // pager just collapses to a single page indicator.
   useEffect(() => {
     if (!meta) return;
     if (meta.kind === 'image' || meta.kind === 'video') {
@@ -240,14 +245,15 @@ export default function MaterialReaderPage() {
     }
   }, [meta]);
 
-  // Render PDF page when index or handle changes
+  // Render PDF page when index or handle changes. Render scale 2.0 produces
+  // sharp output that students can still pinch-zoom further if needed.
   useEffect(() => {
     if (!pdfHandle || !pdfCanvasRef.current) return;
     const canvas = pdfCanvasRef.current;
     let active = true;
     void (async () => {
       try {
-        await pdfHandle.renderPage(pageIndex + 1, canvas, 1.5);
+        await pdfHandle.renderPage(pageIndex + 1, canvas, 2.0);
       } catch (err) {
         if (!active) return;
         toast({
@@ -262,7 +268,10 @@ export default function MaterialReaderPage() {
     };
   }, [pdfHandle, pageIndex, toast]);
 
-  // Track page change
+  // Track page change — every visited page is added to the viewed set, and
+  // the cumulative scroll percent is reported. The backend marks the
+  // material `completed=true` once scroll percent rolls past 100, which is
+  // what flips the lesson `viewed` flag for the gate.
   useEffect(() => {
     if (!meta || totalPages === 0) return;
     pagesViewedRef.current.add(pageIndex + 1);
@@ -273,20 +282,21 @@ export default function MaterialReaderPage() {
       pageNumber: pageIndex + 1,
       pagesViewed,
     });
+    if (pageIndex + 1 >= totalPages) {
+      reachedEndRef.current = true;
+    }
   }, [meta, pageIndex, totalPages]);
 
   const finalize = useCallback(
     (forceComplete = false) => {
       if (!meta || finalizedRef.current) return;
       finalizedRef.current = true;
-      const pages = Array.from(pagesViewedRef.current);
-      const reachedEnd = totalPages > 0 && pages.includes(totalPages);
       const elapsed = Math.max(0, Math.round((Date.now() - sessionStartRef.current) / 1000));
       const finalPercent = totalPages > 0 ? Math.round(((pageIndex + 1) / totalPages) * 100) : 0;
       void trackViewEnd(meta.id, {
         timeSpentSeconds: elapsed,
         finalScrollPercent: finalPercent,
-        completed: forceComplete || reachedEnd,
+        completed: forceComplete || reachedEndRef.current,
         pageNumber: pageIndex + 1,
       });
     },
@@ -308,32 +318,55 @@ export default function MaterialReaderPage() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [finalize]);
 
-  const goBack = () => {
+  const goBack = useCallback(() => {
     finalize();
     if (lessonId) {
       navigate(`/class/${classId}/lessons/${lessonId}`);
     } else {
       navigate(`/class/${classId}`);
     }
-  };
+  }, [classId, finalize, lessonId, navigate]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     setPageIndex((current) => Math.max(0, current - 1));
-  };
+  }, []);
 
-  const handleNext = () => {
-    setPageIndex((current) => {
-      const next = Math.min(totalPages - 1, current + 1);
-      if (next === totalPages - 1 && totalPages > 0) {
-        // Reached the end — eagerly finalize as completed.
-        finalizedRef.current = false;
-        setTimeout(() => finalize(true), 0);
+  const handleNext = useCallback(() => {
+    setPageIndex((current) => Math.min(totalPages - 1, current + 1));
+  }, [totalPages]);
+
+  // Keyboard nav: arrow keys and Page Up/Down. Helps on desktop where
+  // reaching for the mouse to flip pages slows down reading.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
       }
-      return next;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown') {
+        event.preventDefault();
+        handleNext();
+      } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+        event.preventDefault();
+        handlePrev();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleNext, handlePrev]);
+
+  const handleFinish = useCallback(() => {
+    reachedEndRef.current = true;
+    finalize(true);
+    toast({
+      title: 'Material marked as read',
+      description: 'You can now mark this lesson as done to unlock its assessments.',
     });
-  };
+    goBack();
+  }, [finalize, goBack, toast]);
 
   const progressPercent = totalPages > 0 ? Math.round(((pageIndex + 1) / totalPages) * 100) : 0;
+  const isLastPage = totalPages > 0 && pageIndex >= totalPages - 1;
+  const isFirstPage = pageIndex <= 0;
 
   const body = useMemo(() => {
     if (loading) {
@@ -446,7 +479,7 @@ export default function MaterialReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, loadError, meta, pdfReady, docxPages, pptxSlides, pageIndex]);
 
-  const showPager = !loading && !loadError && totalPages > 1;
+  const showPager = !loading && !loadError && totalPages > 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -460,42 +493,73 @@ export default function MaterialReaderPage() {
             <p className="text-sm md:text-base font-semibold truncate">{meta?.title || ''}</p>
             {totalPages > 0 ? (
               <p className="text-[11px] text-muted-foreground">
-                Page {pageIndex + 1} of {totalPages}
+                Page {pageIndex + 1} of {totalPages} · {progressPercent}% read
               </p>
             ) : null}
           </div>
-          <div className="w-[72px] sm:w-[120px]" aria-hidden />
+          <div className="hidden sm:flex items-center justify-end w-[120px]">
+            {reachedEndRef.current || isLastPage ? (
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border">
+                <CheckCircle2 className="h-3 w-3 mr-1" /> Ready
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px]">In progress</Badge>
+            )}
+          </div>
         </div>
         {totalPages > 0 ? (
-          <Progress value={progressPercent} className="h-1 rounded-none" />
+          <Progress value={progressPercent} className="h-1.5 rounded-none" />
         ) : null}
       </header>
 
-      <main className="flex-1 px-3 md:px-6 py-6">{body}</main>
+      <main className="flex-1 px-3 md:px-6 py-6 pb-32">{body}</main>
 
       {showPager ? (
-        <footer className="sticky bottom-0 z-30 border-t bg-background/95 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-3 md:px-6 py-3 flex items-center gap-3">
+        <footer className="sticky bottom-0 z-30 border-t bg-background/95 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          <div className="max-w-6xl mx-auto px-3 md:px-6 py-3 md:py-4 flex items-center gap-2 md:gap-3">
             <Button
               variant="outline"
-              className="rounded-xl gap-1.5"
+              size="lg"
+              className="rounded-xl gap-1.5 h-11 px-3 md:px-5"
               onClick={handlePrev}
-              disabled={pageIndex === 0}
+              disabled={isFirstPage}
+              aria-label="Previous page"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-5 w-5" />
               <span className="hidden sm:inline">Previous</span>
             </Button>
-            <div className="flex-1 text-center text-xs text-muted-foreground">
-              {progressPercent}% complete
+
+            <div className="flex-1 text-center">
+              <p className="text-xs md:text-sm font-medium">
+                Page {pageIndex + 1} <span className="text-muted-foreground">of {totalPages}</span>
+              </p>
+              <p className="text-[10px] md:text-[11px] text-muted-foreground mt-0.5">
+                Tap Next to read on — your reading progress is tracked here.
+              </p>
             </div>
-            <Button
-              className="rounded-xl gap-1.5"
-              onClick={handleNext}
-              disabled={pageIndex >= totalPages - 1}
-            >
-              <span className="hidden sm:inline">Next</span>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+
+            {isLastPage ? (
+              <Button
+                size="lg"
+                className="rounded-xl gap-1.5 h-11 px-3 md:px-5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={handleFinish}
+                aria-label="Mark material as read and return to lesson"
+              >
+                <CheckCircle2 className="h-5 w-5" />
+                <span className="hidden sm:inline">Mark as read</span>
+                <span className="sm:hidden">Done</span>
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                className="rounded-xl gap-1.5 h-11 px-3 md:px-5"
+                onClick={handleNext}
+                aria-label="Next page"
+              >
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+            )}
           </div>
         </footer>
       ) : null}

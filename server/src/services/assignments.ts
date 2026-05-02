@@ -26,7 +26,6 @@ import {
 } from './submission-storage.js';
 import * as auditService from './audit.js';
 import { AuditEventType } from './audit.js';
-import { sendAssignmentCreatedNotification } from './notifications.js';
 import { notifyAssignmentCreated, notifyStandingUpdated, notifySubmissionReceived } from './websocket.js';
 import logger from '../utils/logger.js';
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
@@ -1072,81 +1071,11 @@ export const createAssignment = async (
     await ensureAssignmentParkedInGeneralLesson(courseId, data.id);
   }
 
-  try {
-    let notificationActor:
-      | {
-          id: string;
-          name?: string;
-          avatar_url?: string | null;
-        }
-      | undefined;
-
-    const { data: actorProfile, error: actorProfileError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, email, first_name, last_name, avatar_url')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (actorProfileError) {
-      logger.warn('Failed to resolve assignment notification actor profile', {
-        courseId,
-        assignmentId: data.id,
-        actorId: userId,
-        error: actorProfileError.message,
-      });
-    } else if (actorProfile?.id) {
-      const firstName = actorProfile.first_name?.trim() || '';
-      const lastName = actorProfile.last_name?.trim() || '';
-      const displayName = `${firstName} ${lastName}`.trim() || actorProfile.email || 'Instructor';
-
-      notificationActor = {
-        id: actorProfile.id,
-        name: displayName,
-        avatar_url: actorProfile.avatar_url || null,
-      };
-    }
-
-    const { data: enrollments, error: enrollmentError } = await supabaseAdmin
-      .from('enrollments')
-      .select('student_id')
-      .eq('course_id', courseId)
-      .in('status', ACTIVE_ENROLLMENT_STATUSES);
-
-    if (enrollmentError) {
-      logger.warn('Failed to load student recipients for assignment notifications', {
-        courseId,
-        assignmentId: data.id,
-        error: enrollmentError.message,
-      });
-    } else {
-      const recipientIds = Array.from(
-        new Set(
-          (enrollments || [])
-            .map((enrollment) => enrollment.student_id)
-            .filter((studentId): studentId is string => Boolean(studentId) && studentId !== userId)
-        )
-      );
-
-      await sendAssignmentCreatedNotification(
-        recipientIds,
-        course.title || 'Course',
-        courseId,
-        data.title,
-        data.id,
-        effectiveAssignmentType,
-        notificationActor
-      );
-    }
-  } catch (notificationError) {
-    logger.warn('Failed to dispatch assignment notifications', {
-      courseId,
-      assignmentId: data.id,
-      error:
-        notificationError instanceof Error
-          ? notificationError.message
-          : String(notificationError),
-    });
-  }
+  // Per the lesson-centric notification scope: students no longer receive a
+  // standalone "new quiz/exam/activity" notification. The assessment lives
+  // inside its parent lesson and is surfaced through the lesson page (locked
+  // until the lesson is marked done), so a separate ping is just noise.
+  // The websocket emit above still runs so teacher/admin caches refresh.
 
   return normalizeAssignmentRecord(data) as Assignment;
 };
@@ -1582,14 +1511,13 @@ export const submitAssignment = async (
   if (existing) {
     const currentStatus = parseSubmissionStatus(existing.status);
 
-    if (
-      currentStatus !== SubmissionStatus.DRAFT &&
-      currentStatus !== SubmissionStatus.SUBMITTED &&
-      currentStatus !== SubmissionStatus.LATE
-    ) {
+    // Single-attempt rule: once a submission has actually been turned in
+    // (submitted / late / under-review / graded) the student can't replace
+    // it. Drafts are still allowed to be turned in for the first time.
+    if (currentStatus !== SubmissionStatus.DRAFT) {
       throw new ApiError(
         ErrorCode.FORBIDDEN,
-        'Submission cannot be edited while it is under review or already graded',
+        'You have already submitted this assessment. Only one attempt is allowed.',
         403
       );
     }
@@ -1627,28 +1555,29 @@ export const submitAssignment = async (
       await recordSubmissionSyncEvent(input.sync_key, userId, assignmentId, data.id);
     }
 
-    if (currentStatus !== targetStatus) {
-      await recordSubmissionStatusHistory(
-        data.id,
-        currentStatus,
-        targetStatus,
-        userId,
-        'Student submitted revision',
-        {
-          action: 'resubmit',
-          assignment_id: assignmentId,
-        }
-      );
+    // currentStatus is guaranteed DRAFT here (any other state was rejected
+    // above by the single-attempt rule), so the status always transitions
+    // from DRAFT to SUBMITTED/LATE on this first turn-in.
+    await recordSubmissionStatusHistory(
+      data.id,
+      currentStatus,
+      targetStatus,
+      userId,
+      'Student turned in draft',
+      {
+        action: 'submit',
+        assignment_id: assignmentId,
+      }
+    );
 
-      await notifyStandingUpdated(assignment.course_id, userId, {
-        source: 'submission_resubmitted',
-        assignmentId: assignmentId,
-        submissionId: data.id,
-        status: targetStatus,
-      });
-    }
+    await notifyStandingUpdated(assignment.course_id, userId, {
+      source: 'submission_submitted',
+      assignmentId: assignmentId,
+      submissionId: data.id,
+      status: targetStatus,
+    });
 
-    // Log resubmission audit event
+    // Log first-time submit audit event
     await auditService.logAssignmentEvent(
       userId,
       AuditEventType.ASSIGNMENT_RESUBMITTED,
