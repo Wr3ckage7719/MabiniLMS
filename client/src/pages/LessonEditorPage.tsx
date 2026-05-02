@@ -37,10 +37,6 @@ import {
   useDeleteLesson,
 } from '@/hooks-api/useLessons';
 import { useClass } from '@/hooks-api/useClasses';
-import {
-  CreateAssignmentDialog,
-  type TaskType,
-} from '@/components/CreateAssignmentDialog';
 import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 import { materialsService } from '@/services/materials.service';
 import { assignmentsService } from '@/services/assignments.service';
@@ -136,6 +132,9 @@ function MaterialChip({ material, onPreview, onRemove, removing }: MaterialChipP
           <p className="text-sm font-medium truncate">{material.title}</p>
           <p className="text-xs text-muted-foreground">
             <span className="uppercase">{material.file_type}</span> · {material.file_size}
+            {typeof material.page_count === 'number' && material.page_count > 0
+              ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
+              : ''}
           </p>
         </div>
       </button>
@@ -246,7 +245,6 @@ export default function LessonEditorPage() {
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [builderTaskType, setBuilderTaskType] = useState<TaskType | null>(null);
   const [previewMaterial, setPreviewMaterial] = useState<LessonMaterialRef | null>(null);
   const [removingMaterialId, setRemovingMaterialId] = useState<string | null>(null);
   const [removingAssessmentId, setRemovingAssessmentId] = useState<string | null>(null);
@@ -474,7 +472,7 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => setBuilderTaskType('reading_material')}
+                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`)}
               >
                 <BookOpen className="h-3.5 w-3.5" /> Add reading material
               </Button>
@@ -572,7 +570,7 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => setBuilderTaskType('activity')}
+                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/activity`)}
               >
                 <Activity className="h-3.5 w-3.5" /> Add activity
               </Button>
@@ -580,7 +578,7 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => setBuilderTaskType('quiz')}
+                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/quiz`)}
               >
                 <FileText className="h-3.5 w-3.5" /> Add quiz
               </Button>
@@ -588,7 +586,7 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => setBuilderTaskType('exam')}
+                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/exam`)}
               >
                 <ClipboardCheck className="h-3.5 w-3.5" /> Add exam
               </Button>
@@ -740,20 +738,6 @@ export default function LessonEditorPage() {
           </div>
         </div>
       </footer>
-
-      <CreateAssignmentDialog
-        open={builderTaskType !== null}
-        onOpenChange={(next) => {
-          if (!next) setBuilderTaskType(null);
-        }}
-        classId={classId}
-        lessonId={lesson.id}
-        initialTaskType={builderTaskType ?? undefined}
-        onCreated={() => {
-          setBuilderTaskType(null);
-          void refreshLesson();
-        }}
-      />
 
       <MaterialPreviewDialog
         open={previewMaterial !== null}

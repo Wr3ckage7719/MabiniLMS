@@ -159,6 +159,17 @@ const isMissingCourseMaterialMetadataColumnError = (error?: DatabaseErrorShape |
   );
 };
 
+const isMissingPageCountColumnError = (error?: DatabaseErrorShape | null): boolean => {
+  const message = normalizeDbErrorText(error);
+  return (
+    error?.code === '42703' && message.includes('page_count')
+  ) || (
+    message.includes('column')
+    && message.includes('page_count')
+    && message.includes('does not exist')
+  );
+};
+
 const toSafeStorageBaseName = (value: string): string => {
   const normalized = value
     .trim()
@@ -287,6 +298,62 @@ const uploadMaterialFile = async (
     objectPath,
     publicUrl: urlData.publicUrl,
   };
+};
+
+// Best-effort page-count detection from raw upload buffers. Returns NULL when
+// the structure can't be parsed cheaply — the frontend reader detects pages
+// itself, so this is purely metadata for analytics and completion gating.
+const detectPageCountFromUpload = (file: MaterialUploadFile): number | null => {
+  const mimeType = (file.mimetype || '').toLowerCase();
+  const lowerName = (file.originalname || '').toLowerCase();
+  const isPdf = mimeType === 'application/pdf' || lowerName.endsWith('.pdf');
+  const isDocx =
+    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || lowerName.endsWith('.docx');
+  const isPptx =
+    mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    || lowerName.endsWith('.pptx');
+
+  if (!isPdf && !isDocx && !isPptx) {
+    return null;
+  }
+
+  let asString: string;
+  try {
+    asString = file.buffer.toString('binary');
+  } catch {
+    return null;
+  }
+
+  if (isPdf) {
+    // Prefer the /Pages object's /Count, fall back to /Type /Page tally.
+    const countMatch = asString.match(/\/Type\s*\/Pages[\s\S]{0,2000}?\/Count\s+(\d+)/);
+    if (countMatch) {
+      const n = Number(countMatch[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const tally = asString.match(/\/Type\s*\/Page(?![s\w])/g);
+    return tally && tally.length > 0 ? tally.length : null;
+  }
+
+  if (isPptx) {
+    // ZIP central directory keeps slide entry names in plaintext.
+    const matches = asString.match(/ppt\/slides\/slide(\d+)\.xml/g);
+    if (!matches || matches.length === 0) return null;
+    return new Set(matches).size;
+  }
+
+  if (isDocx) {
+    // Word writes a docProps/app.xml part with a <Pages>N</Pages> element.
+    const match = asString.match(/<Pages>(\d+)<\/Pages>/);
+    if (match) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  }
+
+  return null;
 };
 
 const inferMaterialTypeFromUpload = (file: MaterialUploadFile): MaterialType | null => {
@@ -1159,6 +1226,7 @@ export const createMaterial = async (
   let storageObjectPath: string | null = null;
   let storageProvider: string | null = null;
   let resolvedType = input.type;
+  let detectedPageCount: number | null = null;
 
   if (uploadedFile) {
     const inferredMaterialType = inferMaterialTypeFromUpload(uploadedFile);
@@ -1172,6 +1240,7 @@ export const createMaterial = async (
     }
 
     resolvedType = inferredMaterialType;
+    detectedPageCount = detectPageCountFromUpload(uploadedFile);
 
     const uploaded = await uploadMaterialFile(courseId, userId, input.title, uploadedFile);
     fileUrl = uploaded.publicUrl;
@@ -1193,6 +1262,13 @@ export const createMaterial = async (
     ...baseInsertPayload,
     file_size: uploadedFile?.size ?? null,
     uploaded_by: uploadedBy || userId,
+    page_count: detectedPageCount,
+  };
+
+  const metadataWithoutPageCount = {
+    ...baseInsertPayload,
+    file_size: uploadedFile?.size ?? null,
+    uploaded_by: uploadedBy || userId,
   };
 
   let createdMaterial: unknown = null;
@@ -1210,6 +1286,10 @@ export const createMaterial = async (
   };
 
   await insertMaterial(metadataInsertPayload);
+
+  if (insertError && isMissingPageCountColumnError(insertError)) {
+    await insertMaterial(metadataWithoutPageCount);
+  }
 
   if (insertError && isMissingCourseMaterialMetadataColumnError(insertError)) {
     await insertMaterial(baseInsertPayload);
