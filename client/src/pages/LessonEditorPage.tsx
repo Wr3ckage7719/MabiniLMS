@@ -29,6 +29,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import {
   useTeacherLesson,
@@ -244,7 +254,7 @@ export default function LessonEditorPage() {
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [previewMaterial, setPreviewMaterial] = useState<LessonMaterialRef | null>(null);
   const [removingMaterialId, setRemovingMaterialId] = useState<string | null>(null);
   const [removingAssessmentId, setRemovingAssessmentId] = useState<string | null>(null);
@@ -355,6 +365,7 @@ export default function LessonEditorPage() {
     try {
       await deleteLesson.mutateAsync(lesson.id);
       toast({ title: 'Lesson deleted' });
+      setDeleteDialogOpen(false);
       handleBack();
     } catch (error) {
       toast({
@@ -409,7 +420,7 @@ export default function LessonEditorPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6 pb-32">
+      <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6 pb-44 md:pb-40 animate-in fade-in duration-300">
         <section>
           <h1 className="text-2xl md:text-3xl font-bold leading-tight">
             {lesson.isPublished ? 'Edit lesson' : 'New lesson'}
@@ -420,7 +431,7 @@ export default function LessonEditorPage() {
           </p>
         </section>
 
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
           <CardContent className="p-5 md:p-6 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="lesson-title">Title</Label>
@@ -458,7 +469,7 @@ export default function LessonEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
           <CardContent className="p-5 md:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -499,7 +510,7 @@ export default function LessonEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
           <CardContent className="p-5 md:p-6 space-y-4">
             <div>
               <h2 className="text-base font-semibold">Completion rule</h2>
@@ -556,7 +567,7 @@ export default function LessonEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
           <CardContent className="p-5 md:p-6 space-y-4">
             <div>
               <h2 className="text-base font-semibold">Assessments</h2>
@@ -612,7 +623,7 @@ export default function LessonEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="border shadow-sm">
+        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
           <CardContent className="p-5 md:p-6 space-y-4">
             <div>
               <h2 className="text-base font-semibold flex items-center gap-2">
@@ -682,9 +693,9 @@ export default function LessonEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-5 md:p-6 flex items-center justify-between gap-3">
-            <div>
+        <Card className="border-destructive/30 bg-destructive/5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <CardContent className="p-5 md:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
               <p className="text-xs text-destructive/80 mt-0.5">
                 Deleting a lesson removes its files and assessments for everyone.
@@ -693,18 +704,12 @@ export default function LessonEditorPage() {
             <Button
               variant="destructive"
               size="sm"
-              className="rounded-xl gap-1.5 flex-shrink-0"
-              onClick={() => {
-                if (confirmingDelete) {
-                  void handleDelete();
-                } else {
-                  setConfirmingDelete(true);
-                  setTimeout(() => setConfirmingDelete(false), 4000);
-                }
-              }}
+              className="rounded-xl gap-1.5 flex-shrink-0 self-start sm:self-auto"
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={deleteLesson.isPending}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              {confirmingDelete ? 'Confirm delete' : 'Delete lesson'}
+              Delete lesson
             </Button>
           </CardContent>
         </Card>
@@ -748,6 +753,48 @@ export default function LessonEditorPage() {
         isTeacher
         courseId={classId}
       />
+
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(next) => {
+          if (deleteLesson.isPending) return;
+          setDeleteDialogOpen(next);
+        }}
+      >
+        <AlertDialogContent className="rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this lesson?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{lesson.title || 'Untitled lesson'}" and everything attached to it —
+              materials, assessments, and student progress — will be removed for
+              everyone in this class. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLesson.isPending} className="rounded-xl">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteLesson.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDelete();
+              }}
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+            >
+              {deleteLesson.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" /> Delete lesson
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
