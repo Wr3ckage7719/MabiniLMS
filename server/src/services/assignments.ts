@@ -967,7 +967,16 @@ export const createAssignment = async (
     insertPayload.exam_chapter_pool = examChapterPool;
   }
 
-  if (isExamAssignment || typeof input.is_proctored === 'boolean') {
+  // Quizzes carry assessment-flow settings on the same proctoring_policy
+  // column as exams (e.g. one_question_at_a_time) even though they aren't
+  // proctored in the anti-cheat sense. Previously the policy was only
+  // persisted for exams or when is_proctored was explicitly set, so the
+  // quiz one-question toggle silently dropped on insert. Now: persist the
+  // policy whenever any of those signals is present OR the caller actually
+  // shipped a policy object.
+  const hasPolicyInput =
+    input.proctoring_policy !== undefined && input.proctoring_policy !== null;
+  if (isExamAssignment || typeof input.is_proctored === 'boolean' || hasPolicyInput) {
     const normalizedProctoringPolicy = normalizeProctoringPolicyInput(input.proctoring_policy, {
       withDefaults: true,
     });
@@ -1469,6 +1478,18 @@ export const submitAssignment = async (
       && now > submissionCloseAt
     ) {
       submittedAfterClose = true;
+    }
+  } else if (assignment.due_date) {
+    // No explicit submission_close_at — fall back to the due_date as a hard
+    // cutoff. Teachers now set due_date with a specific time; once that
+    // moment passes, the assessment is closed and cannot be submitted to.
+    const dueDateCutoff = new Date(assignment.due_date);
+    if (Number.isFinite(dueDateCutoff.getTime()) && effectiveSubmittedAt > dueDateCutoff) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'This assessment is past its due date and is no longer accepting submissions.',
+        403
+      );
     }
   }
 

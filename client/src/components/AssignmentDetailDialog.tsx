@@ -195,7 +195,18 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const isExamAssignment = assignmentRawType === 'exam' || assignmentRawType === 'quiz';
   const isQuizAssignment = assignmentRawType === 'quiz';
   const isActivityAssignment = assignmentRawType === 'activity';
-  const submissionsClosed = assignment?.submissionsOpen === false;
+  // Past-due is a soft client-side guard so the submit button reflects what
+  // the server will accept. The server enforces the same cutoff in
+  // assignments.submitAssignment / exams.startExamAttempt — touching nowTick
+  // forces a re-eval on each minute tick so the button flips at the deadline
+  // without requiring the dialog to be reopened.
+  const isPastDue = useMemo(() => {
+    void nowTick;
+    if (!assignment?.dueDate) return false;
+    const due = new Date(assignment.dueDate).getTime();
+    return Number.isFinite(due) && Date.now() > due;
+  }, [assignment?.dueDate, nowTick]);
+  const submissionsClosed = assignment?.submissionsOpen === false || isPastDue;
   const taskMeta = getTaskTypeMeta(assignment?.rawType || assignment?.type);
   const Icon = taskMeta.icon;
 
@@ -512,7 +523,13 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
         <div className="flex flex-wrap gap-2 mt-2">
           <Badge variant="secondary" className="rounded-lg text-xs sm:text-sm whitespace-nowrap">
             <Calendar className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">Due </span>{new Date(assignment.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            <span className="hidden sm:inline">Due </span>
+            {new Date(assignment.dueDate).toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
           </Badge>
           {countdown && assignment.status !== 'submitted' && assignment.status !== 'graded' && (
             <Badge
@@ -667,8 +684,10 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   {submissionsClosed && (
                     <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 sm:p-4">
                       <p className="text-xs sm:text-sm text-destructive">
-                        Submissions are currently closed for this assignment.
-                        {assignment?.submissionCloseAt
+                        {isPastDue
+                          ? 'This assessment is past its due date and is no longer accepting submissions.'
+                          : 'Submissions are currently closed for this assignment.'}
+                        {assignment?.submissionCloseAt && !isPastDue
                           ? ` Closed on ${formatOptionalDateTime(assignment.submissionCloseAt)}.`
                           : ''}
                       </p>

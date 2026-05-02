@@ -979,6 +979,21 @@ export const startExamAttempt = async (
     }
   }
 
+  // Hard due-date cutoff: once the deadline passes, students can no longer
+  // open the exam at all (matches the activity submission gate). Resuming
+  // an already-active attempt above is intentionally still allowed so a
+  // student who started before the deadline can finish.
+  if (assignment.due_date) {
+    const dueDateCutoff = new Date(assignment.due_date)
+    if (Number.isFinite(dueDateCutoff.getTime()) && Date.now() > dueDateCutoff.getTime()) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'This assessment is past its due date and is no longer accepting attempts.',
+        403
+      )
+    }
+  }
+
   // Single-attempt rule: students get exactly one shot at an exam. If any
   // prior attempt has already terminated (submitted, proctor-terminated, or
   // timed out) we refuse to issue a fresh one. Resuming an active attempt

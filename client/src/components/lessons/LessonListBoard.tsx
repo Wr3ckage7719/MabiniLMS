@@ -152,13 +152,20 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
         </Button>
       </div>
 
+      {reorder.isPending && (
+        <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Saving new order…
+        </div>
+      )}
+
       {localOrder.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="p-8 text-center text-muted-foreground">
             <BookOpen className="h-10 w-10 mx-auto mb-3 opacity-40" />
             <p className="text-sm">No lessons yet. Create your first one to get started.</p>
-            <Button onClick={handleCreate} className="mt-4 rounded-xl gap-1.5">
-              <Plus className="h-4 w-4" />
+            <Button onClick={handleCreate} disabled={createDraft.isPending} className="mt-4 rounded-xl gap-1.5">
+              {createDraft.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               New lesson
             </Button>
           </CardContent>
@@ -175,7 +182,10 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
             const isLast = index === localOrder.length - 1;
 
             return (
-              <Card key={lesson.id} className="border shadow-sm">
+              <Card
+                key={lesson.id}
+                className="border shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 animate-in fade-in slide-in-from-bottom-1"
+              >
                 <CardContent className="p-4 md:p-5">
                   <div className="flex items-start gap-3">
                     <div className="flex flex-col items-center gap-1 pt-1">
@@ -184,7 +194,7 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
-                        disabled={isFirst}
+                        disabled={isFirst || reorder.isPending}
                         onClick={() => moveLesson(lesson.id, 'up')}
                         aria-label="Move lesson up"
                       >
@@ -194,7 +204,7 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
-                        disabled={isLast}
+                        disabled={isLast || reorder.isPending}
                         onClick={() => moveLesson(lesson.id, 'down')}
                         aria-label="Move lesson down"
                       >
@@ -256,6 +266,7 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
                         <Select
                           value={chainTargetId}
                           onValueChange={(value) => handleChainChange(lesson.id, value)}
+                          disabled={setChain.isPending}
                         >
                           <SelectTrigger className="h-8 text-xs w-56">
                             <SelectValue />

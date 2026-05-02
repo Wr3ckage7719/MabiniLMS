@@ -297,6 +297,28 @@ const toEndOfDayISOString = (value?: Date): string | null => {
   return endOfDay.toISOString();
 };
 
+// Combine a calendar date with an "HH:mm" time string into a full ISO
+// timestamp (in the user's local zone, then serialised). When the time is
+// empty we default to end-of-day so the existing "no time set" behavior
+// stays the same as before this change.
+const combineDateAndTimeISOString = (
+  date?: Date,
+  time?: string
+): string | null => {
+  if (!date) return null;
+  const trimmed = (time || '').trim();
+  if (!trimmed) return toEndOfDayISOString(date);
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (!match) return toEndOfDayISOString(date);
+
+  const hours = Math.max(0, Math.min(23, parseInt(match[1], 10) || 0));
+  const minutes = Math.max(0, Math.min(59, parseInt(match[2], 10) || 0));
+  const result = new Date(date);
+  result.setHours(hours, minutes, 0, 0);
+  return result.toISOString();
+};
+
 const splitInlineChoices = (value: string): string[] => {
   const source = value.trim();
   if (!source) return [];
@@ -566,6 +588,10 @@ export function CreateAssignmentDialog({
   const [description, setDescription] = useState('');
   const [taskType, setTaskType] = useState<TaskType>(initialTaskType ?? 'activity');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  // HH:mm string. Empty = end-of-day (23:59) which preserves the historical
+  // default. Teachers can pick any time; submissions are blocked once it
+  // passes.
+  const [dueTime, setDueTime] = useState<string>('23:59');
   const [points, setPoints] = useState('100');
   const [readingProgressTracking, setReadingProgressTracking] = useState(true);
   const [readingSingleResourceMode, setReadingSingleResourceMode] = useState(true);
@@ -1385,8 +1411,9 @@ export function CreateAssignmentDialog({
               ? 3
               : 5;
         const strictProctoring = examIntegrityProfile === 'strict';
+        const dueDateISO = combineDateAndTimeISOString(dueDate, dueTime);
         const submissionCloseAt = autoCloseSubmissionsOnDueDate
-          ? toEndOfDayISOString(dueDate)
+          ? dueDateISO
           : customSubmissionCloseDate
             ? toEndOfDayISOString(customSubmissionCloseDate)
             : null;
@@ -1405,7 +1432,7 @@ export function CreateAssignmentDialog({
           description: description.trim() || undefined,
           assignment_type: assignmentType,
           grading_period: gradingPeriod || null,
-          due_date: toEndOfDayISOString(dueDate) || new Date().toISOString(),
+          due_date: dueDateISO || new Date().toISOString(),
           max_points: (taskType === 'quiz')
             ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0))
             : (taskType === 'exam')
@@ -1857,40 +1884,52 @@ export function CreateAssignmentDialog({
 
       {taskType !== 'reading_material' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-primary/5 rounded-lg border border-primary/10">
-          {/* Due Date */}
+          {/* Due Date + Time — submissions hard-close once this timestamp passes */}
           <div>
             <label className="text-sm font-semibold">
               Due Date <span className="text-destructive">*</span>
             </label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    'w-full mt-2 rounded-lg justify-start text-left font-normal',
-                    !dueDate && 'text-muted-foreground',
-                    errors.dueDate && 'border-destructive'
-                  )}
-                >
-                  <CalendarIcon className="h-4 w-4 mr-2" />
-                  {dueDate ? formatDate(dueDate) : 'Pick a date'}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={dueDate}
-                  onSelect={(date) => {
-                    setDueDate(date);
-                    clearFieldError('dueDate');
-                  }}
-                  disabled={(date) =>
-                    date < new Date(new Date().setHours(0, 0, 0, 0))
-                  }
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      'w-full rounded-lg justify-start text-left font-normal',
+                      !dueDate && 'text-muted-foreground',
+                      errors.dueDate && 'border-destructive'
+                    )}
+                  >
+                    <CalendarIcon className="h-4 w-4 mr-2" />
+                    {dueDate ? formatDate(dueDate) : 'Pick a date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dueDate}
+                    onSelect={(date) => {
+                      setDueDate(date);
+                      clearFieldError('dueDate');
+                    }}
+                    disabled={(date) =>
+                      date < new Date(new Date().setHours(0, 0, 0, 0))
+                    }
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              <Input
+                type="time"
+                value={dueTime}
+                onChange={(event) => setDueTime(event.target.value)}
+                aria-label="Due time"
+                className="rounded-lg"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Students can't submit or open the assessment after this date and time.
+            </p>
             {errors.dueDate && (
               <p className="text-xs text-destructive mt-1 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
