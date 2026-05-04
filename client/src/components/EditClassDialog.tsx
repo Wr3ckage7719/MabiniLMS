@@ -11,6 +11,7 @@ import { coursesService } from '@/services/courses.service';
 import { buildCourseMetadata, serializeCourseMetadata } from '@/services/course-metadata';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateClassData } from '@/lib/query-invalidation';
+import { useToast } from '@/hooks/use-toast';
 
 type CompletionPolicyKind = 'default' | 'all_items_viewed' | 'weighted_score_threshold';
 
@@ -90,6 +91,7 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
   const [overrideWeights, setOverrideWeights] = useState(weightsEnabled);
   const [isSaving, setIsSaving] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const addTag = () => {
     const value = tagDraft.trim();
@@ -138,6 +140,24 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
   };
 
   const handleSave = async () => {
+    if (!name.trim()) {
+      toast({
+        title: 'Class name required',
+        description: 'Please enter a class name before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (overrideWeights && Math.abs(weightSum - 1) >= 0.01) {
+      toast({
+        title: 'Weights must sum to 1.00',
+        description: `Current sum is ${weightSum.toFixed(2)}. Adjust the gradebook weights or revert to the Mabini default.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const newSchedule = formatSchedule(selectedDays, startTime, endTime);
@@ -178,7 +198,20 @@ export function EditClassDialog({ open, onOpenChange, classItem, onSave }: EditC
         enrolmentKey: trimmedKey ? trimmedKey : null,
       });
 
+      toast({
+        title: 'Class updated',
+        description: `Saved changes to "${name.trim()}".`,
+      });
+
       onOpenChange(false);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not save the class. Please try again.';
+      toast({
+        title: 'Save failed',
+        description: message,
+        variant: 'destructive',
+      });
     } finally {
       setIsSaving(false);
     }

@@ -193,3 +193,34 @@ export const markAsDone = async (req: AuthRequest, res: Response, next: NextFunc
     next(error);
   }
 };
+
+export const trackView = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { courseId, lessonId } = req.params;
+    const { isTeacher } = await lessonsService.assertCourseAccess(
+      courseId,
+      req.user!.id,
+      'student_or_teacher'
+    );
+    // Teacher previews shouldn't pollute the student engagement matrix.
+    if (isTeacher) {
+      res.json({ success: true });
+      return;
+    }
+    await lessonsService.trackLessonView(courseId, lessonId, req.user!.id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getEngagement = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { courseId } = req.params;
+    await lessonsService.assertCourseAccess(courseId, req.user!.id, 'teacher');
+    const matrix = await lessonsService.loadLessonEngagement(courseId);
+    res.json({ success: true, data: matrix });
+  } catch (error) {
+    next(error);
+  }
+};

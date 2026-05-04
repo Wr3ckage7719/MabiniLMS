@@ -398,15 +398,36 @@ export function ProctoredExamDialog({
   }, [isAttemptActive, session, started, submitAttempt])
 
   useEffect(() => {
-    if (!session || !started || !isAttemptActive || isQuizMode || !session.assignment.is_proctored) {
+    if (!session || !started || !isAttemptActive) {
       return
     }
 
+    // Tab-switch / window-blur detection runs for every active attempt
+    // (proctored exam OR proctored quiz). Browsers don't always fire
+    // `visibilitychange` when alt-tabbing between windows, so we also
+    // listen to `blur` as a secondary signal.
     const onVisibilityChange = () => {
       if (document.hidden) {
         void reportViolation('visibility_hidden', { source: 'visibilitychange' })
       }
     }
+
+    const onWindowBlur = () => {
+      // Ignore blur events while focus is moving to a child element of
+      // the dialog itself (e.g. focusing an input). Only treat as a tab
+      // switch when the document genuinely loses focus.
+      if (document.hasFocus()) {
+        return
+      }
+      void reportViolation('visibility_hidden', { source: 'window_blur' })
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('blur', onWindowBlur)
+
+    // The remaining policy-gated guards (fullscreen, clipboard, context
+    // menu, devtools, print) only attach when proctoring is enabled.
+    const proctoringEnabled = session.assignment.is_proctored && !isQuizMode
 
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) {
@@ -452,6 +473,11 @@ export function ProctoredExamDialog({
         event.preventDefault()
         void reportViolation('print_shortcut', { source: 'keydown' })
       }
+      // Block Ctrl+F (browser find) and Ctrl+U (view source) — both
+      // commonly used to escape an exam to web search.
+      if (session.policy.block_clipboard && metaKey && (event.key.toLowerCase() === 'f' || event.key.toLowerCase() === 'u')) {
+        event.preventDefault()
+      }
     }
 
     const devToolsThreshold = 160
@@ -464,24 +490,28 @@ export function ProctoredExamDialog({
       }
     }
 
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    document.addEventListener('fullscreenchange', onFullscreenChange)
-    window.addEventListener('contextmenu', onContextMenu)
-    window.addEventListener('copy', onCopy)
-    window.addEventListener('paste', onPaste)
-    window.addEventListener('cut', onCut)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', onWindowResize)
+    if (proctoringEnabled) {
+      document.addEventListener('fullscreenchange', onFullscreenChange)
+      window.addEventListener('contextmenu', onContextMenu)
+      window.addEventListener('copy', onCopy)
+      window.addEventListener('paste', onPaste)
+      window.addEventListener('cut', onCut)
+      window.addEventListener('keydown', onKeyDown)
+      window.addEventListener('resize', onWindowResize)
+    }
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      document.removeEventListener('fullscreenchange', onFullscreenChange)
-      window.removeEventListener('contextmenu', onContextMenu)
-      window.removeEventListener('copy', onCopy)
-      window.removeEventListener('paste', onPaste)
-      window.removeEventListener('cut', onCut)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', onWindowResize)
+      window.removeEventListener('blur', onWindowBlur)
+      if (proctoringEnabled) {
+        document.removeEventListener('fullscreenchange', onFullscreenChange)
+        window.removeEventListener('contextmenu', onContextMenu)
+        window.removeEventListener('copy', onCopy)
+        window.removeEventListener('paste', onPaste)
+        window.removeEventListener('cut', onCut)
+        window.removeEventListener('keydown', onKeyDown)
+        window.removeEventListener('resize', onWindowResize)
+      }
     }
   }, [isAttemptActive, isQuizMode, reportViolation, session, started])
 
@@ -521,8 +551,18 @@ export function ProctoredExamDialog({
 
   if (!open) return null
 
+  // While an attempt is in progress, prevent text selection on the
+  // exam content. This blocks "highlight → right-click → search Google"
+  // and similar selection-based escape paths to web search. Form inputs
+  // (textarea / input) opt back in via `select-text` so students can
+  // still edit their own answers.
+  const lockSelection = started && isAttemptActive
+
   return (
-    <div className="fixed inset-0 z-[130] bg-background flex flex-col">
+    <div
+      className={`fixed inset-0 z-[130] bg-background flex flex-col ${lockSelection ? 'select-none' : ''}`}
+      onDragStart={lockSelection ? (event) => event.preventDefault() : undefined}
+    >
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 md:px-6 md:py-4 flex-shrink-0">
         <div className="min-w-0">
@@ -797,7 +837,7 @@ export function ProctoredExamDialog({
                                 onBlur={() => void handleTextAnswer(question.id, textValue)}
                                 placeholder="Type your answer here…"
                                 disabled={disableInteraction}
-                                className="resize-none min-h-[100px] text-sm"
+                                className="resize-none min-h-[100px] text-sm select-text"
                               />
                             )}
                             {itemType === 'multiple_choice' && (
@@ -963,7 +1003,7 @@ export function ProctoredExamDialog({
                                 onBlur={() => void handleTextAnswer(question.id, textValue)}
                                 placeholder="Type your answer here…"
                                 disabled={disableInteraction}
-                                className="resize-none min-h-[100px] text-sm"
+                                className="resize-none min-h-[100px] text-sm select-text"
                               />
                             )}
 

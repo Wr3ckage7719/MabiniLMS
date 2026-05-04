@@ -1070,3 +1070,233 @@ export const isStudentAllowedToSubmit = async (
   if (error) return { allowed: false, lesson };
   return { allowed: Boolean(data), lesson };
 };
+
+// ============================================
+// Lesson views (per-student open tracking)
+// ============================================
+
+export interface LessonViewRow {
+  lesson_id: string;
+  student_id: string;
+  first_viewed_at: string;
+  last_viewed_at: string;
+  view_count: number;
+}
+
+export interface LessonEngagementStudent {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface LessonEngagementLesson {
+  id: string;
+  title: string;
+  ordering: number;
+  is_general: boolean;
+  is_published: boolean;
+}
+
+export interface LessonEngagementCell {
+  lesson_id: string;
+  student_id: string;
+  opened: boolean;
+  done: boolean;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  view_count: number;
+  marked_done_at: string | null;
+}
+
+export interface LessonEngagementMatrix {
+  lessons: LessonEngagementLesson[];
+  students: LessonEngagementStudent[];
+  cells: LessonEngagementCell[];
+}
+
+/**
+ * Records that a student opened a lesson. Idempotent: the first call inserts
+ * a row, subsequent calls bump view_count and last_viewed_at. Teachers/admins
+ * calling this are no-ops (we don't track teacher previews).
+ */
+export const trackLessonView = async (
+  courseId: string,
+  lessonId: string,
+  userId: string
+): Promise<void> => {
+  const lesson = await loadSingleLessonRow(lessonId);
+  if (!lesson || lesson.course_id !== courseId || !lesson.is_published) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Lesson not found', 404);
+  }
+
+  const { data: existing, error: selErr } = await supabaseAdmin
+    .from('lesson_views')
+    .select('id, view_count')
+    .eq('lesson_id', lessonId)
+    .eq('student_id', userId)
+    .maybeSingle();
+
+  if (selErr) {
+    logger.error('Failed to read lesson_views', { lessonId, userId, error: selErr.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to track lesson view', 500);
+  }
+
+  const now = new Date().toISOString();
+
+  if (!existing) {
+    const { error: insErr } = await supabaseAdmin
+      .from('lesson_views')
+      .insert({
+        lesson_id: lessonId,
+        student_id: userId,
+        first_viewed_at: now,
+        last_viewed_at: now,
+        view_count: 1,
+      });
+    if (insErr) {
+      // Race condition with another tab — treat unique violation as success.
+      if ((insErr as { code?: string }).code === '23505') return;
+      logger.error('Failed to insert lesson_view', { lessonId, userId, error: insErr.message });
+      throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to track lesson view', 500);
+    }
+    return;
+  }
+
+  const row = existing as { id: string; view_count: number };
+  const { error: updErr } = await supabaseAdmin
+    .from('lesson_views')
+    .update({
+      last_viewed_at: now,
+      view_count: row.view_count + 1,
+    })
+    .eq('id', row.id);
+  if (updErr) {
+    logger.error('Failed to bump lesson_view', { lessonId, userId, error: updErr.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to track lesson view', 500);
+  }
+};
+
+interface EnrolledStudentRow {
+  student_id: string;
+  profile: {
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+    avatar_url: string | null;
+  } | null;
+}
+
+/**
+ * Returns the per-lesson × per-student engagement matrix for a course.
+ * Rows: every active enrollment. Cols: every published lesson. Cells:
+ * whether the student opened (lesson_views) and/or marked the lesson done
+ * (lesson_progress). Teacher/admin only — caller must have already passed
+ * `assertCourseAccess(_, _, 'teacher')`.
+ */
+export const loadLessonEngagement = async (
+  courseId: string
+): Promise<LessonEngagementMatrix> => {
+  const lessonRows = await loadLessonRowsForCourse(courseId, false);
+  const lessons: LessonEngagementLesson[] = lessonRows.map((row, idx) => ({
+    id: row.id,
+    title: row.title,
+    ordering: idx + 1,
+    is_general: row.is_general,
+    is_published: row.is_published,
+  }));
+
+  const { data: enrollData, error: enrollErr } = await supabaseAdmin
+    .from('enrollments')
+    .select(`
+      student_id,
+      profile:profiles!enrollments_student_id_fkey(id, email, first_name, last_name, avatar_url)
+    `)
+    .eq('course_id', courseId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES);
+
+  if (enrollErr) {
+    logger.error('Failed to load enrollments for lesson engagement', { courseId, error: enrollErr.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load enrollments', 500);
+  }
+
+  const enrollments = (enrollData ?? []) as unknown as EnrolledStudentRow[];
+  const studentMap = new Map<string, LessonEngagementStudent>();
+  for (const row of enrollments) {
+    const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile;
+    if (!profile) continue;
+    studentMap.set(profile.id, {
+      id: profile.id,
+      email: profile.email,
+      first_name: profile.first_name,
+      last_name: profile.last_name,
+      avatar_url: profile.avatar_url,
+    });
+  }
+  const students = Array.from(studentMap.values()).sort((a, b) => {
+    const aName = `${a.last_name ?? ''} ${a.first_name ?? ''}`.trim().toLowerCase() || a.email.toLowerCase();
+    const bName = `${b.last_name ?? ''} ${b.first_name ?? ''}`.trim().toLowerCase() || b.email.toLowerCase();
+    return aName.localeCompare(bName);
+  });
+
+  const lessonIds = lessons.map((l) => l.id);
+  const studentIds = students.map((s) => s.id);
+
+  if (lessonIds.length === 0 || studentIds.length === 0) {
+    return { lessons, students, cells: [] };
+  }
+
+  const [viewsRes, progressRes] = await Promise.all([
+    supabaseAdmin
+      .from('lesson_views')
+      .select('lesson_id, student_id, first_viewed_at, last_viewed_at, view_count')
+      .in('lesson_id', lessonIds)
+      .in('student_id', studentIds),
+    supabaseAdmin
+      .from('lesson_progress')
+      .select('lesson_id, student_id, marked_done_at')
+      .in('lesson_id', lessonIds)
+      .in('student_id', studentIds),
+  ]);
+
+  if (viewsRes.error) {
+    logger.error('Failed to load lesson_views', { courseId, error: viewsRes.error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load lesson views', 500);
+  }
+  if (progressRes.error) {
+    logger.error('Failed to load lesson_progress', { courseId, error: progressRes.error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load lesson progress', 500);
+  }
+
+  const viewByKey = new Map<string, LessonViewRow>();
+  for (const v of (viewsRes.data ?? []) as LessonViewRow[]) {
+    viewByKey.set(`${v.lesson_id}:${v.student_id}`, v);
+  }
+  const doneByKey = new Map<string, string>();
+  for (const p of (progressRes.data ?? []) as Array<{ lesson_id: string; student_id: string; marked_done_at: string }>) {
+    doneByKey.set(`${p.lesson_id}:${p.student_id}`, p.marked_done_at);
+  }
+
+  const cells: LessonEngagementCell[] = [];
+  for (const lesson of lessons) {
+    for (const student of students) {
+      const key = `${lesson.id}:${student.id}`;
+      const view = viewByKey.get(key) ?? null;
+      const doneAt = doneByKey.get(key) ?? null;
+      cells.push({
+        lesson_id: lesson.id,
+        student_id: student.id,
+        opened: Boolean(view) || Boolean(doneAt),
+        done: Boolean(doneAt),
+        first_viewed_at: view?.first_viewed_at ?? null,
+        last_viewed_at: view?.last_viewed_at ?? null,
+        view_count: view?.view_count ?? 0,
+        marked_done_at: doneAt,
+      });
+    }
+  }
+
+  return { lessons, students, cells };
+};

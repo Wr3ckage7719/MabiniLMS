@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,7 +13,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useStudentLesson, useStudentLessons, useMarkLessonAsDone } from '@/hooks-api/useLessons';
+import {
+  useStudentLesson,
+  useStudentLessons,
+  useMarkLessonAsDone,
+  useTrackLessonView,
+} from '@/hooks-api/useLessons';
 import { useClass } from '@/hooks-api/useClasses';
 import type { Lesson, LessonAssessmentRef, LessonMaterialRef } from '@/lib/data';
 
@@ -186,9 +191,24 @@ export default function LessonDetailPage() {
   const lessonQuery = useStudentLesson(classId, lessonId);
   const allLessonsQuery = useStudentLessons(classId);
   const markDone = useMarkLessonAsDone(classId);
+  const trackView = useTrackLessonView();
   const [pendingDone, setPendingDone] = useState(false);
 
   const lesson = lessonQuery.data ?? null;
+
+  // Record this lesson open exactly once per (classId, lessonId) mount. The
+  // server endpoint is idempotent and no-ops for teachers; this guard just
+  // avoids a redundant network round-trip when React strict-mode double-renders.
+  const trackedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!classId || !lessonId) return;
+    const key = `${classId}:${lessonId}`;
+    if (trackedKeyRef.current === key) return;
+    trackedKeyRef.current = key;
+    trackView.mutate({ classId, lessonId });
+    // trackView identity is stable across renders; we don't need it in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId, lessonId]);
   const allLessons = useMemo(() => allLessonsQuery.data ?? [], [allLessonsQuery.data]);
 
   const eligibility = useMemo(() => {

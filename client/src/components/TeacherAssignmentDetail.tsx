@@ -41,6 +41,7 @@ import {
   Users,
   Zap,
   ShieldCheck,
+  ShieldAlert,
   ChevronRight,
 } from 'lucide-react';
 import { getTaskTypeMeta } from '@/lib/task-types';
@@ -53,6 +54,7 @@ import {
   SubmissionStatusTimelineEntry,
 } from '@/services/assignments.service';
 import { gradesService } from '@/services/grades.service';
+import { examsService, type ExamViolation, type ProctorViolationType } from '@/services/exams.service';
 import { useToast } from '@/hooks/use-toast';
 import { TeacherExamManagementPanel } from '@/components/TeacherExamManagementPanel';
 import { RequiredMaterialsEditor } from '@/components/RequiredMaterialsEditor';
@@ -64,6 +66,7 @@ import {
 
 interface StudentSubmission {
   id: string;
+  studentId?: string;
   name: string;
   avatar: string;
   status: SubmissionStatus;
@@ -80,6 +83,17 @@ interface StudentSubmission {
   providerSizeBytes?: number;
   submissionSnapshotAt?: string;
 }
+
+const VIOLATION_LABELS: Record<ProctorViolationType, string> = {
+  visibility_hidden: 'Tab switch / window blur',
+  fullscreen_exit: 'Exited fullscreen',
+  context_menu: 'Right-click attempt',
+  copy: 'Copy attempt',
+  paste: 'Paste attempt',
+  cut: 'Cut attempt',
+  print_shortcut: 'Print / save shortcut',
+  devtools_open: 'DevTools opened',
+};
 
 interface AssignmentComment {
   id: string;
@@ -240,6 +254,7 @@ export function TeacherAssignmentDetail({
   const [submissionTimeline, setSubmissionTimeline] = useState<SubmissionStatusTimelineEntry[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [transitioningStatus, setTransitioningStatus] = useState(false);
+  const [violationsByStudent, setViolationsByStudent] = useState<Record<string, ExamViolation[]>>({});
 
   const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
     const firstName = comment.author?.first_name?.trim() || '';
@@ -361,6 +376,46 @@ export function TeacherAssignmentDetail({
     void fetchComments();
   }, [assignment?.id, fetchComments, open]);
 
+  // Fetch the proctoring violations for this exam and group them by student so
+  // each submission row can show "X violations" without an N+1 fetch. Quizzes
+  // and activities don't generate exam_violations rows so we skip the call.
+  useEffect(() => {
+    if (!open || !assignment?.id) return;
+    const rawType = (assignment.rawType || '').toLowerCase();
+    if (rawType !== 'exam') {
+      setViolationsByStudent({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { violations } = await examsService.listAssignmentViolations(
+          assignment.id,
+          { limit: 500, offset: 0 }
+        );
+        if (cancelled) return;
+        const grouped: Record<string, ExamViolation[]> = {};
+        for (const v of violations) {
+          if (!grouped[v.student_id]) grouped[v.student_id] = [];
+          grouped[v.student_id].push(v);
+        }
+        setViolationsByStudent(grouped);
+      } catch (error) {
+        if (!cancelled) {
+          // Soft-fail: a missing violations endpoint shouldn't break the
+          // submissions list. Log but leave the map empty.
+          console.error('Failed to load assignment violations', error);
+          setViolationsByStudent({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assignment?.id, assignment?.rawType, open]);
+
   useEffect(() => {
     const mappedSubmissions: StudentSubmission[] = apiSubmissions.map((submission) => {
       const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
@@ -377,6 +432,7 @@ export function TeacherAssignmentDetail({
 
       return {
         id: submission.id,
+        studentId: submission.student?.id,
         name: studentName,
         avatar,
         status: normalizedStatus,
@@ -1381,51 +1437,89 @@ export function TeacherAssignmentDetail({
                   </Card>
                 ) : (
                   <div className="space-y-2">
-                    {submissions.map((submission) => (
-                      <Card
-                        key={submission.id}
-                        className="border-0 shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
-                        onClick={() => handleOpenSubmissionDetail(submission)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <Avatar className="h-10 w-10 flex-shrink-0">
-                                <AvatarFallback className={`${taskMeta.iconBg} ${taskMeta.iconText} group-hover:bg-primary group-hover:text-primary-foreground transition-colors`}>
-                                  {submission.avatar}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium text-sm group-hover:text-primary transition-colors">
-                                  {submission.name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {`${STATUS_LABELS[submission.status]} • ${submission.submittedDate}`}
-                                </p>
+                    {submissions.map((submission) => {
+                      const studentViolations = submission.studentId
+                        ? violationsByStudent[submission.studentId] ?? []
+                        : [];
+                      const violationCount = studentViolations.length;
+                      // Build a typed summary for the tooltip: "Tab switch ×3, Right-click ×1".
+                      const typeCounts = studentViolations.reduce<Record<string, number>>(
+                        (acc, v) => {
+                          const label = VIOLATION_LABELS[v.violation_type] ?? v.violation_type;
+                          acc[label] = (acc[label] ?? 0) + 1;
+                          return acc;
+                        },
+                        {}
+                      );
+                      const tooltipLines = Object.entries(typeCounts)
+                        .map(([label, count]) => `${label} ×${count}`)
+                        .join('\n');
+                      const lastViolationAt =
+                        studentViolations.length > 0
+                          ? new Date(studentViolations[0].created_at).toLocaleString()
+                          : null;
+
+                      return (
+                        <Card
+                          key={submission.id}
+                          className="border-0 shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
+                          onClick={() => handleOpenSubmissionDetail(submission)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <Avatar className="h-10 w-10 flex-shrink-0">
+                                  <AvatarFallback className={`${taskMeta.iconBg} ${taskMeta.iconText} group-hover:bg-primary group-hover:text-primary-foreground transition-colors`}>
+                                    {submission.avatar}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium text-sm group-hover:text-primary transition-colors">
+                                    {submission.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {`${STATUS_LABELS[submission.status]} • ${submission.submittedDate}`}
+                                  </p>
+                                  {isExamAssignment && violationCount > 0 && lastViolationAt && (
+                                    <p className="text-[11px] text-amber-700 mt-1">
+                                      Last violation: {lastViolationAt}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                {isExamAssignment && violationCount > 0 && (
+                                  <Badge
+                                    variant="outline"
+                                    className="rounded-lg text-[11px] gap-1 border-amber-300 bg-amber-50 text-amber-800"
+                                    title={tooltipLines}
+                                  >
+                                    <ShieldAlert className="h-3 w-3" />
+                                    {violationCount} violation{violationCount === 1 ? '' : 's'}
+                                  </Badge>
+                                )}
+                                {submission.grade && (
+                                  <div className="text-right">
+                                    <p className="font-semibold text-sm tabular-nums">
+                                      {getDisplayGrade(submission.grade)}
+                                      {isAutoGraded && <span className="text-xs font-normal text-muted-foreground"> / {assignment.points}</span>}
+                                    </p>
+                                  </div>
+                                )}
+                                <Badge
+                                  variant={getStatusBadgeVariant(submission.status)}
+                                  className="rounded-lg text-xs capitalize"
+                                >
+                                  {STATUS_LABELS[submission.status]}
+                                </Badge>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                               </div>
                             </div>
-
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              {submission.grade && (
-                                <div className="text-right">
-                                  <p className="font-semibold text-sm tabular-nums">
-                                    {getDisplayGrade(submission.grade)}
-                                    {isAutoGraded && <span className="text-xs font-normal text-muted-foreground"> / {assignment.points}</span>}
-                                  </p>
-                                </div>
-                              )}
-                              <Badge
-                                variant={getStatusBadgeVariant(submission.status)}
-                                className="rounded-lg text-xs capitalize"
-                              >
-                                {STATUS_LABELS[submission.status]}
-                              </Badge>
-                              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </div>
                 )}
               </div>
