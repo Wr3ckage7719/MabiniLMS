@@ -1,6 +1,39 @@
 import type { Lesson, LessonChain, LessonCompletionRule } from '@/lib/data';
 import { apiClient } from './api-client';
 
+export interface LessonEngagementStudent {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface LessonEngagementLesson {
+  id: string;
+  title: string;
+  ordering: number;
+  is_general: boolean;
+  is_published: boolean;
+}
+
+export interface LessonEngagementCell {
+  lesson_id: string;
+  student_id: string;
+  opened: boolean;
+  done: boolean;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  view_count: number;
+  marked_done_at: string | null;
+}
+
+export interface LessonEngagementMatrix {
+  lessons: LessonEngagementLesson[];
+  students: LessonEngagementStudent[];
+  cells: LessonEngagementCell[];
+}
+
 // ============================================
 // Lessons API client (LM-centric flow).
 // ============================================
@@ -113,5 +146,22 @@ export const lessonsService = {
 
   async deleteLesson(classId: string, lessonId: string): Promise<void> {
     await apiClient.delete(`/lessons/courses/${classId}/lessons/${lessonId}`);
+  },
+
+  // -------- engagement tracking --------
+  // Idempotent: the server upserts (insert + bump view_count). Safe to call
+  // every time the student lands on the lesson detail page.
+  async trackView(classId: string, lessonId: string): Promise<void> {
+    if (!classId || !lessonId) return;
+    await apiClient.post(
+      `/lessons/courses/${classId}/lessons/${lessonId}/track-view`,
+      {}
+    );
+  },
+
+  async getEngagement(classId: string): Promise<LessonEngagementMatrix | null> {
+    if (!classId) return null;
+    const response = await apiClient.get(`/lessons/courses/${classId}/engagement`);
+    return unwrap<LessonEngagementMatrix>(response);
   },
 };

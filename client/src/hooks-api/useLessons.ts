@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 import type { Lesson, LessonChain } from '@/lib/data';
-import { lessonsService, LessonEditorPayload } from '@/services/lessons.service';
+import {
+  lessonsService,
+  LessonEditorPayload,
+  type LessonEngagementMatrix,
+} from '@/services/lessons.service';
 
 // Frontend-only hooks backed by `lessons.service.ts` (which currently reads
 // from in-memory fixtures). Once the backend lands these query keys and
@@ -125,5 +129,28 @@ export function useDeleteLesson(classId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: teacherLessonsKey(classId) });
     },
+  });
+}
+
+const lessonEngagementKey = (classId: string | undefined) => ['lessons', 'engagement', classId];
+
+export function useTrackLessonView() {
+  // Fire-and-forget: the engagement matrix is read by teachers, so we don't
+  // need to invalidate any student-side query. Errors are logged but not
+  // surfaced — failing to track a view shouldn't block the lesson UI.
+  return useMutation({
+    mutationFn: ({ classId, lessonId }: { classId: string; lessonId: string }) =>
+      lessonsService.trackView(classId, lessonId),
+  });
+}
+
+export function useLessonEngagement(
+  classId?: string
+): UseQueryResult<LessonEngagementMatrix | null, Error> {
+  return useQuery({
+    queryKey: lessonEngagementKey(classId),
+    queryFn: () => lessonsService.getEngagement(classId ?? ''),
+    enabled: Boolean(classId),
+    staleTime: 30 * 1000,
   });
 }
