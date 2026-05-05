@@ -157,6 +157,9 @@ export interface LessonMaterialRef {
   viewed?: boolean;
   view_seconds?: number;
   page_count?: number | null;
+  // True when a prior material in this lesson hasn't been read end-to-end yet.
+  // Surfaced so the student UI can lock follow-up files behind the first one.
+  locked?: boolean;
 }
 
 export interface LessonChain {

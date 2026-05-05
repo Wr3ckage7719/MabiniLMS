@@ -22,12 +22,18 @@ export function computeCourseCompletion(assignments: Assignment[]): CourseComple
     return { percent: 0, completed: 0, total: 0, nextItem: null };
   }
 
+  // A late submission is still a submission — counting it as incomplete made
+  // the dashboard ring drift down whenever a student turned work in past the
+  // due date. Mirror the same broadened set in the "next open item" filter so
+  // we don't surface an already-submitted late item as the next thing to do.
   const completed = assignments.filter(
-    (a) => a.status === 'submitted' || a.status === 'graded'
+    (a) => a.status === 'submitted' || a.status === 'graded' || a.status === 'late'
   ).length;
 
   const open = assignments
-    .filter((a) => a.status !== 'submitted' && a.status !== 'graded')
+    .filter(
+      (a) => a.status !== 'submitted' && a.status !== 'graded' && a.status !== 'late'
+    )
     .filter((a) => {
       const due = new Date(a.dueDate).getTime();
       return Number.isFinite(due);
