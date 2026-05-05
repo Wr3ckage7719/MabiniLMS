@@ -4,6 +4,7 @@ import {
   lessonsService,
   LessonEditorPayload,
   type LessonEngagementMatrix,
+  type StudentCourseProgress,
 } from '@/services/lessons.service';
 
 // Frontend-only hooks backed by `lessons.service.ts` (which currently reads
@@ -67,9 +68,15 @@ export function useMarkLessonAsDone(classId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (lessonId: string) => lessonsService.markAsDone(classId, lessonId),
-    onSuccess: () => {
+    onSuccess: (updatedLesson, lessonId) => {
       void queryClient.invalidateQueries({ queryKey: studentLessonsKey(classId) });
       void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId] });
+      const targetLessonId = updatedLesson?.id ?? lessonId;
+      if (targetLessonId) {
+        void queryClient.invalidateQueries({
+          queryKey: studentLessonKey(classId, targetLessonId),
+        });
+      }
     },
   });
 }
@@ -151,6 +158,17 @@ export function useLessonEngagement(
     queryKey: lessonEngagementKey(classId),
     queryFn: () => lessonsService.getEngagement(classId ?? ''),
     enabled: Boolean(classId),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useStudentProgressSummary(
+  enabled: boolean = true
+): UseQueryResult<StudentCourseProgress[], Error> {
+  return useQuery({
+    queryKey: ['lessons', 'me', 'progress-summary'],
+    queryFn: () => lessonsService.getMyProgressSummary(),
+    enabled,
     staleTime: 30 * 1000,
   });
 }

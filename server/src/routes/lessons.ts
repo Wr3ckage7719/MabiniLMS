@@ -96,4 +96,13 @@ router.get(
   lessonsController.getEngagement
 );
 
+// Student-side: lesson progress summary across every enrolled course in one
+// query, used by the dashboard to render an accurate progress ring on each
+// class card without firing N requests.
+router.get(
+  '/me/progress-summary',
+  authenticate,
+  lessonsController.getStudentProgressSummary
+);
+
 export default router;

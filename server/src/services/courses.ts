@@ -1381,12 +1381,27 @@ const attachMaterialToLesson = async (
     );
   }
 
+  // Use the next available sort_order so multiple materials per lesson keep
+  // a deterministic ordering (matches the order in which the teacher attached
+  // them). Without this, every row gets sort_order=0 and the sequential-unlock
+  // gate becomes ambiguous.
+  const { data: existingRows } = await supabaseAdmin
+    .from('lesson_materials')
+    .select('sort_order')
+    .eq('lesson_id', lessonId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const nextSortOrder =
+    Array.isArray(existingRows) && existingRows.length > 0
+      ? ((existingRows[0] as { sort_order?: number | null }).sort_order ?? 0) + 1
+      : 0;
+
   const { error: linkErr } = await supabaseAdmin
     .from('lesson_materials')
     .insert({
       lesson_id: lessonId,
       material_id: materialId,
-      sort_order: 0,
+      sort_order: nextSortOrder,
     });
   if (linkErr && (linkErr as { code?: string }).code !== '23505') {
     logger.warn('Could not attach material to lesson', {

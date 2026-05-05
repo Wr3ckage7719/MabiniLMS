@@ -146,14 +146,29 @@ interface MaterialRowProps {
 
 function MaterialRow({ material, onOpen }: MaterialRowProps) {
   const viewed = Boolean(material.viewed);
+  const locked = Boolean(material.locked) && !viewed;
+  const { toast } = useToast();
   return (
     <Card
-      className="border cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all"
-      onClick={() => onOpen(material)}
+      className={`border ${locked ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all'}`}
+      onClick={() => {
+        if (locked) {
+          toast({
+            title: 'Locked',
+            description: 'Finish the previous reading material first.',
+          });
+          return;
+        }
+        onOpen(material);
+      }}
     >
       <CardContent className="p-4 flex items-center gap-3">
-        <div className="flex-shrink-0 p-2 rounded-lg bg-primary/10">
-          <FileText className="h-5 w-5 text-primary" />
+        <div className={`flex-shrink-0 p-2 rounded-lg ${locked ? 'bg-muted' : 'bg-primary/10'}`}>
+          {locked ? (
+            <Lock className="h-5 w-5 text-muted-foreground" />
+          ) : (
+            <FileText className="h-5 w-5 text-primary" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm md:text-base font-medium truncate">{material.title}</p>
@@ -165,10 +180,19 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
               ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
               : ''}
           </p>
+          {locked && (
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Finish the previous file first.
+            </p>
+          )}
         </div>
         {viewed ? (
           <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
             <CheckCircle2 className="h-3 w-3 mr-1" /> Read
+          </Badge>
+        ) : locked ? (
+          <Badge variant="outline" className="text-[10px] flex-shrink-0">
+            Locked
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px] flex-shrink-0">
@@ -262,9 +286,26 @@ export default function LessonDetailPage() {
 
   if (lessonQuery.isLoading || classQuery.isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading lesson…
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
+          <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="h-8 w-32 rounded-md bg-muted animate-pulse" />
+            <div className="h-3 w-16 rounded bg-muted animate-pulse" />
+          </div>
+        </header>
+        <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6">
+          <div className="space-y-3">
+            <div className="h-5 w-20 rounded-full bg-muted animate-pulse" />
+            <div className="h-8 w-3/4 rounded-md bg-muted animate-pulse" />
+            <div className="h-4 w-full rounded bg-muted animate-pulse" />
+            <div className="h-4 w-5/6 rounded bg-muted animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-16 w-full rounded-lg border bg-card animate-pulse" />
+            ))}
+          </div>
+        </main>
       </div>
     );
   }

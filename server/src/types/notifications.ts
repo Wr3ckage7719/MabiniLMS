@@ -27,7 +27,10 @@ export enum NotificationType {
   
   // Material notifications
   MATERIAL_ADDED = 'material_added',
-  
+
+  // Lesson notifications
+  LESSON_PUBLISHED = 'lesson_published',
+
   // System notifications
   SYSTEM_ANNOUNCEMENT = 'system_announcement',
   ACCOUNT_UPDATE = 'account_update',
@@ -301,6 +304,8 @@ export const getNotificationIcon = (type: NotificationType): string => {
       return 'pencil'
     case NotificationType.MATERIAL_ADDED:
       return 'document-add'
+    case NotificationType.LESSON_PUBLISHED:
+      return 'book-open'
     case NotificationType.SYSTEM_ANNOUNCEMENT:
       return 'information-circle'
     case NotificationType.ACCOUNT_UPDATE:
