@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { Archive, Loader2, RefreshCw } from 'lucide-react';
+import { Archive, RefreshCw } from 'lucide-react';
 import { ClassCard } from '@/components/ClassCard';
+import { Skeleton } from '@/components/ui/skeleton';
 import { StudentInvitations } from '@/components/StudentInvitations';
 import { UpcomingWidget } from '@/components/UpcomingWidget';
 import { StatsBar } from '@/components/StatsBar';
@@ -10,6 +11,7 @@ import { useRole } from '@/contexts/RoleContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
 import { useClasses as useApiClasses } from '@/hooks-api/useClasses';
 import { useAssignments } from '@/hooks-api/useAssignments';
+import { useStudentProgressSummary } from '@/hooks-api/useLessons';
 import {
   computeCourseCompletion,
   groupAssignmentsByClass,
@@ -25,18 +27,42 @@ export default function Dashboard() {
     error,
     refetch,
   } = useApiClasses();
-  // Pulled once for the dashboard so each ClassCard reuses the same data
-  // instead of refetching per-card. Empty array on error/loading is fine —
-  // ClassCard hides its progress ring when completion.total === 0.
+  // Lesson-based progress is the authoritative completion metric (the LMS is
+  // lesson-centric — assessments live inside lessons). Falls back to the
+  // legacy assignment-based calculation only when the student has no
+  // published lessons at all in a course.
+  const { data: progressSummary = [] } = useStudentProgressSummary();
   const { data: allAssignments = [] } = useAssignments();
   const completionByClass = useMemo<Map<string, CourseCompletion>>(() => {
-    const grouped = groupAssignmentsByClass(allAssignments);
     const out = new Map<string, CourseCompletion>();
+    const lessonByCourse = new Map(
+      progressSummary.map((p) => [p.course_id, p])
+    );
+    const grouped = groupAssignmentsByClass(allAssignments);
+    const seen = new Set<string>();
+
+    lessonByCourse.forEach((row, classId) => {
+      seen.add(classId);
+      if (row.total_lessons > 0) {
+        out.set(classId, {
+          percent: row.percent,
+          completed: row.done_lessons,
+          total: row.total_lessons,
+          nextItem: null,
+        });
+      } else {
+        // No lessons yet — fall back so the ring isn't misleadingly empty.
+        out.set(classId, computeCourseCompletion(grouped.get(classId) ?? []));
+      }
+    });
+
     grouped.forEach((items, classId) => {
+      if (seen.has(classId)) return;
       out.set(classId, computeCourseCompletion(items));
     });
+
     return out;
-  }, [allAssignments]);
+  }, [progressSummary, allAssignments]);
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -117,8 +143,33 @@ export default function Dashboard() {
       )}
 
       {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="space-y-4">
+          <div className="md:hidden space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-2xl" />
+            ))}
+          </div>
+          <div className="hidden md:grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+            <div className="lg:col-span-2 space-y-4">
+              <Skeleton className="h-6 w-32" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-2xl overflow-hidden border bg-card">
+                    <Skeleton className="h-24 w-full rounded-none" />
+                    <div className="p-4 space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-3 w-1/2" />
+                      <Skeleton className="h-3 w-2/5" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-6 w-28" />
+              <Skeleton className="h-40 w-full rounded-2xl" />
+            </div>
+          </div>
         </div>
       )}
 

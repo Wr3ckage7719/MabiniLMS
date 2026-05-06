@@ -49,6 +49,7 @@ export interface LessonMaterialRef {
   viewed: boolean;
   view_seconds: number;
   page_count: number | null;
+  locked: boolean;
 }
 
 export interface LessonAssessmentRef {
@@ -472,14 +473,18 @@ const loadLessonCompletionCounts = async (
 ): Promise<Map<string, number>> => {
   if (lessonIds.length === 0) return new Map();
   const map = new Map<string, number>();
-  for (const lessonId of lessonIds) {
-    const { count, error } = await supabaseAdmin
-      .from('lesson_progress')
-      .select('*', { count: 'exact', head: true })
-      .eq('lesson_id', lessonId);
-    if (!error) {
-      map.set(lessonId, count ?? 0);
-    }
+  for (const id of lessonIds) {
+    map.set(id, 0);
+  }
+  const { data, error } = await supabaseAdmin
+    .from('lesson_progress')
+    .select('lesson_id')
+    .in('lesson_id', lessonIds);
+  if (error || !data) {
+    return map;
+  }
+  for (const row of data as Array<{ lesson_id: string }>) {
+    map.set(row.lesson_id, (map.get(row.lesson_id) ?? 0) + 1);
   }
   return map;
 };
@@ -612,23 +617,33 @@ const toMaterialRefs = (
   progressMap: Map<string, MaterialProgressMapRow>
 ): LessonMaterialRef[] => {
   if (!rows) return [];
+  // Materials gate sequentially: a material is locked when any earlier material
+  // in this lesson hasn't been finished end-to-end. The first one is always
+  // unlocked. This is purely derived state; teachers don't have to opt in.
+  let priorUnfinished = false;
   return rows.map((row) => {
     const cm = Array.isArray(row.course_materials) ? row.course_materials[0] : row.course_materials;
     const progress = progressMap.get(row.material_id);
+    // A material is only considered "read" once the student walks all the
+    // way to the end (reader sets completed=true on reaching the last page,
+    // or progress_percent rolls over to 100). Just opening it no longer
+    // counts — the lesson gate downstream relies on this being a real
+    // signal that the file has been browsed end-to-end.
+    const viewed = Boolean(progress?.completed);
+    const locked = priorUnfinished;
+    if (!viewed) {
+      priorUnfinished = true;
+    }
     return {
       material_id: row.material_id,
       title: cm?.title ?? 'Untitled material',
       file_type: cm?.type ?? 'other',
       file_size: formatBytes(cm?.file_size ?? null),
       url: cm?.file_url ?? null,
-      // A material is only considered "read" once the student walks all the
-      // way to the end (reader sets completed=true on reaching the last page,
-      // or progress_percent rolls over to 100). Just opening it no longer
-      // counts — the lesson gate downstream relies on this being a real
-      // signal that the file has been browsed end-to-end.
-      viewed: Boolean(progress?.completed),
+      viewed,
       view_seconds: 0,
       page_count: cm?.page_count ?? null,
+      locked,
     };
   });
 };
@@ -848,7 +863,7 @@ export const updateLesson = async (
   courseId: string,
   lessonId: string,
   input: UpsertLessonInput
-): Promise<LessonView | null> => {
+): Promise<{ lesson: LessonView | null; wasPublished: boolean }> => {
   const existing = await loadSingleLessonRow(lessonId);
   if (!existing || existing.course_id !== courseId) {
     throw new ApiError(ErrorCode.NOT_FOUND, 'Lesson not found', 404);
@@ -886,7 +901,123 @@ export const updateLesson = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update lesson', 500);
   }
 
-  return getForTeacher(courseId, lessonId);
+  const lesson = await getForTeacher(courseId, lessonId);
+  return { lesson, wasPublished: Boolean(existing.is_published) };
+};
+
+export interface StudentCourseProgress {
+  course_id: string;
+  total_lessons: number;
+  done_lessons: number;
+  percent: number;
+}
+
+/**
+ * Aggregate published-lesson progress for every course the student is enrolled
+ * in. Used by the dashboard to render an accurate per-card progress ring with
+ * a single round-trip instead of N parallel lesson list requests.
+ */
+export const loadStudentProgressSummary = async (
+  studentId: string
+): Promise<StudentCourseProgress[]> => {
+  const { data: enrollments, error: enrollErr } = await supabaseAdmin
+    .from('enrollments')
+    .select('course_id')
+    .eq('student_id', studentId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES);
+  if (enrollErr || !enrollments) {
+    return [];
+  }
+  const courseIds = Array.from(
+    new Set(
+      (enrollments as Array<{ course_id: string }>)
+        .map((e) => e.course_id)
+        .filter(Boolean)
+    )
+  );
+  if (courseIds.length === 0) {
+    return [];
+  }
+
+  // Load every published lesson across all enrolled courses in one go. The
+  // General lesson is excluded from the progress denominator because it's an
+  // auto-created bucket for legacy materials, not coursework the student is
+  // expected to complete.
+  const { data: lessonRows, error: lessonErr } = await supabaseAdmin
+    .from('lessons')
+    .select('id, course_id, is_published, is_general')
+    .in('course_id', courseIds)
+    .eq('is_published', true)
+    .eq('is_general', false);
+  if (lessonErr || !lessonRows) {
+    return courseIds.map((id) => ({
+      course_id: id,
+      total_lessons: 0,
+      done_lessons: 0,
+      percent: 0,
+    }));
+  }
+
+  const lessonsByCourse = new Map<string, string[]>();
+  for (const row of lessonRows as Array<{ id: string; course_id: string }>) {
+    const list = lessonsByCourse.get(row.course_id);
+    if (list) {
+      list.push(row.id);
+    } else {
+      lessonsByCourse.set(row.course_id, [row.id]);
+    }
+  }
+
+  const allLessonIds = lessonRows.map((r) => (r as { id: string }).id);
+  const doneLessonIds = new Set<string>();
+  if (allLessonIds.length > 0) {
+    const { data: progressRows } = await supabaseAdmin
+      .from('lesson_progress')
+      .select('lesson_id')
+      .eq('student_id', studentId)
+      .in('lesson_id', allLessonIds);
+    for (const row of (progressRows ?? []) as Array<{ lesson_id: string }>) {
+      doneLessonIds.add(row.lesson_id);
+    }
+  }
+
+  return courseIds.map((courseId) => {
+    const ids = lessonsByCourse.get(courseId) ?? [];
+    const total = ids.length;
+    const done = ids.filter((id) => doneLessonIds.has(id)).length;
+    const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+    return { course_id: courseId, total_lessons: total, done_lessons: done, percent };
+  });
+};
+
+/**
+ * Load enrolled student IDs + course title for a course, used by the lesson
+ * notification flow to address the persistent notification at all enrolled
+ * students when a lesson is first published.
+ */
+export const loadCourseStudentsAndTitle = async (
+  courseId: string
+): Promise<{ studentIds: string[]; courseTitle: string }> => {
+  const { data: enrollments } = await supabaseAdmin
+    .from('enrollments')
+    .select('student_id')
+    .eq('course_id', courseId)
+    .in('status', ACTIVE_ENROLLMENT_STATUSES);
+
+  const { data: course } = await supabaseAdmin
+    .from('courses')
+    .select('title')
+    .eq('id', courseId)
+    .maybeSingle();
+
+  const studentIds = Array.isArray(enrollments)
+    ? (enrollments as Array<{ student_id: string }>).map((e) => e.student_id).filter(Boolean)
+    : [];
+  const courseTitle =
+    course && typeof (course as { title?: string }).title === 'string'
+      ? (course as { title: string }).title
+      : 'Course';
+  return { studentIds, courseTitle };
 };
 
 export const reorderLessons = async (

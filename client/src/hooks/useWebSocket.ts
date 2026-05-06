@@ -26,13 +26,19 @@ export enum SocketEvent {
   GRADE_RELEASED = 'grade_released',
   SUBMISSION_RECEIVED = 'submission_received',
   STANDING_UPDATED = 'standing_updated',
-  
+
   TEACHER_PENDING = 'teacher_pending',
   TEACHER_APPROVED = 'teacher_approved',
   STUDENT_CREATED = 'student_created',
-  
+
   USER_ONLINE = 'user_online',
   USER_OFFLINE = 'user_offline',
+
+  LESSON_CREATED = 'lesson_created',
+  LESSON_UPDATED = 'lesson_updated',
+  LESSON_DELETED = 'lesson_deleted',
+  LESSON_REORDERED = 'lesson_reordered',
+  LESSON_MARKED_DONE = 'lesson_marked_done',
 }
 
 export interface NotificationPayload {
@@ -568,6 +574,82 @@ export function useRealtimeNotifications() {
       }
     );
 
+    // Lessons: invalidate caches so the lesson list / detail pages refresh
+    // immediately when the teacher creates, updates, or publishes a lesson.
+    // Students additionally see a toast on the unpublished -> published
+    // transition (server only emits LESSON_UPDATED on save; LESSON_CREATED
+    // fires for the bare draft and is silent on the student side).
+    const unsubLessonCreated = subscribe<{
+      lesson_id: string;
+      course_id: string;
+      title: string;
+      is_published?: boolean;
+    }>(SocketEvent.LESSON_CREATED, (data) => {
+      if (!data?.course_id) return;
+      refreshCourseRealtimeData(data.course_id);
+      void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', data.course_id] });
+      void queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', data.course_id] });
+    });
+
+    const unsubLessonUpdated = subscribe<{
+      lesson_id: string;
+      course_id: string;
+      title: string;
+      is_published?: boolean;
+    }>(SocketEvent.LESSON_UPDATED, (data) => {
+      if (!data?.course_id) return;
+      refreshCourseRealtimeData(data.course_id);
+      void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', data.course_id] });
+      void queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', data.course_id] });
+      dispatchNotificationsRefresh();
+
+      if (isStudent && data.is_published) {
+        toast({
+          title: '📘 New Lesson Available',
+          description: `"${data.title || 'Untitled lesson'}" is now available in your class.`,
+        });
+        setUnreadCount((prev) => prev + 1);
+        playNotificationSound();
+        void showDeviceNotification(
+          'New Lesson Available',
+          data.title ? `"${data.title}" is now available.` : 'A new lesson is now available.',
+          {
+            courseId: data.course_id,
+            actionUrl: `/class/${data.course_id}/lessons/${data.lesson_id}`,
+            metadata: { course_id: data.course_id, lesson_id: data.lesson_id },
+          }
+        );
+      }
+    });
+
+    const unsubLessonDeleted = subscribe<{ lesson_id: string; course_id: string }>(
+      SocketEvent.LESSON_DELETED,
+      (data) => {
+        if (!data?.course_id) return;
+        refreshCourseRealtimeData(data.course_id);
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', data.course_id] });
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', data.course_id] });
+      }
+    );
+
+    const unsubLessonReordered = subscribe<{ course_id: string }>(
+      SocketEvent.LESSON_REORDERED,
+      (data) => {
+        if (!data?.course_id) return;
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', data.course_id] });
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', data.course_id] });
+      }
+    );
+
+    const unsubLessonMarkedDone = subscribe<{ course_id: string; lesson_id: string }>(
+      SocketEvent.LESSON_MARKED_DONE,
+      (data) => {
+        if (!data?.course_id) return;
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'student', data.course_id] });
+        void queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', data.course_id] });
+      }
+    );
+
     return () => {
       unsubNotification();
       unsubCount();
@@ -578,6 +660,11 @@ export function useRealtimeNotifications() {
       unsubTeacherPending();
       unsubSubmissionReceived();
       unsubStandingUpdated();
+      unsubLessonCreated();
+      unsubLessonUpdated();
+      unsubLessonDeleted();
+      unsubLessonReordered();
+      unsubLessonMarkedDone();
     };
   }, [
     dispatchNotificationsRefresh,

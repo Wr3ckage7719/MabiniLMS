@@ -164,4 +164,16 @@ export const lessonsService = {
     const response = await apiClient.get(`/lessons/courses/${classId}/engagement`);
     return unwrap<LessonEngagementMatrix>(response);
   },
+
+  async getMyProgressSummary(): Promise<StudentCourseProgress[]> {
+    const response = await apiClient.get(`/lessons/me/progress-summary`);
+    return unwrapList<StudentCourseProgress>(response);
+  },
 };
+
+export interface StudentCourseProgress {
+  course_id: string;
+  total_lessons: number;
+  done_lessons: number;
+  percent: number;
+}

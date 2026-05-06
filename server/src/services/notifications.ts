@@ -1150,6 +1150,51 @@ export const sendAssignmentCreatedNotification = async (
 }
 
 /**
+ * Send lesson published notification to enrolled students
+ */
+export const sendLessonPublishedNotification = async (
+  userIds: string[],
+  courseTitle: string,
+  courseId: string,
+  lessonTitle: string,
+  lessonId: string,
+  actor?: NotificationActor
+): Promise<void> => {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
+
+  if (uniqueUserIds.length === 0) {
+    return
+  }
+
+  const metadata: Record<string, unknown> = {
+    course_id: courseId,
+    lesson_id: lessonId,
+  }
+
+  if (actor?.id) {
+    metadata.actor_id = actor.id
+  }
+
+  if (actor?.name) {
+    metadata.actor_name = actor.name
+  }
+
+  if (actor?.avatar_url) {
+    metadata.actor_avatar_url = actor.avatar_url
+  }
+
+  await createBulkNotifications({
+    user_ids: uniqueUserIds,
+    type: NotificationType.LESSON_PUBLISHED,
+    title: 'New Lesson Available',
+    message: `New lesson "${lessonTitle}" is now available in ${courseTitle}`,
+    priority: NotificationPriority.NORMAL,
+    action_url: `/class/${courseId}/lessons/${lessonId}`,
+    metadata,
+  })
+}
+
+/**
  * Send course enrollment notification
  */
 export const sendEnrollmentNotification = async (

@@ -266,6 +266,15 @@ export default function LessonEditorPage() {
     }
   }, [lesson, draft]);
 
+  // Whenever this editor mounts (including when the teacher returns from the
+  // material upload or assessment builder pages), force a fresh fetch so the
+  // newly attached items appear immediately instead of after the staleTime.
+  useEffect(() => {
+    if (!classId || !lessonId) return;
+    void queryClient.refetchQueries({ queryKey: ['lessons', 'teacher', classId] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId, lessonId]);
+
   const otherLessons = useMemo(() => {
     if (!lesson) return allLessons;
     return allLessons.filter((other) => other.id !== lesson.id);
@@ -274,9 +283,13 @@ export default function LessonEditorPage() {
   const handleBack = () => navigate(`/class/${classId}?tab=lessons`);
 
   const refreshLesson = async () => {
+    // Force a fresh fetch (not just an invalidation) so we don't render the
+    // 30s-stale cached lesson while waiting for the new data. This matters
+    // most when returning from the material upload page — without it, the
+    // newly attached material doesn't appear until the cache expires.
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] }),
-      queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId] }),
+      queryClient.refetchQueries({ queryKey: ['lessons', 'teacher', classId] }),
+      queryClient.refetchQueries({ queryKey: ['lessons', 'student', classId] }),
     ]);
   };
 

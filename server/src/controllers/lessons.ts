@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { AuthRequest, ApiError, ErrorCode } from '../types/index.js';
 import * as lessonsService from '../services/lessons.js';
 import * as websocket from '../services/websocket.js';
+import { sendLessonPublishedNotification } from '../services/notifications.js';
+import logger from '../utils/logger.js';
 
 // ============================================
 // Schemas
@@ -123,7 +125,7 @@ export const updateLesson = async (req: AuthRequest, res: Response, next: NextFu
     const { courseId, lessonId } = req.params;
     await lessonsService.assertCourseAccess(courseId, req.user!.id, 'teacher');
     const input = upsertLessonSchema.parse(req.body);
-    const lesson = await lessonsService.updateLesson(courseId, lessonId, {
+    const { lesson, wasPublished } = await lessonsService.updateLesson(courseId, lessonId, {
       title: input.title,
       description: input.description ?? null,
       topics: input.topics,
@@ -133,6 +135,31 @@ export const updateLesson = async (req: AuthRequest, res: Response, next: NextFu
     });
     if (lesson) {
       websocket.notifyLessonUpdated(courseId, lesson);
+      // Fire a persistent bulk notification on the unpublished -> published
+      // transition so offline students still see "new lesson available" the
+      // next time they open the app. Real-time websocket pings only reach
+      // currently-connected clients.
+      if (!wasPublished && lesson.isPublished) {
+        try {
+          const { studentIds, courseTitle } = await lessonsService.loadCourseStudentsAndTitle(courseId);
+          await sendLessonPublishedNotification(
+            studentIds,
+            courseTitle,
+            courseId,
+            lesson.title,
+            lesson.id,
+            req.user ? { id: req.user.id } : undefined
+          );
+        } catch (notifyError) {
+          // Notification fan-out is best-effort: never block the publish
+          // response if a downstream INSERT fails.
+          logger.warn('Failed to send lesson published notifications', {
+            courseId,
+            lessonId,
+            error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+          });
+        }
+      }
     }
     res.json({ success: true, data: lesson });
   } catch (error) {
@@ -220,6 +247,19 @@ export const getEngagement = async (req: AuthRequest, res: Response, next: NextF
     await lessonsService.assertCourseAccess(courseId, req.user!.id, 'teacher');
     const matrix = await lessonsService.loadLessonEngagement(courseId);
     res.json({ success: true, data: matrix });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getStudentProgressSummary = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const summary = await lessonsService.loadStudentProgressSummary(req.user!.id);
+    res.json({ success: true, data: summary });
   } catch (error) {
     next(error);
   }
