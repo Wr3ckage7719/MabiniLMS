@@ -65,16 +65,43 @@ const COURSE_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
 
 const extractMissingCourseColumn = (error?: DatabaseErrorShape | null): string | null => {
   if (!error) return null;
-  const message = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+  const message = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`.toLowerCase();
+
+  // Direct exact-name match (fast path).
   for (const column of COURSE_COMPAT_OPTIONAL_COLUMNS) {
-    if (message.includes(`column "${column}"`) || message.includes(`column ${column}`)) {
+    if (
+      message.includes(`column "${column}"`)
+      || message.includes(`column courses.${column}`)
+      || message.includes(`column public.courses.${column}`)
+      || message.includes(`'${column}' column`)
+      || message.includes(`"${column}" column`)
+    ) {
       return column;
     }
   }
-  if (error.code === '42703') {
-    // generic undefined-column without a quoted name — caller handles fallback.
+
+  // Generic regex fallback. Postgres / PostgREST surface missing columns in a
+  // handful of phrasings — try them all, then verify the captured name is one
+  // we know how to drop from the payload.
+  const isUndefinedColumnCode = error.code === '42703' || error.code === 'PGRST204';
+  if (!isUndefinedColumnCode && !message.includes('does not exist') && !message.includes('could not find')) {
     return null;
   }
+
+  const patterns = [
+    /column\s+(?:[a-z0-9_]+\.)*"?([a-z0-9_]+)"?\s+does not exist/i,
+    /could not find the ['"]?([a-z0-9_]+)['"]?\s+column/i,
+    /['"]?([a-z0-9_]+)['"]?\s+column.*does not exist/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    const captured = match?.[1]?.toLowerCase();
+    if (captured && COURSE_COMPAT_OPTIONAL_COLUMNS.has(captured)) {
+      return captured;
+    }
+  }
+
   return null;
 };
 
@@ -1087,6 +1114,9 @@ export const updateCourse = async (
   });
 
   // Retry without optional columns if migration 033 hasn't been applied.
+  // The retry only progresses when we successfully drop a column we know is
+  // optional; any other failure short-circuits with a logged error.
+  let lastError: DatabaseErrorShape | null = null;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const { data, error } = await supabaseAdmin
       .from('courses')
@@ -1099,6 +1129,8 @@ export const updateCourse = async (
       return attachTeacherToCourse(data as Course);
     }
 
+    lastError = error;
+
     const missingColumn = extractMissingCourseColumn(error);
     if (missingColumn && Object.prototype.hasOwnProperty.call(updateData, missingColumn)) {
       delete updateData[missingColumn];
@@ -1110,7 +1142,14 @@ export const updateCourse = async (
       continue;
     }
 
-    logger.error('Failed to update course', { courseId, error: error.message });
+    logger.error('Failed to update course', {
+      courseId,
+      payloadKeys: Object.keys(updateData),
+      errorCode: error.code,
+      errorMessage: error.message,
+      errorDetails: error.details,
+      errorHint: error.hint,
+    });
     throw new ApiError(
       ErrorCode.INTERNAL_ERROR,
       'Failed to update course',
@@ -1118,6 +1157,11 @@ export const updateCourse = async (
     );
   }
 
+  logger.error('Failed to update course after exhausting optional-column retries', {
+    courseId,
+    payloadKeys: Object.keys(updateData),
+    lastError: lastError?.message,
+  });
   throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update course', 500);
 };
 

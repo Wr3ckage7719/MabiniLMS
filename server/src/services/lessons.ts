@@ -1392,7 +1392,22 @@ export const loadLessonEngagement = async (
       .in('student_id', studentIds),
   ]);
 
+  // Migration 040 may not be deployed yet — surface that clearly instead of
+  // throwing a generic 500 that the teacher panel renders as "Failed to load
+  // lesson views". The matrix gracefully degrades: we still return the
+  // lesson list and student list so the panel can render the grid, just
+  // without the per-cell view data.
+  const isMissingLessonViewsTable = (err: { code?: string; message?: string } | null | undefined) => {
+    if (!err) return false;
+    const text = (err.message || '').toLowerCase();
+    return err.code === '42P01' || text.includes('lesson_views') && text.includes('does not exist');
+  };
+
   if (viewsRes.error) {
+    if (isMissingLessonViewsTable(viewsRes.error as { code?: string; message?: string })) {
+      logger.warn('lesson_views table is missing — returning empty view matrix. Run migration 040.', { courseId });
+      return { lessons, students, cells: [] };
+    }
     logger.error('Failed to load lesson_views', { courseId, error: viewsRes.error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load lesson views', 500);
   }
