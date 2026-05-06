@@ -77,7 +77,7 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
   const { toast } = useToast();
   
   // Fetch real notifications from API
-  const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications({
+  const { notifications, unreadCount, loading, markAsRead, markAllAsRead, deleteOne, deleteAllRead } = useNotifications({
     limit: 20,
   });
 
@@ -167,6 +167,20 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
             </Badge>
           </div>
           <div className="flex items-center gap-1">
+            {notifications.some(n => n.read) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => {
+                  if (window.confirm('Delete all read notifications? This cannot be undone.')) {
+                    void deleteAllRead();
+                  }
+                }}
+              >
+                Clear read
+              </Button>
+            )}
             {unreadCount > 0 && (
               <Button
                 variant="ghost"
@@ -227,7 +241,7 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
                   return (
                     <div
                       key={notification.id}
-                      className={`p-3 rounded-lg ${bgColor} hover:bg-secondary/60 transition-colors cursor-pointer border border-transparent hover:border-primary/20`}
+                      className={`group relative p-3 rounded-lg ${bgColor} hover:bg-secondary/60 transition-colors cursor-pointer border border-transparent hover:border-primary/20`}
                       onClick={() => {
                         void handleNotificationClick(notification);
                       }}
@@ -256,6 +270,17 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
                           <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />
                         )}
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteOne(notification.id);
+                        }}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 rounded-full p-1 hover:bg-destructive/10 hover:text-destructive transition-opacity"
+                        aria-label="Delete notification"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   );
                 })}

@@ -28,6 +28,7 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import {
   CheckCircle2,
@@ -613,6 +614,14 @@ export function CreateAssignmentDialog({
   const [examAutoSubmitOnFullscreenExit, setExamAutoSubmitOnFullscreenExit] = useState(true);
   const [examMaxViolations, setExamMaxViolations] = useState('3');
   const [examOneQuestionAtATime, setExamOneQuestionAtATime] = useState(false);
+  const [examTimerEnabled, setExamTimerEnabled] = useState(true);
+  const [examDurationMinutes, setExamDurationMinutes] = useState('60');
+  const [quizTimerEnabled, setQuizTimerEnabled] = useState(false);
+  const [quizDurationMinutes, setQuizDurationMinutes] = useState('30');
+  const [quizExamRestrictionsEnabled, setQuizExamRestrictionsEnabled] = useState(false);
+  const [quizRequireFullscreen, setQuizRequireFullscreen] = useState(false);
+  const [quizAutoSubmitOnTabSwitch, setQuizAutoSubmitOnTabSwitch] = useState(false);
+  const [quizMaxViolations, setQuizMaxViolations] = useState('3');
   const [examImportedQuestions, setExamImportedQuestions] = useState<ImportedQuestionDraft[]>([]);
   const [examImportFileName, setExamImportFileName] = useState<string | null>(null);
   const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
@@ -1461,7 +1470,16 @@ export function CreateAssignmentDialog({
                     : {}),
                 }
               : undefined,
-          is_proctored: taskType === 'exam' ? true : undefined,
+          exam_duration_minutes:
+            taskType === 'exam' && examTimerEnabled
+              ? Math.max(1, parseInt(examDurationMinutes, 10) || 60)
+              : taskType === 'quiz' && quizTimerEnabled
+                ? Math.max(1, parseInt(quizDurationMinutes, 10) || 30)
+                : null,
+          is_proctored:
+            taskType === 'exam' ? true
+              : taskType === 'quiz' && quizExamRestrictionsEnabled ? true
+              : undefined,
           proctoring_policy:
             taskType === 'exam'
               ? {
@@ -1477,7 +1495,20 @@ export function CreateAssignmentDialog({
                   one_question_at_a_time: examOneQuestionAtATime,
                 }
               : taskType === 'quiz'
-              ? { one_question_at_a_time: quizOneQuestionAtATime }
+              ? ({
+                  one_question_at_a_time: quizOneQuestionAtATime,
+                  max_violations: quizExamRestrictionsEnabled
+                    ? Math.max(1, parseInt(quizMaxViolations, 10) || 3)
+                    : 999,
+                  require_agreement_before_start: false,
+                  auto_submit_on_tab_switch: quizExamRestrictionsEnabled && quizAutoSubmitOnTabSwitch,
+                  auto_submit_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen,
+                  terminate_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen,
+                  require_fullscreen: quizExamRestrictionsEnabled && quizRequireFullscreen,
+                  block_clipboard: false,
+                  block_context_menu: false,
+                  block_print_shortcut: false,
+                } as any)
               : undefined,
           lesson_id: lessonId,
         });
@@ -2154,6 +2185,52 @@ export function CreateAssignmentDialog({
               />
             </div>
 
+            <Card className="border">
+              <CardContent className="p-4 space-y-3">
+                <h4 className="text-sm font-semibold">Quiz Settings</h4>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <Label className="text-sm">Time limit</Label>
+                    <p className="text-xs text-muted-foreground">Auto-submit when time expires.</p>
+                  </div>
+                  <Switch checked={quizTimerEnabled} onCheckedChange={setQuizTimerEnabled} />
+                </div>
+                {quizTimerEnabled && (
+                  <div className="flex items-center gap-2 ml-2">
+                    <Input type="number" min={1} max={240} value={quizDurationMinutes}
+                      onChange={(e) => setQuizDurationMinutes(e.target.value)} className="w-24" />
+                    <span className="text-xs text-muted-foreground">minutes</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                  <div>
+                    <Label className="text-sm">Exam-like restrictions</Label>
+                    <p className="text-xs text-muted-foreground">Enable fullscreen lock and tab-switch detection.</p>
+                  </div>
+                  <Switch checked={quizExamRestrictionsEnabled} onCheckedChange={setQuizExamRestrictionsEnabled} />
+                </div>
+                {quizExamRestrictionsEnabled && (
+                  <div className="ml-2 space-y-2">
+                    <label className="flex items-center justify-between text-sm">
+                      <span>Require fullscreen</span>
+                      <Switch checked={quizRequireFullscreen} onCheckedChange={setQuizRequireFullscreen} />
+                    </label>
+                    <label className="flex items-center justify-between text-sm">
+                      <span>Auto-submit on tab switch</span>
+                      <Switch checked={quizAutoSubmitOnTabSwitch} onCheckedChange={setQuizAutoSubmitOnTabSwitch} />
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Max violations</span>
+                      <Input type="number" min={1} max={10} value={quizMaxViolations}
+                        onChange={(e) => setQuizMaxViolations(e.target.value)} className="w-20" />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="rounded-lg border border-violet-200/70 bg-background p-4 space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2415,6 +2492,20 @@ export function CreateAssignmentDialog({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm font-semibold">Time limit</Label>
+                <Switch checked={examTimerEnabled} onCheckedChange={setExamTimerEnabled} />
+              </div>
+              {examTimerEnabled && (
+                <div className="flex items-center gap-2 ml-2">
+                  <Input type="number" min={1} max={300} value={examDurationMinutes}
+                    onChange={(e) => setExamDurationMinutes(e.target.value)} className="w-24" />
+                  <span className="text-xs text-muted-foreground">minutes</span>
+                </div>
+              )}
             </div>
 
             <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">

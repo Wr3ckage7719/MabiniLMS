@@ -21,6 +21,7 @@ import { TeacherClassesView } from './TeacherClassesView';
 import { useTeacherDashboard } from '@/hooks/useTeacherData';
 import InteractiveCalendar from './InteractiveCalendar';
 import TeacherSettingsPage from '@/pages/TeacherSettingsPage';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface TeacherDashboardProps {
   currentView: 'dashboard' | 'calendar' | 'classes' | 'archived' | 'settings';
@@ -81,8 +82,23 @@ export function TeacherDashboard({
   const renderDashboard = () => {
     if (loading) {
       return (
-        <div className="p-8 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="w-full h-full overflow-auto">
+          <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-8 w-64" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-28 rounded-xl" />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <Skeleton className="h-72 rounded-xl" />
+              <Skeleton className="h-72 rounded-xl" />
+            </div>
+            <Skeleton className="h-64 rounded-xl" />
+          </div>
         </div>
       );
     }

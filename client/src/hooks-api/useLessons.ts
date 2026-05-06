@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 import type { Lesson, LessonChain } from '@/lib/data';
 import {
   lessonsService,
@@ -26,6 +26,7 @@ export function useStudentLessons(
     queryFn: () => lessonsService.listForStudent(classId ?? ''),
     enabled: Boolean(classId),
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -49,6 +50,7 @@ export function useTeacherLessons(
     queryFn: () => lessonsService.listForTeacher(classId ?? ''),
     enabled: Boolean(classId),
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
 

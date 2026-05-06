@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -332,6 +333,32 @@ export default function LessonEditorPage() {
     }
   };
 
+  const silentlyPersistDraft = async (): Promise<boolean> => {
+    if (!draft || !lesson) return false;
+    try {
+      await updateLesson.mutateAsync({
+        lessonId: lesson.id,
+        payload: {
+          title: draft.title.trim() || 'Untitled lesson',
+          description: draft.description.trim() ? draft.description.trim() : null,
+          topics: parseTopics(draft.topicsRaw),
+          isPublished: lesson.isPublished,
+          completionRule: completionRuleFromDraft(draft),
+          chain: chainFromDraft(draft),
+        },
+      });
+      await queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] });
+      return true;
+    } catch (error) {
+      toast({
+        title: 'Could not save lesson before opening builder',
+        description: error instanceof Error ? error.message : 'Please save manually first.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  };
+
   const persist = async (publish: boolean) => {
     if (!draft || !lesson) return;
     if (publish && draft.title.trim().length === 0) {
@@ -391,9 +418,23 @@ export default function LessonEditorPage() {
 
   if (lessonQuery.isLoading || classQuery.isLoading || !draft) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading lesson editor…
+      <div className="min-h-screen bg-background">
+        <div className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
+          <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <Skeleton className="h-8 w-24 rounded-xl" />
+            <Skeleton className="h-8 w-48" />
+            <div className="flex gap-2">
+              <Skeleton className="h-8 w-20 rounded-xl" />
+              <Skeleton className="h-8 w-24 rounded-xl" />
+            </div>
+          </div>
+        </div>
+        <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-4">
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -496,9 +537,14 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`)}
+                disabled={updateLesson.isPending}
+                onClick={async () => {
+                  const ok = await silentlyPersistDraft();
+                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`);
+                }}
               >
-                <BookOpen className="h-3.5 w-3.5" /> Add reading material
+                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookOpen className="h-3.5 w-3.5" />}
+                Add reading material
               </Button>
             </div>
 
@@ -594,25 +640,40 @@ export default function LessonEditorPage() {
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/activity`)}
+                disabled={updateLesson.isPending}
+                onClick={async () => {
+                  const ok = await silentlyPersistDraft();
+                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/activity`);
+                }}
               >
-                <Activity className="h-3.5 w-3.5" /> Add activity
+                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
+                Add activity
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/quiz`)}
+                disabled={updateLesson.isPending}
+                onClick={async () => {
+                  const ok = await silentlyPersistDraft();
+                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/quiz`);
+                }}
               >
-                <FileText className="h-3.5 w-3.5" /> Add quiz
+                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                Add quiz
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="rounded-xl gap-1.5"
-                onClick={() => navigate(`/class/${classId}/lessons/${lesson.id}/new/exam`)}
+                disabled={updateLesson.isPending}
+                onClick={async () => {
+                  const ok = await silentlyPersistDraft();
+                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/exam`);
+                }}
               >
-                <ClipboardCheck className="h-3.5 w-3.5" /> Add exam
+                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                Add exam
               </Button>
             </div>
 

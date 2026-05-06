@@ -229,7 +229,10 @@ export function ProctoredExamDialog({
       return
     }
 
-    if (!isQuizMode && session.assignment.is_proctored) {
+    const requiresFullscreen =
+      session.assignment.is_proctored &&
+      (Boolean((session.policy as any)?.require_fullscreen) || !isQuizMode);
+    if (requiresFullscreen) {
       await enterFullscreen()
     }
 
@@ -427,7 +430,7 @@ export function ProctoredExamDialog({
 
     // The remaining policy-gated guards (fullscreen, clipboard, context
     // menu, devtools, print) only attach when proctoring is enabled.
-    const proctoringEnabled = session.assignment.is_proctored && !isQuizMode
+    const proctoringEnabled = session.assignment.is_proctored
 
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) {

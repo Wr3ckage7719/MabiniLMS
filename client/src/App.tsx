@@ -1,3 +1,4 @@
+import React, { Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -14,17 +15,12 @@ import CalendarPage from "./pages/CalendarPage";
 import UpcomingPage from "./pages/UpcomingPage";
 import GradesPage from "./pages/GradesPage";
 import LessonDetailPage from "./pages/LessonDetailPage";
-import LessonEditorPage from "./pages/LessonEditorPage";
-import MaterialUploadPage from "./pages/MaterialUploadPage";
-import AssignmentBuilderPage from "./pages/AssignmentBuilderPage";
-import MaterialReaderPage from "./pages/MaterialReaderPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import GoogleStudentSetupPage from "./pages/GoogleStudentSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
-import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
 import StudentManagementPage from "./pages/admin/StudentManagementPage";
 import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
@@ -34,6 +30,12 @@ import TeacherDashboard from "./pages/TeacherDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import SubmissionQueueSync from "./components/SubmissionQueueSync";
+
+const LessonEditorPage = React.lazy(() => import('./pages/LessonEditorPage'));
+const MaterialReaderPage = React.lazy(() => import('./pages/MaterialReaderPage'));
+const AssignmentBuilderPage = React.lazy(() => import('./pages/AssignmentBuilderPage'));
+const MaterialUploadPage = React.lazy(() => import('./pages/MaterialUploadPage'));
+const AdminDashboardPage = React.lazy(() => import('./pages/admin/AdminDashboardPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -161,7 +163,9 @@ const App = () => (
         <AuthProvider>
           <SubmissionQueueSync />
           <BrowserRouter>
-            <AppRoutes />
+            <Suspense fallback={<div className="min-h-screen" />}>
+              <AppRoutes />
+            </Suspense>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>
