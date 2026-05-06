@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,7 @@ import {
   type PptxSlidePreview,
 } from '@/lib/material-preview';
 import { openPdf, type PdfDocumentHandle } from '@/lib/pdf-reader';
+import { useStudentLesson } from '@/hooks-api/useLessons';
 
 type FileKind = 'pdf' | 'docx' | 'pptx' | 'image' | 'video' | 'unsupported';
 
@@ -85,6 +87,17 @@ export default function MaterialReaderPage() {
   const classId = id ?? '';
   const navigate = useNavigate();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const lessonQuery = useStudentLesson(classId, lessonId);
+  const lesson = lessonQuery.data ?? null;
+
+  const nextMaterial = useMemo(() => {
+    if (!lesson) return null;
+    const idx = lesson.materials.findIndex((m) => m.material_id === materialId);
+    if (idx < 0) return null;
+    return lesson.materials[idx + 1] ?? null;
+  }, [lesson, materialId]);
 
   const [meta, setMeta] = useState<MaterialMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,9 +114,26 @@ export default function MaterialReaderPage() {
   // PPTX state
   const [pptxSlides, setPptxSlides] = useState<PptxSlidePreview[] | null>(null);
 
+  // Reader theme
+  const [readerTheme, setReaderTheme] = useState<'light' | 'sepia' | 'dark'>('light');
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('mabini.reader-theme');
+    if (saved === 'light' || saved === 'sepia' || saved === 'dark') setReaderTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('mabini.reader-theme', readerTheme);
+  }, [readerTheme]);
+
+  const surfaceBg = readerTheme === 'dark' ? 'bg-zinc-900' : readerTheme === 'sepia' ? 'bg-[#f5ecd9]' : 'bg-white';
+  const surfaceText = readerTheme === 'dark' ? 'text-zinc-100' : readerTheme === 'sepia' ? 'text-zinc-800' : 'text-zinc-900';
+  const proseInvertClass = readerTheme === 'dark' ? 'prose-invert' : '';
+
   // Common
   const [pageIndex, setPageIndex] = useState(0); // 0-based
   const [totalPages, setTotalPages] = useState(0);
+  const [finishing, setFinishing] = useState(false);
   const pagesViewedRef = useRef<Set<number>>(new Set());
   const sessionStartRef = useRef<number>(Date.now());
   const trackingStartedRef = useRef(false);
@@ -288,12 +318,12 @@ export default function MaterialReaderPage() {
   }, [meta, pageIndex, totalPages]);
 
   const finalize = useCallback(
-    (forceComplete = false) => {
+    async (forceComplete = false): Promise<void> => {
       if (!meta || finalizedRef.current) return;
       finalizedRef.current = true;
       const elapsed = Math.max(0, Math.round((Date.now() - sessionStartRef.current) / 1000));
       const finalPercent = totalPages > 0 ? Math.round(((pageIndex + 1) / totalPages) * 100) : 0;
-      void trackViewEnd(meta.id, {
+      await trackViewEnd(meta.id, {
         timeSpentSeconds: elapsed,
         finalScrollPercent: finalPercent,
         completed: forceComplete || reachedEndRef.current,
@@ -303,23 +333,21 @@ export default function MaterialReaderPage() {
     [meta, pageIndex, totalPages]
   );
 
-  // Finalize on unmount
+  // Finalize on unmount (fire-and-forget — can't await in cleanup)
   useEffect(() => {
-    return () => {
-      finalize();
-    };
+    return () => { void finalize(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Finalize on tab close
   useEffect(() => {
-    const handler = () => finalize();
+    const handler = () => { void finalize(); };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [finalize]);
 
   const goBack = useCallback(() => {
-    finalize();
+    void finalize();
     if (lessonId) {
       navigate(`/class/${classId}/lessons/${lessonId}`);
     } else {
@@ -354,15 +382,30 @@ export default function MaterialReaderPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleNext, handlePrev]);
 
-  const handleFinish = useCallback(() => {
+  const handleFinish = useCallback(async () => {
     reachedEndRef.current = true;
-    finalize(true);
-    toast({
-      title: 'Material marked as read',
-      description: 'You can now mark this lesson as done to unlock its assessments.',
-    });
-    goBack();
-  }, [finalize, goBack, toast]);
+    setFinishing(true);
+    try {
+      await finalize(true);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId] }),
+        queryClient.invalidateQueries({ queryKey: ['lessons', 'student', classId, lessonId] }),
+      ]);
+      toast({
+        title: 'Material marked as read',
+        description: nextMaterial
+          ? `Open "${nextMaterial.title}" next, or mark the lesson as done.`
+          : 'You can now mark this lesson as done to unlock its assessments.',
+      });
+      if (nextMaterial) {
+        navigate(`/class/${classId}/lessons/${lessonId}/materials/${nextMaterial.material_id}`);
+      } else {
+        goBack();
+      }
+    } finally {
+      setFinishing(false);
+    }
+  }, [classId, finalize, goBack, lessonId, navigate, nextMaterial, queryClient, toast]);
 
   const progressPercent = totalPages > 0 ? Math.round(((pageIndex + 1) / totalPages) * 100) : 0;
   const isLastPage = totalPages > 0 && pageIndex >= totalPages - 1;
@@ -393,7 +436,7 @@ export default function MaterialReaderPage() {
 
     if (meta.kind === 'pdf') {
       return (
-        <div className="flex justify-center">
+        <div className={`flex justify-center ${surfaceBg} rounded-lg`}>
           {!pdfReady ? (
             <div className="flex flex-col items-center justify-center gap-2 py-20">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -402,7 +445,7 @@ export default function MaterialReaderPage() {
           ) : null}
           <canvas
             ref={pdfCanvasRef}
-            className="max-w-full rounded-lg border bg-white shadow"
+            className={`max-w-full rounded-lg border shadow ${readerTheme === 'dark' ? '[filter:invert(1)_hue-rotate(180deg)]' : ''}`}
           />
         </div>
       );
@@ -418,7 +461,7 @@ export default function MaterialReaderPage() {
         );
       }
       return (
-        <div className="mx-auto max-w-3xl rounded-lg border bg-white p-6 md:p-10 shadow text-foreground prose prose-sm md:prose-base max-w-none dark:prose-invert">
+        <div className={`mx-auto max-w-3xl rounded-lg border ${surfaceBg} p-6 md:p-10 shadow prose prose-sm md:prose-base max-w-none ${surfaceText} ${proseInvertClass} [&_*]:!color-inherit [&_a]:!text-blue-600`}>
           <div dangerouslySetInnerHTML={{ __html: docxPages[pageIndex] || '' }} />
         </div>
       );
@@ -435,7 +478,7 @@ export default function MaterialReaderPage() {
       }
       const slide = pptxSlides[pageIndex];
       return (
-        <div className="mx-auto max-w-4xl aspect-video rounded-lg border bg-white shadow flex flex-col p-6 md:p-10 overflow-y-auto">
+        <div className={`mx-auto max-w-4xl aspect-video rounded-lg border ${surfaceBg} shadow flex flex-col p-6 md:p-10 overflow-y-auto`}>
           {slide?.imageDataUrl ? (
             <img
               src={slide.imageDataUrl}
@@ -443,8 +486,8 @@ export default function MaterialReaderPage() {
               className="mx-auto mb-4 max-h-72 object-contain"
             />
           ) : null}
-          <h2 className="text-xl md:text-2xl font-semibold text-foreground">{slide?.title}</h2>
-          <ul className="mt-4 space-y-2 text-sm md:text-base text-foreground">
+          <h2 className={`text-xl md:text-2xl font-semibold ${surfaceText}`}>{slide?.title}</h2>
+          <ul className={`mt-4 space-y-2 text-sm md:text-base ${readerTheme === 'dark' ? 'text-zinc-300' : 'text-zinc-800'}`}>
             {(slide?.lines || []).slice(1).map((line, idx) => (
               <li key={idx} className="leading-relaxed">{line}</li>
             ))}
@@ -456,7 +499,7 @@ export default function MaterialReaderPage() {
     if (meta.kind === 'image') {
       return (
         <div className="flex justify-center">
-          <img src={meta.url} alt={meta.title} className="max-h-[80vh] rounded-lg border bg-white" />
+          <img src={meta.url} alt={meta.title} className={`max-h-[80vh] rounded-lg border ${surfaceBg}`} />
         </div>
       );
     }
@@ -497,7 +540,16 @@ export default function MaterialReaderPage() {
               </p>
             ) : null}
           </div>
-          <div className="hidden sm:flex items-center justify-end w-[120px]">
+          <div className="hidden sm:flex items-center justify-end gap-2">
+            <div className="flex items-center gap-1 rounded-lg border bg-card p-0.5">
+              {(['light', 'sepia', 'dark'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setReaderTheme(t)}
+                  className={`px-2 py-1 text-[10px] uppercase rounded-md transition ${readerTheme === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                >{t}</button>
+              ))}
+            </div>
             {reachedEndRef.current || isLastPage ? (
               <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border">
                 <CheckCircle2 className="h-3 w-3 mr-1" /> Ready
@@ -516,6 +568,11 @@ export default function MaterialReaderPage() {
 
       {showPager ? (
         <footer className="sticky bottom-0 z-30 border-t bg-background/95 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          {isLastPage && nextMaterial && !finishing && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800 px-4 py-2 text-sm text-emerald-800 dark:text-emerald-200 mx-3 md:mx-6 mt-2">
+              Up next: <strong>{nextMaterial.title}</strong> — tap "Mark read & next" to continue.
+            </div>
+          )}
           <div className="max-w-6xl mx-auto px-3 md:px-6 py-3 md:py-4 flex items-center gap-2 md:gap-3">
             <Button
               variant="outline"
@@ -542,12 +599,15 @@ export default function MaterialReaderPage() {
               <Button
                 size="lg"
                 className="rounded-xl gap-1.5 h-11 px-3 md:px-5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                onClick={handleFinish}
-                aria-label="Mark material as read and return to lesson"
+                onClick={() => void handleFinish()}
+                disabled={finishing}
+                aria-label="Mark material as read"
               >
-                <CheckCircle2 className="h-5 w-5" />
-                <span className="hidden sm:inline">Mark as read</span>
-                <span className="sm:hidden">Done</span>
+                {finishing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+                <span className="hidden sm:inline">
+                  {finishing ? 'Saving...' : nextMaterial ? 'Mark read & next' : 'Mark as read'}
+                </span>
+                <span className="sm:hidden">{finishing ? '...' : 'Done'}</span>
               </Button>
             ) : (
               <Button

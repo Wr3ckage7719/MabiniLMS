@@ -1,4 +1,4 @@
-import { useQuery, UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, UseQueryResult } from '@tanstack/react-query';
 import { coursesService } from '@/services/courses.service';
 import { transformCourses } from '@/services/data-transformer';
 import { ClassItem } from '@/lib/data';
@@ -29,6 +29,7 @@ export function useClasses(params?: { archived?: boolean; role?: 'student' | 'te
     refetchOnReconnect: true,
     refetchOnMount: true,
     staleTime: 2 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
 

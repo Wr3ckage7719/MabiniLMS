@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import {
   useStudentLesson,
@@ -262,9 +263,18 @@ export default function LessonDetailPage() {
 
   if (lessonQuery.isLoading || classQuery.isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading lesson…
+      <div className="min-h-screen bg-background">
+        <div className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
+          <div className="max-w-2xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
+            <Skeleton className="h-8 w-24 rounded-xl" />
+            <Skeleton className="h-6 w-48" />
+          </div>
+        </div>
+        <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 space-y-4">
+          <Skeleton className="h-32 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+        </div>
       </div>
     );
   }

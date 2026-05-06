@@ -30,6 +30,7 @@ import {
   useSetLessonChain,
 } from '@/hooks-api/useLessons';
 import type { Lesson } from '@/lib/data';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface LessonListBoardProps {
   classId: string;
@@ -112,9 +113,10 @@ export function LessonListBoard({ classId }: LessonListBoardProps) {
 
   if (lessonsQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading lessons…
+      <div className="space-y-3 py-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+        ))}
       </div>
     );
   }

@@ -32,6 +32,7 @@ export interface AssignmentData {
     block_print_shortcut?: boolean;
   };
   is_proctored?: boolean;
+  exam_duration_minutes?: number | null;
   submissions_open?: boolean;
   submission_open_at?: string | null;
   submission_close_at?: string | null;

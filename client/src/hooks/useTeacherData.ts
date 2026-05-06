@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { teacherService, TeacherCourse, CourseStudent, Submission, TeacherAssignment, Notification } from '@/services/teacher.service';
+import { notificationsService } from '@/services/notifications.service';
 
 // ============================================
 // useTeacherCourses - Fetch teacher's courses
@@ -276,6 +277,8 @@ export interface UseNotificationsResult {
   refetch: () => Promise<void>;
   markAsRead: (ids: string[]) => Promise<void>;
   markAllAsRead: () => Promise<void>;
+  deleteOne: (id: string) => Promise<void>;
+  deleteAllRead: () => Promise<void>;
 }
 
 export function useNotifications(options?: UseNotificationsOptions): UseNotificationsResult {
@@ -373,14 +376,40 @@ export function useNotifications(options?: UseNotificationsOptions): UseNotifica
     }
   }, []);
 
-  return { 
-    notifications, 
-    unreadCount, 
-    loading, 
-    error, 
+  const deleteOne = useCallback(async (id: string) => {
+    try {
+      await notificationsService.deleteOne(id);
+      setNotifications(prev => {
+        const removed = prev.find(n => n.id === id);
+        if (removed && !removed.read) {
+          setUnreadCount(c => Math.max(0, c - 1));
+        }
+        return prev.filter(n => n.id !== id);
+      });
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+    }
+  }, []);
+
+  const deleteAllRead = useCallback(async () => {
+    try {
+      await notificationsService.deleteRead();
+      setNotifications(prev => prev.filter(n => !n.read));
+    } catch (err) {
+      console.error('Error deleting read notifications:', err);
+    }
+  }, []);
+
+  return {
+    notifications,
+    unreadCount,
+    loading,
+    error,
     refetch: fetchNotifications,
     markAsRead,
     markAllAsRead,
+    deleteOne,
+    deleteAllRead,
   };
 }
 
