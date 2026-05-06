@@ -114,22 +114,23 @@ interface RecentSubmissionItem {
   student: string;
   avatar: string;
   assignment: string;
+  assignmentType?: string;
   submittedAt: string;
   submittedAtValue: string;
   dueDate: string;
   onTime: boolean;
+  submissionStatus: string;
   submissionContent?: string;
   submissionUrl?: string;
   providerLabel?: string;
-  providerFileId?: string;
   providerFileName?: string;
   providerMimeType?: string;
   providerSizeBytes?: number;
-  submissionSnapshotAt?: string;
   existingGrade?: number | null;
   existingFeedback?: string | null;
+  gradeId?: string | null;
+  gradedAt?: string | null;
   points?: number;
-  description?: string;
 }
 
 interface EditableAnnouncement {
@@ -392,27 +393,30 @@ export function TeacherClassStream({
           student: studentName,
           avatar,
           assignment: submission.assignment?.title || 'Assignment',
+          assignmentType: (submission.assignment as any)?.assignment_type || undefined,
           submittedAt: new Date(submission.submitted_at).toLocaleString(),
           submittedAtValue: submission.submitted_at,
-          dueDate: submission.assignment?.due_date ? new Date(submission.assignment.due_date).toLocaleDateString() : 'No due date',
+          dueDate: submission.assignment?.due_date
+            ? new Date(submission.assignment.due_date).toLocaleString()
+            : 'No due date',
           onTime: submission.assignment?.due_date
             ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
             : true,
+          submissionStatus: submission.status,
           points: submission.assignment?.max_points,
           submissionContent: normalizedStorage.submissionText || undefined,
           submissionUrl: normalizedStorage.submissionUrl || undefined,
           providerLabel: normalizedStorage.providerLabel,
-          providerFileId: normalizedStorage.providerFileId || undefined,
           providerFileName: normalizedStorage.providerFileName || undefined,
           providerMimeType: normalizedStorage.providerMimeType || undefined,
           providerSizeBytes: normalizedStorage.providerSizeBytes ?? undefined,
-          submissionSnapshotAt: normalizedStorage.snapshotAt || undefined,
           existingGrade:
             typeof normalizedGrade?.points_earned === 'number'
               ? normalizedGrade.points_earned
               : null,
           existingFeedback: normalizedGrade?.feedback || null,
-          description: submission.assignment?.title,
+          gradeId: normalizedGrade?.id || null,
+          gradedAt: normalizedGrade?.graded_at || null,
         };
       })
       .sort((a, b) => new Date(b.submittedAtValue).getTime() - new Date(a.submittedAtValue).getTime())
@@ -1758,138 +1762,202 @@ export function TeacherClassStream({
             <DialogTitle>Student Submission</DialogTitle>
           </DialogHeader>
 
-          {selectedSubmission && (
-            <div className="space-y-6">
-              {/* Student & Assignment Info */}
-              <div className="border-b border-muted pb-4">
-                <div className="flex items-start gap-4 mb-4">
-                  <Avatar className="h-12 w-12">
-                    <AvatarFallback className="bg-primary/10 text-primary">
-                      {selectedSubmission.avatar}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-lg">{selectedSubmission.student}</h3>
-                    <div className="flex items-center gap-3 mt-2">
-                      <Badge className={selectedSubmission.onTime ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}>
-                        {selectedSubmission.onTime ? 'On Time' : 'Late'}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">Submitted: {selectedSubmission.submittedAt}</span>
+          {selectedSubmission && (() => {
+            // Parse quiz result JSON if content is a quiz blob
+            let quizResult: { raw_score?: number; max_question_score?: number; total_questions?: number; answered_count?: number; scaled_score?: number; violation_count?: number } | null = null;
+            if (selectedSubmission.submissionContent) {
+              try {
+                const parsed = JSON.parse(selectedSubmission.submissionContent);
+                if (parsed && typeof parsed === 'object' && ('raw_score' in parsed || 'scaled_score' in parsed)) {
+                  quizResult = parsed;
+                }
+              } catch {
+                // not JSON — plain text submission
+              }
+            }
+
+            const statusConfig: Record<string, { label: string; className: string }> = {
+              submitted: { label: 'Submitted', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+              under_review: { label: 'Under Review', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+              graded: { label: 'Graded', className: 'bg-green-100 text-green-700 border-green-200' },
+              returned: { label: 'Returned', className: 'bg-purple-100 text-purple-700 border-purple-200' },
+              late: { label: 'Late', className: 'bg-red-100 text-red-700 border-red-200' },
+              draft: { label: 'Draft', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+            };
+            const statusInfo = statusConfig[selectedSubmission.submissionStatus] ?? { label: selectedSubmission.submissionStatus, className: 'bg-gray-100 text-gray-600 border-gray-200' };
+
+            const typeLabels: Record<string, string> = {
+              quiz: 'Quiz',
+              exam: 'Exam',
+              activity: 'Activity',
+              material: 'Material',
+              discussion: 'Discussion',
+            };
+            const typeLabel = selectedSubmission.assignmentType ? (typeLabels[selectedSubmission.assignmentType] ?? selectedSubmission.assignmentType) : null;
+
+            return (
+              <div className="space-y-6">
+                {/* Student header */}
+                <div className="border-b border-muted pb-4">
+                  <div className="flex items-start gap-4 mb-4">
+                    <Avatar className="h-12 w-12">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {selectedSubmission.avatar}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg">{selectedSubmission.student}</h3>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge className={selectedSubmission.onTime ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}>
+                          {selectedSubmission.onTime ? 'On Time' : 'Late'}
+                        </Badge>
+                        <Badge variant="outline" className={statusInfo.className}>
+                          {statusInfo.label}
+                        </Badge>
+                        {typeLabel && (
+                          <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200">
+                            {typeLabel}
+                          </Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">Submitted: {selectedSubmission.submittedAt}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Assignment Details */}
-                <div className="space-y-3 bg-blue-50 rounded-lg p-3 mt-4">
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">ASSIGNMENT</p>
-                    <p className="font-semibold text-sm">{selectedSubmission.assignment}</p>
-                  </div>
-                  {selectedSubmission.description && (
+                  {/* Assignment details */}
+                  <div className="space-y-3 bg-blue-50 rounded-lg p-3 mt-4">
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">INSTRUCTIONS</p>
-                      <p className="text-xs text-foreground/80">{selectedSubmission.description}</p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">ASSIGNMENT</p>
+                      <p className="font-semibold text-sm">{selectedSubmission.assignment}</p>
                     </div>
-                  )}
-                  {selectedSubmission.points && (
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">POINTS</p>
-                      <p className="text-sm font-bold text-blue-600">{selectedSubmission.points} points</p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1">DUE DATE</p>
+                      <p className="text-sm">{selectedSubmission.dueDate}</p>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Submission Content */}
-              <div>
-                <h4 className="font-semibold text-sm mb-3">Student's Submission</h4>
-                <Card className="border-0 shadow-sm bg-muted/50">
-                  <CardContent className="p-4">
-                    <p className="text-sm text-foreground/80 whitespace-pre-wrap break-all">
-                      {selectedSubmission.submissionContent || 'No submission content available yet from backend.'}
-                    </p>
-                    {selectedSubmission.submissionUrl && (
-                      <a
-                        href={selectedSubmission.submissionUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-block text-sm text-primary underline"
-                      >
-                        {selectedSubmission.providerFileName || 'Open submitted file'}
-                      </a>
-                    )}
-                    {(selectedSubmission.providerFileId || selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
-                      <div className="mt-3 rounded-lg border border-border bg-background p-3 space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {selectedSubmission.providerLabel || 'Submission file'}
-                        </p>
-                        {selectedSubmission.providerFileId && (
-                          <p className="text-xs text-muted-foreground break-all">
-                            File ID: {selectedSubmission.providerFileId}
-                          </p>
-                        )}
-                        {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes || selectedSubmission.submissionSnapshotAt) && (
-                          <p className="text-xs text-muted-foreground">
-                            {[
-                              selectedSubmission.providerMimeType || null,
-                              formatProviderFileSize(selectedSubmission.providerSizeBytes),
-                              selectedSubmission.submissionSnapshotAt
-                                ? `Snapshot ${new Date(selectedSubmission.submissionSnapshotAt).toLocaleString()}`
-                                : null,
-                            ]
-                              .filter(Boolean)
-                              .join(' • ')}
-                          </p>
-                        )}
+                    {selectedSubmission.points != null && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground mb-1">POINTS POSSIBLE</p>
+                        <p className="text-sm font-bold text-blue-600">{selectedSubmission.points} pts</p>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                </div>
 
-              {/* Grade Input */}
-              <div>
-                <label className="text-sm font-semibold mb-2 block">Grade</label>
-                <Input
-                  placeholder="e.g., 95/100 or 95"
-                  value={submissionGrade}
-                  onChange={(e) => setSubmissionGrade(e.target.value)}
-                  className="rounded-lg"
-                />
-              </div>
+                {/* Submission content — type-aware */}
+                <div>
+                  <h4 className="font-semibold text-sm mb-3">Student's Submission</h4>
+                  <Card className="border-0 shadow-sm bg-muted/50">
+                    <CardContent className="p-4">
+                      {quizResult ? (
+                        // Quiz score card
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-foreground">Score</span>
+                            <span className="text-lg font-bold text-blue-600">
+                              {quizResult.raw_score ?? quizResult.scaled_score ?? '—'} / {quizResult.max_question_score ?? quizResult.total_questions ?? '—'}
+                            </span>
+                          </div>
+                          {quizResult.answered_count != null && quizResult.total_questions != null && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Questions answered</span>
+                              <span>{quizResult.answered_count} / {quizResult.total_questions}</span>
+                            </div>
+                          )}
+                          {quizResult.violation_count != null && (
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Violations detected</span>
+                              <span className={quizResult.violation_count > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>
+                                {quizResult.violation_count}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : selectedSubmission.submissionContent ? (
+                        // Plain text submission
+                        <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
+                          {selectedSubmission.submissionContent}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">No text submission.</p>
+                      )}
 
-              {/* Feedback Input */}
-              <div>
-                <label className="text-sm font-semibold mb-2 block">Feedback</label>
-                <Textarea
-                  placeholder="Provide constructive feedback for the student..."
-                  value={submissionFeedback}
-                  onChange={(e) => setSubmissionFeedback(e.target.value)}
-                  className="min-h-24 rounded-lg resize-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-                />
-              </div>
+                      {/* File attachment — only if there's an actual file to open */}
+                      {selectedSubmission.submissionUrl && selectedSubmission.providerFileName && (
+                        <div className="mt-4 rounded-lg border border-border bg-background p-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                              {selectedSubmission.providerLabel || 'Attached File'}
+                            </p>
+                            <a
+                              href={selectedSubmission.submissionUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-primary underline truncate block"
+                            >
+                              {selectedSubmission.providerFileName}
+                            </a>
+                            {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes) && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {[
+                                  selectedSubmission.providerMimeType || null,
+                                  formatProviderFileSize(selectedSubmission.providerSizeBytes),
+                                ].filter(Boolean).join(' • ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
 
-              {/* Footer Actions */}
-              <div className="flex gap-2 justify-end pt-4 border-t border-muted">
-                <Button 
-                  variant="outline" 
-                  className="rounded-lg"
-                  onClick={() => setShowSubmissionDetail(false)}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  className="rounded-lg"
-                  onClick={() => {
-                    void handleSaveSubmissionGrade();
-                  }}
-                  disabled={savingSubmissionGrade || !submissionGrade.trim()}
-                >
-                  {savingSubmissionGrade ? 'Saving...' : 'Save Grade & Feedback'}
-                </Button>
+                {/* Grading section */}
+                <div className="space-y-4">
+                  {selectedSubmission.gradedAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Last graded: {new Date(selectedSubmission.gradedAt).toLocaleString()}
+                    </p>
+                  )}
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">Grade</label>
+                    <Input
+                      placeholder="e.g., 95/100 or 95"
+                      value={submissionGrade}
+                      onChange={(e) => setSubmissionGrade(e.target.value)}
+                      className="rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-2 block">Feedback</label>
+                    <Textarea
+                      placeholder="Provide constructive feedback for the student..."
+                      value={submissionFeedback}
+                      onChange={(e) => setSubmissionFeedback(e.target.value)}
+                      className="min-h-24 rounded-lg resize-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Footer Actions */}
+                <div className="flex gap-2 justify-end pt-4 border-t border-muted">
+                  <Button
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => setShowSubmissionDetail(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="rounded-lg"
+                    onClick={() => { void handleSaveSubmissionGrade(); }}
+                    disabled={savingSubmissionGrade || !submissionGrade.trim()}
+                  >
+                    {savingSubmissionGrade ? 'Saving...' : 'Save Grade & Feedback'}
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
