@@ -1,5 +1,5 @@
 // Service Worker for Mabini Classroom PWA
-const CACHE_NAME = 'mabini-classroom-v3';
+const CACHE_NAME = 'mabini-classroom-v4';
 const MATERIALS_CACHE_NAME = 'mabini-materials-v1';
 const OFFLINE_URL = '/offline.html';
 
@@ -179,7 +179,30 @@ const handleMaterialFetch = async (request) => {
   }
 };
 
+// Vite hashed assets: /assets/foo-AbCdEfGh.js and /assets/bar-XyZ12345.css
+const HASHED_ASSET_REGEX = /\/assets\/[\w.-]+-[A-Za-z0-9]{8,}\.(js|css)(\?|$)/;
+
 const handleAppShellFetch = (request) => {
+  const url = new URL(request.url);
+
+  // Stale-while-revalidate for hashed Vite chunks — serve cached immediately,
+  // update in background so the next visit gets the freshest build.
+  if (HASHED_ASSET_REGEX.test(url.pathname)) {
+    return caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(request);
+      const networkPromise = fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            cache.put(request, response.clone());
+          }
+          return response;
+        })
+        .catch(() => cached);
+      return cached || networkPromise;
+    });
+  }
+
+  // Network-first for everything else (index.html, manifests, etc.)
   return fetch(request)
     .then((response) => {
       const responseClone = response.clone();

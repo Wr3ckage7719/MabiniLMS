@@ -6,31 +6,34 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { AppLogo } from "@/components/AppLogo";
 import AppLayout from "./layouts/AppLayout";
 import AdminLayout from "./layouts/AdminLayout";
 import Index from "./pages/Index";
-import Dashboard from "./pages/Dashboard";
-import ClassDetail from "./pages/ClassDetail";
-import CalendarPage from "./pages/CalendarPage";
-import UpcomingPage from "./pages/UpcomingPage";
-import GradesPage from "./pages/GradesPage";
-import LessonDetailPage from "./pages/LessonDetailPage";
-import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
-import GoogleStudentSetupPage from "./pages/GoogleStudentSetupPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
-import VerifyEmailPage from "./pages/VerifyEmailPage";
-import AdminLoginPage from "./pages/AdminLoginPage";
-import PendingTeachersPage from "./pages/admin/PendingTeachersPage";
-import StudentManagementPage from "./pages/admin/StudentManagementPage";
-import SystemSettingsPage from "./pages/admin/SystemSettingsPage";
-import AuditLogsPage from "./pages/admin/AuditLogsPage";
-import BugReportsPage from "./pages/admin/BugReportsPage";
-import TeacherDashboard from "./pages/TeacherDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import SubmissionQueueSync from "./components/SubmissionQueueSync";
 
+// Lazy-load every page not on the login/auth critical path.
+// Each becomes its own JS chunk — downloaded only when the route is visited.
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const ClassDetail = React.lazy(() => import('./pages/ClassDetail'));
+const CalendarPage = React.lazy(() => import('./pages/CalendarPage'));
+const UpcomingPage = React.lazy(() => import('./pages/UpcomingPage'));
+const GradesPage = React.lazy(() => import('./pages/GradesPage'));
+const LessonDetailPage = React.lazy(() => import('./pages/LessonDetailPage'));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
+const GoogleStudentSetupPage = React.lazy(() => import('./pages/GoogleStudentSetupPage'));
+const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage'));
+const VerifyEmailPage = React.lazy(() => import('./pages/VerifyEmailPage'));
+const AdminLoginPage = React.lazy(() => import('./pages/AdminLoginPage'));
+const PendingTeachersPage = React.lazy(() => import('./pages/admin/PendingTeachersPage'));
+const StudentManagementPage = React.lazy(() => import('./pages/admin/StudentManagementPage'));
+const SystemSettingsPage = React.lazy(() => import('./pages/admin/SystemSettingsPage'));
+const AuditLogsPage = React.lazy(() => import('./pages/admin/AuditLogsPage'));
+const BugReportsPage = React.lazy(() => import('./pages/admin/BugReportsPage'));
+const TeacherDashboard = React.lazy(() => import('./pages/TeacherDashboard'));
 const LessonEditorPage = React.lazy(() => import('./pages/LessonEditorPage'));
 const MaterialReaderPage = React.lazy(() => import('./pages/MaterialReaderPage'));
 const AssignmentBuilderPage = React.lazy(() => import('./pages/AssignmentBuilderPage'));
@@ -41,7 +44,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 2 * 60 * 1000,
-      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+      gcTime: 30 * 60 * 1000, // 30 minutes — keeps data warm across short breaks
       retry: (failureCount, error) => {
         const status = (error as { response?: { status?: number } })?.response?.status;
         if (status === 401) {
@@ -49,9 +52,9 @@ const queryClient = new QueryClient({
         }
         return failureCount < 1;
       },
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false, // opt-in per query; blanket refetch on Alt-Tab is wasteful
       refetchOnReconnect: true,
-      refetchOnMount: true,
+      refetchOnMount: 'always',
     },
     mutations: {
       retry: 0,
@@ -163,7 +166,13 @@ const App = () => (
         <AuthProvider>
           <SubmissionQueueSync />
           <BrowserRouter>
-            <Suspense fallback={<div className="min-h-screen" />}>
+            <Suspense
+              fallback={
+                <div className="min-h-screen flex items-center justify-center bg-background">
+                  <AppLogo className="h-12 w-12 animate-pulse" />
+                </div>
+              }
+            >
               <AppRoutes />
             </Suspense>
           </BrowserRouter>

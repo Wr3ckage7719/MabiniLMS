@@ -49,9 +49,49 @@ function applyPwaMobileViewportZoomPolicy() {
 	);
 }
 
+const scheduleIdle = (cb: () => void) => {
+	if (typeof window === 'undefined') return;
+	if ('requestIdleCallback' in window) {
+		(window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void })
+			.requestIdleCallback(cb, { timeout: 1000 });
+	} else {
+		setTimeout(cb, 0);
+	}
+};
+
+const ensurePreconnect = (href: string) => {
+	if (!href || typeof document === 'undefined') return;
+	if (document.querySelector(`link[rel="preconnect"][href="${href}"]`)) return;
+	const link = document.createElement('link');
+	link.rel = 'preconnect';
+	link.href = href;
+	link.crossOrigin = 'anonymous';
+	document.head.appendChild(link);
+};
+
 initializeThemePreference();
 
+// Apply zoom policy synchronously before React mounts — must run before createRoot.
 if (typeof window !== 'undefined') {
+	applyPwaMobileViewportZoomPolicy();
+}
+
+// Runtime preconnect fallback for envs where index.html hints aren't enough.
+try {
+	const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
+	if (apiUrl) ensurePreconnect(new URL(apiUrl).origin);
+	const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+	if (supabaseUrl) ensurePreconnect(new URL(supabaseUrl).origin);
+} catch {
+	// Bad URLs are non-fatal.
+}
+
+createRoot(document.getElementById("root")!).render(<App />);
+
+// Defer non-paint-critical side effects so React gets first pick of the main thread.
+scheduleIdle(() => {
+	if (typeof window === 'undefined') return;
+
 	const standaloneQuery = window.matchMedia('(display-mode: standalone)');
 	const mobileQuery = window.matchMedia('(max-width: 767px)');
 	const handleStorageChange = (event: StorageEvent) => {
@@ -63,21 +103,16 @@ if (typeof window !== 'undefined') {
 		}
 	};
 
-	applyPwaMobileViewportZoomPolicy();
-
 	standaloneQuery.addEventListener('change', applyPwaMobileViewportZoomPolicy);
 	mobileQuery.addEventListener('change', applyPwaMobileViewportZoomPolicy);
 	window.addEventListener('orientationchange', applyPwaMobileViewportZoomPolicy);
 	window.addEventListener(PWA_MOBILE_ZOOM_POLICY_CHANGED_EVENT, applyPwaMobileViewportZoomPolicy);
 	window.addEventListener('storage', handleStorageChange);
-}
 
-createRoot(document.getElementById("root")!).render(<App />);
-
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-	window.addEventListener('load', () => {
+	// SW registration — non-blocking, deferred after first paint.
+	if ('serviceWorker' in navigator) {
 		void pushNotificationsService.registerServiceWorker().catch((error) => {
 			console.debug('Service worker registration skipped', error);
 		});
-	});
-}
+	}
+});

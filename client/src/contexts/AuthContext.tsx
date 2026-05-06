@@ -359,33 +359,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [blockSignInWithMessage]
   );
 
+  type ApiProfile = {
+    first_name?: string | null;
+    last_name?: string | null;
+    role?: string;
+    pending_approval?: boolean | null;
+    avatar_url?: string | null;
+    requires_google_student_setup?: boolean;
+  };
+
   const loadUserData = useCallback(async (id: string, email: string, authUser?: SupabaseUser | null): Promise<User> => {
     try {
-      const profile = authUser || (await supabase.auth.getUser()).data.user;
+      // Fire all three independent reads in parallel — eliminates 2× serial RTTs on startup.
+      const [profile, apiResponseSettled, profileData] = await Promise.all([
+        authUser
+          ? Promise.resolve(authUser)
+          : supabase.auth.getUser().then((r) => r.data.user),
+        (authService.getCurrentUser() as Promise<{ data?: ApiProfile }>)
+          .then((r) => r?.data ?? null)
+          .catch((profileApiError) => {
+            console.warn('Auth profile API lookup warning:', profileApiError);
+            return null;
+          }),
+        supabase
+          .from('profiles')
+          .select('role, pending_approval, avatar_url')
+          .eq('id', id)
+          .maybeSingle()
+          .then((r) => {
+            if (r.error) console.warn('Profile lookup warning:', r.error.message);
+            return r.data;
+          })
+          .catch(() => null),
+      ]);
 
-      let apiProfileData: {
-        first_name?: string | null;
-        last_name?: string | null;
-        role?: string;
-        pending_approval?: boolean | null;
-        avatar_url?: string | null;
-        requires_google_student_setup?: boolean;
-      } | null = null;
-
-      try {
-        const response = await authService.getCurrentUser() as {
-          data?: {
-            first_name?: string | null;
-            last_name?: string | null;
-            role?: string;
-            pending_approval?: boolean | null;
-            avatar_url?: string | null;
-          };
-        };
-        apiProfileData = response?.data || null;
-      } catch (profileApiError) {
-        console.warn('Auth profile API lookup warning:', profileApiError);
-      }
+      const apiProfileData: ApiProfile | null = apiResponseSettled;
 
       const firstName = profile?.user_metadata?.first_name;
       const lastName = profile?.user_metadata?.last_name;
@@ -406,17 +414,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         null;
 
       const avatar = metadataAvatarUrl || fullName.charAt(0).toUpperCase();
-
-      // Fetch user profile data including role, pending_approval, and avatar_url
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, pending_approval, avatar_url')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (profileError) {
-        console.warn('Profile lookup warning:', profileError.message);
-      }
 
       return {
         id,
