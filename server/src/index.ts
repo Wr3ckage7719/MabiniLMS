@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { supabase, verifySupabaseAdminCapabilities } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
@@ -183,7 +184,18 @@ app.use(express.raw({
   type: ['application/octet-stream'],
 }));
 
-// 4. Request logging with correlation IDs
+// 4. Gzip/Brotli compression — skips already-compressed types and SSE streams
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    const accept = String(req.headers['accept'] || '');
+    if (accept.includes('text/event-stream')) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+// 5. Request logging with correlation IDs
 app.use(requestLogger);
 
 // Apply rate limiting to all API routes
@@ -372,11 +384,6 @@ app.use(errorHandler);
 let server: ReturnType<typeof httpServer.listen> | null = null;
 
 const startServer = async (): Promise<void> => {
-  if (process.env.NODE_ENV !== 'test') {
-    await verifySupabaseAdminCapabilities();
-    logger.info('✅ Supabase admin capability verified');
-  }
-
   server = httpServer.listen(PORT, () => {
     logger.info(`🚀 Server is running on port ${PORT}`);
     if (shouldExposeApiDocs) {
@@ -396,6 +403,22 @@ const startServer = async (): Promise<void> => {
     console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
   });
+
+  // Tune keep-alive so Render's load balancer (100 s idle timeout) closes
+  // connections before Node does — avoids ECONNRESET retries on the client.
+  httpServer.keepAliveTimeout = 120 * 1000;
+  httpServer.headersTimeout = 125 * 1000;
+
+  // Verify Supabase admin capabilities in the background — don't block listen.
+  // Health checks (and the Vercel prewarm ping) must succeed immediately.
+  if (process.env.NODE_ENV !== 'test') {
+    verifySupabaseAdminCapabilities()
+      .then(() => logger.info('✅ Supabase admin capability verified'))
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('Supabase admin capability check failed (server still listening)', { error: message });
+      });
+  }
 };
 
 void startServer().catch((error) => {

@@ -25,9 +25,6 @@ export function useClasses(params?: { archived?: boolean; role?: 'student' | 'te
       }
       return failureCount < 1;
     },
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchOnMount: true,
     staleTime: 2 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
@@ -50,9 +47,6 @@ export function useClass(classId: string): UseQueryResult<ClassItem, Error> {
       }
       return failureCount < 1;
     },
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchOnMount: true,
     staleTime: 2 * 60 * 1000,
   });
 }

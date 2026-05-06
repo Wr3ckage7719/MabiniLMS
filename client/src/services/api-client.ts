@@ -53,7 +53,31 @@ const resolveApiBaseCandidates = (): string[] => {
 };
 
 const API_BASE_URL_CANDIDATES = resolveApiBaseCandidates();
-const API_URL = API_BASE_URL_CANDIDATES[0] || 'http://localhost:3000/api';
+
+const API_BASE_URL_PIN_KEY = 'mabini:api-base-url:last-good';
+
+const readPinnedApiBase = (): string | null => {
+  try {
+    const pinned = typeof window !== 'undefined' ? window.localStorage.getItem(API_BASE_URL_PIN_KEY) : null;
+    if (!pinned) return null;
+    const normalized = normalizeApiBaseUrl(pinned);
+    return API_BASE_URL_CANDIDATES.includes(normalized) ? normalized : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePinnedApiBase = (base: string): void => {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(API_BASE_URL_PIN_KEY, normalizeApiBaseUrl(base));
+    }
+  } catch {
+    // Storage write failures are non-fatal.
+  }
+};
+
+export const API_URL = readPinnedApiBase() || API_BASE_URL_CANDIDATES[0] || 'http://localhost:3000/api';
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 const AUTH_LOOKUP_TIMEOUT_MS = 4000;
 const RETRYABLE_API_METHODS = new Set(['get', 'head', 'options']);
@@ -387,7 +411,12 @@ class ApiClient {
 
     // Response interceptor for error handling
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Pin the working base URL so future cold loads skip failed candidates.
+        const base = response.config?.baseURL;
+        if (base) writePinnedApiBase(base);
+        return response;
+      },
       async (error: AxiosError) => {
         const originalRequest = error.config as RetryableRequestConfig | undefined;
 

@@ -12,7 +12,5 @@ export function useStudents(courseId: string): UseQueryResult<Student[], Error> 
     },
     enabled: !!courseId,
     staleTime: 2 * 60 * 1000,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
   });
 }

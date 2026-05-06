@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mabini Classroom</title>
+    <!-- Preconnect to API + Supabase so DNS/TLS finishes before JS fires -->
+    <link rel="preconnect" href="https://mabinilms.onrender.com" crossorigin />
+    <link rel="preconnect" href="https://bwzqqifuwqpzfvauwgqq.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://mabinilms.onrender.com" />
+    <link rel="dns-prefetch" href="https://bwzqqifuwqpzfvauwgqq.supabase.co" />
+    <!-- Preload login background as LCP hint -->
+    <link
+      rel="preload"
+      as="image"
+      href="/backgroundlms-1280.webp"
+      type="image/webp"
+      imagesrcset="/backgroundlms-768.webp 768w, /backgroundlms-1280.webp 1280w, /backgroundlms-1920.webp 1920w"
+      imagesizes="100vw"
+      fetchpriority="high"
+    />
     <meta name="description" content="Learning Management System for Mabini National High School" />
     <meta name="author" content="Mabini National High School" />
 
@@ -36,20 +51,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    
-    <!-- Register Service Worker -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then((registration) => {
-              console.log('SW registered:', registration.scope);
-            })
-            .catch((error) => {
-              console.log('SW registration failed:', error);
-            });
-        });
-      }
-    </script>
   </body>
 </html>

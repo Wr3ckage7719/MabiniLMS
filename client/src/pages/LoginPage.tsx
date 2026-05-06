@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AppLogo } from '@/components/AppLogo';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Eye, EyeOff } from 'lucide-react';
+import { API_URL } from '@/services/api-client';
 
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 const REMEMBER_ME_STORAGE_KEY = 'mabini:remember-me';
@@ -32,6 +33,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     setShowAnimation(true);
+  }, []);
+
+  // Pre-warm the serverless API while the user types — by submit time the function is hot.
+  useEffect(() => {
+    fetch(`${API_URL}/health`, { method: 'GET' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -158,11 +164,21 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-screen flex flex-col lg:flex-row overflow-hidden">
       <div className="absolute inset-0" aria-hidden="true">
-        <img
-          src="/backgroundlms.jpg"
-          alt=""
-          className="h-full w-full object-cover object-center sm:object-[center_35%]"
-        />
+        <picture>
+          <source
+            type="image/webp"
+            srcSet="/backgroundlms-768.webp 768w, /backgroundlms-1280.webp 1280w, /backgroundlms-1920.webp 1920w"
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 100vw, 100vw"
+          />
+          <img
+            src="/backgroundlms.jpg"
+            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="h-full w-full object-cover object-center sm:object-[center_35%]"
+          />
+        </picture>
         <div className="absolute inset-0 bg-slate-950/72" />
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/70 to-emerald-950/60" />
       </div>
