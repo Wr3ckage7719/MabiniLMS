@@ -189,6 +189,8 @@ app.use(express.raw({
 // 4. Brotli + gzip compression — Brotli quality 4 (fast, good ratio), gzip fallback
 const brotliMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (req.headers['x-no-compression']) return next();
+  // Skip WebSocket upgrades and SSE streams
+  if (req.headers['upgrade'] || String(req.headers['accept'] || '').includes('text/event-stream')) return next();
   const accept = String(req.headers['accept-encoding'] || '');
   if (!accept.includes('br')) return next();
   const contentType = res.getHeader('content-type') as string | undefined;
