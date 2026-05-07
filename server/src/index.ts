@@ -9,7 +9,6 @@ import { setupSwagger } from './config/swagger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { requestLogger, slowRequestLogger } from './middleware/requestLogger.js';
 import { apiLimiter, adminLimiter, batchLimiter, searchLimiter } from './middleware/rateLimiter.js';
-import { httpCache } from './middleware/httpCache.js';
 import logger from './utils/logger.js';
 import { initializeWebSocket } from './services/websocket.js';
 import {
@@ -361,21 +360,21 @@ app.use('/api/auth/google', googleOAuthRoutes); // Google OAuth routes
 app.use('/api/2fa', twoFactorRoutes); // Two-Factor Authentication routes
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes); // Admin-specific rate limiting
-app.use('/api/courses', httpCache, courseRoutes);
+app.use('/api/courses', courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
-app.use('/api/assignments', httpCache, assignmentRoutes);
-app.use('/api/grades', httpCache, gradeRoutes);
+app.use('/api/assignments', assignmentRoutes);
+app.use('/api/grades', gradeRoutes);
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);
-app.use('/api', httpCache, announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
+app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
 app.use('/api', discussionRoutes); // Course discussion stream routes
 app.use('/api/competency', competencyRoutes); // TESDA competency overlay
-app.use('/api/lessons', httpCache, lessonRoutes); // LM-centric lesson flow
+app.use('/api/lessons', lessonRoutes); // LM-centric lesson flow
 
 // Error handlers (must be last)
 app.use(notFoundHandler);
