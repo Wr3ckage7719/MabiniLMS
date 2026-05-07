@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Loader2,
   ChevronRight,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,6 +22,7 @@ import {
 } from '@/hooks-api/useLessons';
 import { useClass } from '@/hooks-api/useClasses';
 import type { Lesson, LessonAssessmentRef, LessonMaterialRef } from '@/lib/data';
+import { downloadMaterialWithTracking } from '@/lib/material-actions';
 
 const completionRuleCopy = (lesson: Lesson): string => {
   if (lesson.materials.length === 0) {
@@ -148,6 +150,37 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
   const viewed = Boolean(material.viewed);
   const locked = Boolean(material.locked) && !viewed;
   const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
+  const cooldownRef = useRef<number | null>(null);
+
+  const handleDownload = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (locked || downloading) return;
+    if (cooldownRef.current && Date.now() < cooldownRef.current) return;
+    if (!material.url || material.url === '#') {
+      toast({
+        title: 'Download unavailable',
+        description: 'This material has no downloadable file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setDownloading(true);
+    cooldownRef.current = Date.now() + 2000;
+    const fired = downloadMaterialWithTracking({
+      id: material.material_id,
+      title: material.title,
+      url: material.url,
+    });
+    if (fired) {
+      toast({ title: 'Download started', description: 'Your file is being saved.' });
+    } else {
+      setDownloading(false);
+      return;
+    }
+    window.setTimeout(() => setDownloading(false), 2000);
+  };
+
   return (
     <Card
       className={`border ${locked ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all'}`}
@@ -199,6 +232,17 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
             Tap to open
           </Badge>
         )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-xl flex-shrink-0 h-8 w-8"
+          onClick={handleDownload}
+          disabled={locked || downloading || !material.url || material.url === '#'}
+          aria-label={`Download ${material.title}`}
+          title="Download file"
+        >
+          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        </Button>
         <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
       </CardContent>
     </Card>

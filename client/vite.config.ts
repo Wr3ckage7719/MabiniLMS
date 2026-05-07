@@ -43,6 +43,7 @@ export default defineConfig({
           // Heavy lazy-only deps — only loaded when their pages mount
           if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
           if (id.includes('pdfjs-dist')) return 'vendor-pdfjs';
+          if (id.includes('jspdf') || id.includes('jspdf-autotable')) return 'vendor-pdf';
           if (id.includes('mammoth')) return 'vendor-mammoth';
           if (id.includes('jszip')) return 'vendor-jszip';
           if (id.includes('papaparse')) return 'vendor-papaparse';

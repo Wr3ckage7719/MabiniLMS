@@ -7,14 +7,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Download } from 'lucide-react';
-import { batchService } from '@/services/batch.service';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRole } from '@/contexts/RoleContext';
 import {
   formatMabiniGradePoint,
   describeMabiniRemarks,
 } from '@/lib/grade-points';
 import { GRADING_PERIOD_LABELS } from '@/lib/task-types';
-import type { MabiniGradingPeriodKey } from '@/services/grades.service';
+import type { MabiniGradingPeriodKey, MabiniWeightedSummary } from '@/services/grades.service';
 import type { ClassItem } from '@/lib/data';
 
 const ALL_PERIODS: MabiniGradingPeriodKey[] = ['pre_mid', 'midterm', 'pre_final', 'final'];
@@ -23,7 +24,7 @@ interface ClassGradeCardProps {
   cls: ClassItem;
   classGrades: Array<{ status: string; points?: number | null; maxPoints?: number | null; gradingPeriod?: string | null }>;
   isExporting: boolean;
-  onExport: (courseId: string, courseName: string) => void;
+  onExport: (cls: ClassItem, mabini: MabiniWeightedSummary | null | undefined, fallbackPercent: number | null) => void;
 }
 
 function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeCardProps) {
@@ -102,15 +103,15 @@ function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeC
               size="sm"
               className="rounded-xl gap-2"
               disabled={isExporting}
-              onClick={() => onExport(cls.id, cls.name)}
-              title="Download my grade (Mabini registrar format)"
+              onClick={() => onExport(cls, mabini, percentageAverage)}
+              title="Download my official report card (PDF)"
             >
               {isExporting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              <span className="hidden sm:inline">{isExporting ? 'Exporting…' : 'Export my grade'}</span>
+              <span className="hidden sm:inline">{isExporting ? 'Generating PDF…' : 'Download report card'}</span>
             </Button>
           </div>
         </div>
@@ -153,34 +154,42 @@ export default function GradesPage() {
   const { data: classes = [], isLoading: classesLoading, error: classesError, refetch: refetchClasses } = useClasses();
   const { data: grades = [], isLoading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { currentUserName } = useRole();
   const [exportingCourseId, setExportingCourseId] = useState<string | null>(null);
 
-  const handleExportMyGrade = async (courseId: string, courseName: string) => {
+  const handleExportMyGrade = async (
+    cls: ClassItem,
+    mabini: MabiniWeightedSummary | null | undefined,
+    fallbackPercent: number | null
+  ) => {
     if (exportingCourseId) return;
-    setExportingCourseId(courseId);
+    setExportingCourseId(cls.id);
     try {
-      // Mabini Colleges registrar workbook — same 5-sheet layout as TTH 1-2_30PM.xlsx
-      const blobResponse = await batchService.exportMyGradeWorkbook(courseId);
-      const blob = blobResponse instanceof Blob
-        ? blobResponse
-        : new Blob([blobResponse as unknown as ArrayBuffer], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          });
+      const { generateReportCardPdf } = await import('@/lib/report-card-pdf');
+      const blob = await generateReportCardPdf({
+        studentName: currentUserName || user?.email || 'Student',
+        studentEmail: user?.email,
+        courseName: cls.name,
+        courseSection: cls.section,
+        instructorName: cls.teacher,
+        schedule: cls.schedule,
+        semester: undefined,
+        generatedAt: new Date(),
+        mabini,
+        fallbackPercent,
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const safeName = courseName.replace(/[^a-z0-9-_]+/gi, '_');
-      a.download = `my-grade-${safeName}-${courseId.slice(0, 8)}.xlsx`;
+      const safeName = cls.name.replace(/[^a-z0-9-_]+/gi, '_');
+      a.download = `report-card-${safeName}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error: any) {
       toast({
         title: 'Export failed',
-        description:
-          error?.response?.data?.error?.message ||
-          error?.response?.data?.message ||
-          error?.message ||
-          'Failed to export your grade',
+        description: error?.message || 'Could not generate report card PDF.',
         variant: 'destructive',
       });
     } finally {

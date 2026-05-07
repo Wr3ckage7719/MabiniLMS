@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -11,6 +11,7 @@ import {
   trackScrollProgress,
   trackViewEnd,
   trackViewStart,
+  downloadMaterialWithTracking,
 } from '@/lib/material-actions';
 import {
   convertDocxToHtml,
@@ -139,6 +140,10 @@ export default function MaterialReaderPage() {
   const trackingStartedRef = useRef(false);
   const finalizedRef = useRef(false);
   const reachedEndRef = useRef(false);
+
+  // Download state — spam protection via cooldown ref
+  const [downloading, setDownloading] = useState(false);
+  const downloadCooldownRef = useRef<number | null>(null);
 
   // Load material metadata
   useEffect(() => {
@@ -363,6 +368,33 @@ export default function MaterialReaderPage() {
     setPageIndex((current) => Math.min(totalPages - 1, current + 1));
   }, [totalPages]);
 
+  const handleDownload = useCallback(() => {
+    if (!meta || downloading) return;
+    if (downloadCooldownRef.current && Date.now() < downloadCooldownRef.current) return;
+
+    setDownloading(true);
+    downloadCooldownRef.current = Date.now() + 2000;
+
+    const fired = downloadMaterialWithTracking({ id: meta.id, title: meta.title, url: meta.url });
+
+    if (!fired) {
+      setDownloading(false);
+      toast({
+        title: 'Download unavailable',
+        description: 'This material has no downloadable file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Download started',
+      description: 'Your file is being saved. This download has been recorded.',
+    });
+
+    window.setTimeout(() => { setDownloading(false); }, 2000);
+  }, [meta, downloading, toast]);
+
   // Keyboard nav: arrow keys and Page Up/Down. Helps on desktop where
   // reaching for the mouse to flip pages slows down reading.
   useEffect(() => {
@@ -532,6 +564,17 @@ export default function MaterialReaderPage() {
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline">Back to lesson</span>
           </Button>
+          {/* Mobile download button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl sm:hidden"
+            onClick={handleDownload}
+            disabled={downloading || !meta?.url}
+            aria-label="Download material"
+          >
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          </Button>
           <div className="min-w-0 flex-1 text-center">
             <p className="text-sm md:text-base font-semibold truncate">{meta?.title || ''}</p>
             {totalPages > 0 ? (
@@ -541,6 +584,18 @@ export default function MaterialReaderPage() {
             ) : null}
           </div>
           <div className="hidden sm:flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl gap-1.5"
+              onClick={handleDownload}
+              disabled={downloading || !meta?.url}
+              aria-label="Download material"
+              title="Download this material file"
+            >
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <span className="hidden md:inline text-xs">{downloading ? 'Saving…' : 'Download'}</span>
+            </Button>
             <div className="flex items-center gap-1 rounded-lg border bg-card p-0.5">
               {(['light', 'sepia', 'dark'] as const).map((t) => (
                 <button

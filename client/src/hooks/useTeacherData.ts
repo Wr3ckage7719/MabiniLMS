@@ -446,56 +446,66 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
       setLoading(true);
       setError(null);
 
-      // Get teacher's published courses
-      const coursesRes = await teacherService.getTeacherCourses({ 
+      // 1) Courses first — needed to know course ids
+      const coursesRes = await teacherService.getTeacherCourses({
         status: 'published',
         includeEnrollmentCount: true,
         limit: 100,
       });
       const courses = coursesRes.data || [];
-
-      // Calculate total students
       const totalStudents = courses.reduce((sum, c) => sum + (c.enrollment_count || 0), 0);
 
-      // Fetch assignments and submissions for each course
+      // 2) Fetch assignments for all visible courses IN PARALLEL
+      const visibleCourses = courses.slice(0, 5);
+      const assignmentResults = await Promise.allSettled(
+        visibleCourses.map((course) =>
+          teacherService.getCourseAssignments(course.id).then((res) => ({
+            courseId: course.id,
+            assignments: res.data || [],
+          }))
+        )
+      );
+
       const allAssignments: TeacherAssignment[] = [];
-      const allSubmissions: Submission[] = [];
-
-      for (const course of courses.slice(0, 5)) { // Limit to prevent too many requests
-        try {
-          const assignmentsRes = await teacherService.getCourseAssignments(course.id);
-          const assignments = assignmentsRes.data || [];
-          allAssignments.push(...assignments);
-
-          // Fetch submissions for recent assignments
-          for (const assignment of assignments.slice(0, 3)) {
-            try {
-              const subRes = await teacherService.getAssignmentSubmissions(assignment.id);
-              const subs = (subRes.data || []).map(s => ({
-                ...s,
-                assignment: {
-                  id: assignment.id,
-                  title: assignment.title,
-                  due_date: assignment.due_date,
-                  max_points: assignment.max_points,
-                  course_id: assignment.course_id,
-                },
-              }));
-              allSubmissions.push(...subs);
-            } catch (e) {
-              // Continue on error
-            }
-          }
-        } catch (e) {
-          // Continue on error
+      const assignmentsByCourse: Array<{ courseId: string; assignments: TeacherAssignment[] }> = [];
+      for (const result of assignmentResults) {
+        if (result.status === 'fulfilled') {
+          allAssignments.push(...result.value.assignments);
+          assignmentsByCourse.push(result.value);
         }
       }
 
-      // Filter upcoming deadlines (next 7 days)
+      // 3) Fetch submissions for up to 3 assignments per course IN PARALLEL
+      const submissionPromises: Array<Promise<Submission[]>> = [];
+      for (const { assignments } of assignmentsByCourse) {
+        for (const assignment of assignments.slice(0, 3)) {
+          submissionPromises.push(
+            teacherService
+              .getAssignmentSubmissions(assignment.id)
+              .then((subRes) =>
+                (subRes.data || []).map((s) => ({
+                  ...s,
+                  assignment: {
+                    id: assignment.id,
+                    title: assignment.title,
+                    due_date: assignment.due_date,
+                    max_points: assignment.max_points,
+                    course_id: assignment.course_id,
+                  },
+                }))
+              )
+              .catch(() => [] as Submission[])
+          );
+        }
+      }
+      const submissionLists = await Promise.all(submissionPromises);
+      const allSubmissions: Submission[] = submissionLists.flat();
+
+      // 4) Filter + sort — same logic as before
       const now = new Date();
       const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       const upcomingDeadlines = allAssignments
-        .filter(a => {
+        .filter((a) => {
           if (!a.due_date) return false;
           const dueDate = new Date(a.due_date);
           return dueDate > now && dueDate <= weekFromNow;
@@ -503,7 +513,6 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
         .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
         .slice(0, 5);
 
-      // Sort submissions by date and take recent ones
       const recentSubmissions = allSubmissions
         .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
         .slice(0, 5);
@@ -527,32 +536,12 @@ export function useTeacherDashboard(): UseTeacherDashboardResult {
   }, [fetchDashboard]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handleFocusRefresh = () => {
-      void fetchDashboard();
-    };
-
-    const handleVisibilityRefresh = () => {
-      if (document.visibilityState === 'visible') {
-        void fetchDashboard();
-      }
-    };
-
-    const refreshTimer = window.setInterval(() => {
-      void fetchDashboard();
-    }, 3 * 60 * 1000);
-
-    window.addEventListener('focus', handleFocusRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityRefresh);
-
-    return () => {
-      window.clearInterval(refreshTimer);
-      window.removeEventListener('focus', handleFocusRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
-    };
+    if (typeof window === 'undefined') return;
+    // Only refetch when the network comes back — avoids the "loading on loop"
+    // that focus + visibility + setInterval caused on slow/cold connections.
+    const handleOnline = () => { void fetchDashboard(); };
+    window.addEventListener('online', handleOnline);
+    return () => { window.removeEventListener('online', handleOnline); };
   }, [fetchDashboard]);
 
   return { data, loading, error, refetch: fetchDashboard };
