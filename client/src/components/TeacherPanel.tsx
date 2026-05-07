@@ -64,12 +64,13 @@ export function TeacherPanel() {
 
           {/* Main content */}
           <main className="flex-1 overflow-auto">
-            <TeacherDashboard 
-              currentView={currentView} 
+            <TeacherDashboard
+              currentView={currentView}
               classes={classes}
               onClassesChange={setClasses}
               searchQuery={headerSearchQuery}
               onSearchQueryChange={handleHeaderSearchQueryChange}
+              onCreateClass={() => setCreateClassOpen(true)}
             />
           </main>
         </div>

@@ -29,6 +29,7 @@ interface TeacherDashboardProps {
   onClassesChange: (classes: ClassItem[]) => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  onCreateClass: () => void;
 }
 
 const formatDateTime = (value: string | null | undefined) => {
@@ -62,6 +63,7 @@ export function TeacherDashboard({
   onClassesChange,
   searchQuery,
   onSearchQueryChange,
+  onCreateClass,
 }: TeacherDashboardProps) {
   const navigate = useNavigate();
   const { data, loading, error, refetch } = useTeacherDashboard();
@@ -144,12 +146,14 @@ export function TeacherDashboard({
               value={data.courses.length}
               icon={<BookOpen className="h-4 w-4" />}
               tone="primary"
+              onClick={data.courses[0] ? () => navigate(`/class/${data.courses[0].id}`) : undefined}
             />
             <StatTile
               label="Total Students"
               value={data.totalStudents}
               icon={<Users className="h-4 w-4" />}
               tone="accent"
+              onClick={data.courses[0] ? () => navigate(`/class/${data.courses[0].id}`) : undefined}
             />
             <StatTile
               label="Needs grading"
@@ -157,6 +161,11 @@ export function TeacherDashboard({
               icon={<ClipboardList className="h-4 w-4" />}
               tone={needsGrading.length > 0 ? 'urgent' : 'muted'}
               hint={needsGrading.length === 0 ? 'You\'re caught up' : 'Submissions waiting'}
+              onClick={
+                needsGrading[0]?.assignment?.course_id
+                  ? () => navigate(`/class/${needsGrading[0].assignment!.course_id}?assignmentId=${needsGrading[0].assignment_id}`)
+                  : undefined
+              }
             />
             <StatTile
               label="Due this week"
@@ -164,6 +173,11 @@ export function TeacherDashboard({
               icon={<Clock className="h-4 w-4" />}
               tone={dueThisWeekCount > 0 ? 'soon' : 'muted'}
               hint={dueThisWeekCount === 0 ? 'No deadlines coming up' : 'Across your classes'}
+              onClick={
+                data.upcomingDeadlines[0]?.course_id
+                  ? () => navigate(`/class/${data.upcomingDeadlines[0].course_id}?assignmentId=${data.upcomingDeadlines[0].id}`)
+                  : undefined
+              }
             />
           </div>
 
@@ -310,7 +324,7 @@ export function TeacherDashboard({
                   size="sm"
                   variant="ghost"
                   className="rounded-xl gap-1.5 text-xs"
-                  onClick={() => navigate('/teacher')}
+                  onClick={onCreateClass}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   Create class
@@ -441,9 +455,10 @@ interface StatTileProps {
   icon: React.ReactNode;
   tone: 'primary' | 'accent' | 'urgent' | 'soon' | 'muted';
   hint?: string;
+  onClick?: () => void;
 }
 
-function StatTile({ label, value, icon, tone, hint }: StatTileProps) {
+function StatTile({ label, value, icon, tone, hint, onClick }: StatTileProps) {
   const toneClasses: Record<StatTileProps['tone'], string> = {
     primary: 'from-primary/5 to-primary/10 text-primary',
     accent: 'from-accent/5 to-accent/10 text-accent',
@@ -452,9 +467,26 @@ function StatTile({ label, value, icon, tone, hint }: StatTileProps) {
     muted: 'from-muted/30 to-muted/10 text-muted-foreground',
   };
 
+  const interactive = typeof onClick === 'function';
+
   return (
     <Card
-      className={`border-0 shadow-sm bg-gradient-to-br ${toneClasses[tone]} transition-all duration-200 hover:shadow-md`}
+      onClick={onClick}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      className={`border-0 shadow-sm bg-gradient-to-br ${toneClasses[tone]} transition-all duration-200 hover:shadow-md ${
+        interactive ? 'cursor-pointer hover:-translate-y-0.5' : ''
+      }`}
     >
       <CardContent className="p-4 md:p-5">
         <div className="flex items-center justify-between gap-2">
