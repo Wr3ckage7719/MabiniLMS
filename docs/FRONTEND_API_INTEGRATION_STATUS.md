@@ -374,3 +374,9 @@ To verify the changes:
 - 1 hour: Testing & polish
 
 **Current Status:** Student experience is production-ready! Teacher experience needs more work.
+
+---
+
+## Pending features (wire-up needed)
+
+- `pages/CompetencyPortfolioPage.tsx` — exists on disk with full backend support (`server/src/routes/competency.ts`, `controllers/competency.ts`, `services/competency.ts`). Not yet routed in `App.tsx`. Do not delete — needs a route and nav link to activate.
