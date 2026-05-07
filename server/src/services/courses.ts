@@ -836,7 +836,7 @@ export const createCourse = async (
       .single();
 
     if (!error) {
-      return attachTeacherToCourse(data as Course);
+      return attachTeacherToCourse(data as unknown as Course);
     }
 
     const missingColumn = extractMissingCourseColumn(error);
@@ -918,12 +918,12 @@ export const getCourseById = async (
 
   await assertCourseReadAccess(
     courseId,
-    (data as Course).teacher_id,
+    (data as unknown as Course).teacher_id,
     requesterId,
     requesterRole
   );
 
-  const course = (await attachTeacherToCourse(data as Course)) as CourseWithStats;
+  const course = (await attachTeacherToCourse(data as unknown as Course)) as CourseWithStats;
 
   // Optionally include stats
   if (includeStats) {
@@ -1123,7 +1123,7 @@ export const listCourses = async (
   const total = count || 0;
   const totalPages = Math.ceil(total / limit);
 
-  const baseCourses = await attachTeachersToCourses((data || []) as Course[]);
+  const baseCourses = await attachTeachersToCourses((data || []) as unknown as Course[]);
   const coursesWithStats =
     include_enrollment_count === 'true'
       ? await attachEnrollmentCountsToCourses(baseCourses)
@@ -1190,7 +1190,7 @@ export const updateCourse = async (
       .single();
 
     if (!error) {
-      return attachTeacherToCourse(data as Course);
+      return attachTeacherToCourse(data as unknown as Course);
     }
 
     lastError = error;
@@ -1284,7 +1284,7 @@ export const updateCourseStatus = async (
     );
   }
 
-  return attachTeacherToCourse(data as Course);
+  return attachTeacherToCourse(data as unknown as Course);
 };
 
 /**
@@ -2448,7 +2448,7 @@ export const archiveCourse = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to archive course', 500);
   }
 
-  return attachTeacherToCourse(data as Course);
+  return attachTeacherToCourse(data as unknown as Course);
 };
 
 /**
@@ -2520,7 +2520,7 @@ export const unarchiveCourse = async (
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to unarchive course', 500);
   }
 
-  return attachTeacherToCourse(data as Course);
+  return attachTeacherToCourse(data as unknown as Course);
 };
 
 // ============================================
@@ -2936,12 +2936,12 @@ export const getCourseDashboard = async (
       ? gradesService.getWeightedCourseGrade(courseId, userId, userRole)
           .catch(() => null)
       : Promise.resolve(null),
-    supabaseAdmin
-      .from('discussion_posts')
-      .select('*', { count: 'exact', head: true })
-      .eq('course_id', courseId)
-      .then(({ count }) => count ?? 0)
-      .catch(() => 0),
+    Promise.resolve(
+      supabaseAdmin
+        .from('discussion_posts')
+        .select('*', { count: 'exact', head: true })
+        .eq('course_id', courseId)
+    ).then(({ count }) => count ?? 0).catch(() => 0),
   ]);
 
   return {
