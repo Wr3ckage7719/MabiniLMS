@@ -18,7 +18,7 @@ import {
   convertPptxToSlides,
   type PptxSlidePreview,
 } from '@/lib/material-preview';
-import { openPdf, type PdfDocumentHandle } from '@/lib/pdf-reader';
+import type { PdfDocumentHandle } from '@/lib/pdf-reader';
 import { useStudentLesson } from '@/hooks-api/useLessons';
 
 type FileKind = 'pdf' | 'docx' | 'pptx' | 'image' | 'video' | 'unsupported';
@@ -200,6 +200,7 @@ export default function MaterialReaderPage() {
 
     void (async () => {
       try {
+        const { openPdf } = await import('@/lib/pdf-reader');
         handle = await openPdf(meta.url);
         if (!active) {
           await handle.destroy();

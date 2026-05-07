@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Archive, RefreshCw } from 'lucide-react';
 import { ClassCard } from '@/components/ClassCard';
@@ -104,20 +104,20 @@ export default function Dashboard() {
     (cls) => (cls.archived || archivedClasses.includes(cls.id)) && matchesSearchQuery(cls)
   );
 
-  const handleArchiveClass = async (classId: string) => {
+  const handleArchiveClass = useCallback(async (classId: string) => {
     await handleArchive(classId);
     await refetch();
-  };
+  }, [handleArchive, refetch]);
 
-  const handleUnenrollClass = async (classId: string) => {
+  const handleUnenrollClass = useCallback(async (classId: string) => {
     await handleUnenroll(classId);
     await refetch();
-  };
+  }, [handleUnenroll, refetch]);
 
-  const handleRestoreClass = async (classId: string) => {
+  const handleRestoreClass = useCallback(async (classId: string) => {
     await handleRestore(classId);
     await refetch();
-  };
+  }, [handleRestore, refetch]);
 
   return (
     <div className="p-3 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-3.5 md:space-y-8 animate-fade-in">

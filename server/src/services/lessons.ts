@@ -193,13 +193,19 @@ const assertEnrolled = async (courseId: string, userId: string): Promise<void> =
 // Loaders + assemblers
 // ============================================
 
+const LESSON_LIST_SELECT =
+  'id, course_id, title, sort_order, is_published, is_general, ' +
+  'completion_rule_type, completion_rule_min_minutes, next_lesson_id, ' +
+  'unlock_on_submit, unlock_on_pass, pass_threshold_percent, topics, ' +
+  'created_at, updated_at';
+
 const loadLessonRowsForCourse = async (
   courseId: string,
   includeUnpublished: boolean
 ): Promise<LessonRow[]> => {
   let query = supabaseAdmin
     .from('lessons')
-    .select('*')
+    .select(LESSON_LIST_SELECT)
     .eq('course_id', courseId)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });

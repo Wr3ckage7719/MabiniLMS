@@ -43,7 +43,7 @@ const AdminDashboardPage = React.lazy(() => import('./pages/admin/AdminDashboard
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 2 * 60 * 1000,
+      staleTime: 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000, // 30 minutes — keeps data warm across short breaks
       retry: (failureCount, error) => {
         const status = (error as { response?: { status?: number } })?.response?.status;
@@ -52,9 +52,10 @@ const queryClient = new QueryClient({
         }
         return failureCount < 1;
       },
-      refetchOnWindowFocus: false, // opt-in per query; blanket refetch on Alt-Tab is wasteful
+      refetchOnWindowFocus: false,
       refetchOnReconnect: true,
-      refetchOnMount: 'always',
+      refetchOnMount: true,
+      networkMode: 'offlineFirst',
     },
     mutations: {
       retry: 0,

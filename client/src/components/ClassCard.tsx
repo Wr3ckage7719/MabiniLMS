@@ -1,9 +1,9 @@
+import { memo, useState } from 'react';
 import { ClassItem, CLASS_COLORS } from '@/lib/data';
 import { FileText, ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,7 +71,7 @@ function ProgressRing({ percent, size = 36, stroke = 4 }: ProgressRingProps) {
   );
 }
 
-export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, completion }: ClassCardProps) {
+export const ClassCard = memo(function ClassCard({ classItem, onArchive, onUnenroll, onRestore, completion }: ClassCardProps) {
   const navigate = useNavigate();
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | 'restore' | null>(null);
 
@@ -262,4 +262,4 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
       </AlertDialog>
     </>
   );
-}
+});

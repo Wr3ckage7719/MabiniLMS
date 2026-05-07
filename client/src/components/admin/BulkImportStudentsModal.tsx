@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, Download, Loader2, CheckCircle, XCircle } from 'lucide-react';
-import { parse } from 'papaparse';
 
 interface BulkImportModalProps {
   open: boolean;
@@ -71,7 +70,8 @@ export default function BulkImportStudentsModal({ open, onOpenChange }: BulkImpo
     },
   });
 
-  const parseCsvFile = (selectedFile: File) => {
+  const parseCsvFile = async (selectedFile: File) => {
+    const { parse } = await import('papaparse');
     parse<Record<string, string | undefined>>(selectedFile, {
       header: true,
       skipEmptyLines: 'greedy',

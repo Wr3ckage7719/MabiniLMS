@@ -4,13 +4,10 @@ import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment, 
 import { useRole } from '@/contexts/RoleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useClasses as useClassActions } from '@/contexts/ClassesContext';
-import { useClass } from '@/hooks-api/useClasses';
-import { useAssignments } from '@/hooks-api/useAssignments';
-import { useAnnouncements } from '@/hooks-api/useAnnouncements';
-import { useMaterials } from '@/hooks-api/useMaterials';
-import { useStudents } from '@/hooks-api/useStudents';
-import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useClassDashboard } from '@/hooks-api/useClasses';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
+import { toDisplayAnnouncement } from '@/hooks-api/useAnnouncements';
+import { transformAssignments, transformMaterials, transformUsers, transformCourses } from '@/services/data-transformer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, UserRound, Tag } from 'lucide-react';
@@ -100,42 +97,36 @@ export default function ClassDetail() {
   const [classworkTopicFilter, setClassworkTopicFilter] = useState<string>('all');
   const classId = id || '';
 
-  const classQuery = useClass(classId);
-  const assignmentsQuery = useAssignments(classId);
-  const announcementsQuery = useAnnouncements(classId);
-  const materialsQuery = useMaterials(classId);
-  const studentsQuery = useStudents(classId);
-  const gradesQuery = useGrades(classId);
-  const weightedGradeQuery = useWeightedCourseGrade(classId);
+  const dashboardQuery = useClassDashboard(classId);
   const discussionPostsQuery = useDiscussionPosts(classId);
 
-  const isLoading =
-    classQuery.isLoading ||
-    assignmentsQuery.isLoading ||
-    announcementsQuery.isLoading ||
-    materialsQuery.isLoading ||
-    studentsQuery.isLoading ||
-    gradesQuery.isLoading ||
-    weightedGradeQuery.isLoading;
+  const isLoading = dashboardQuery.isLoading;
+  const dataError = dashboardQuery.error;
+  const hasSupplementaryError = false;
 
-  const dataError =
-    classQuery.error;
-
-  const hasSupplementaryError =
-    Boolean(assignmentsQuery.error) ||
-    Boolean(announcementsQuery.error) ||
-    Boolean(materialsQuery.error) ||
-    Boolean(studentsQuery.error) ||
-    Boolean(gradesQuery.error) ||
-    Boolean(weightedGradeQuery.error);
-
-  const cls = classQuery.data;
-  const assignments = useMemo(() => assignmentsQuery.data || [], [assignmentsQuery.data]);
-  const announcements = announcementsQuery.data || [];
-  const materials = materialsQuery.data || [];
-  const classStudents = studentsQuery.data || [];
-  const classGrades = gradesQuery.data || [];
-  const discussionCommentCount = (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
+  const dashboardData = dashboardQuery.data;
+  const cls = useMemo(
+    () => dashboardData?.course ? transformCourses([dashboardData.course])[0] : undefined,
+    [dashboardData?.course]
+  );
+  const assignments = useMemo(
+    () => transformAssignments(dashboardData?.assignments || []),
+    [dashboardData?.assignments]
+  );
+  const announcements = useMemo(
+    () => (dashboardData?.announcements || []).map(toDisplayAnnouncement),
+    [dashboardData?.announcements]
+  );
+  const materials = useMemo(
+    () => transformMaterials(dashboardData?.materials || []),
+    [dashboardData?.materials]
+  );
+  const classStudents = useMemo(
+    () => transformUsers(dashboardData?.students || []),
+    [dashboardData?.students]
+  );
+  const classGrades = dashboardData?.grades || [];
+  const discussionCommentCount = dashboardData?.discussion_post_count ?? (discussionPostsQuery.data || []).filter((post) => !post.is_hidden).length;
 
   // Sorted unique topic labels across this class's assignments — populates the
   // Classwork tab's filter dropdown (mobile + desktop share state).
@@ -204,7 +195,7 @@ export default function ClassDetail() {
     return numericScores.reduce((sum: number, score: number) => sum + score, 0) / numericScores.length;
   })();
 
-  const weightedBreakdown = weightedGradeQuery.data || null;
+  const weightedBreakdown = dashboardData?.weighted_grade || null;
   const finalGradePercentage = (() => {
     if (typeof weightedBreakdown?.final_percentage === 'number') {
       return weightedBreakdown.final_percentage;
@@ -263,12 +254,7 @@ export default function ClassDetail() {
   };
 
   const refetchAll = () => {
-    void classQuery.refetch();
-    void assignmentsQuery.refetch();
-    void announcementsQuery.refetch();
-    void materialsQuery.refetch();
-    void studentsQuery.refetch();
-    void gradesQuery.refetch();
+    void dashboardQuery.refetch();
   };
 
   if (isLoading) {

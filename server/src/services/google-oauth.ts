@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
+import { invalidateAuthProfileCache } from '../middleware/auth.js';
 import {
   ALLOWED_DOMAIN,
   isInstitutionalEmail,
@@ -203,6 +204,7 @@ export const handleGoogleCallback = async (code: string): Promise<OAuthSession> 
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    invalidateAuthProfileCache(userId);
   }
 
   // 5. Store Google tokens for Drive access

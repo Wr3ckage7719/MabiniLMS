@@ -11,15 +11,16 @@ export function useMaterials(courseId?: string): UseQueryResult<LearningMaterial
     queryFn: async () => {
       if (!courseId) return [];
       const response = await apiClient.get(`/courses/${courseId}/materials`);
-      const materials = transformMaterials(response.data || []);
-      // Warm the offline material cache for everything the student can see.
-      // The SW skips files larger than the configured threshold so this is
-      // safe even with a long materials list.
-      precacheMaterialUrls(materials.map((material) => material.url ?? null));
-      return materials;
+      return transformMaterials(response.data || []);
     },
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 60 * 1000,
   });
+}
+
+export function usePrecacheMaterial(material: LearningMaterial | null): void {
+  if (material?.url) {
+    precacheMaterialUrls([material.url]);
+  }
 }
 
 export function useEngagementStats(

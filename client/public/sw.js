@@ -187,18 +187,29 @@ const handleAppShellFetch = (request) => {
 
   // Stale-while-revalidate for hashed Vite chunks — serve cached immediately,
   // update in background so the next visit gets the freshest build.
+  // Inject immutable Cache-Control so the browser doesn't re-validate on
+  // every navigation (the hash in the filename is the version signal).
   if (HASHED_ASSET_REGEX.test(url.pathname)) {
     return caches.open(CACHE_NAME).then(async (cache) => {
       const cached = await cache.match(request);
       const networkPromise = fetch(request)
         .then((response) => {
           if (response && response.status === 200) {
-            cache.put(request, response.clone());
+            const headers = new Headers(response.headers);
+            headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+            const immutableResponse = new Response(response.body, { status: response.status, headers });
+            cache.put(request, immutableResponse.clone());
+            return immutableResponse;
           }
           return response;
         })
         .catch(() => cached);
-      return cached || networkPromise;
+      if (cached) {
+        const headers = new Headers(cached.headers);
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        return new Response(cached.body, { status: cached.status, headers });
+      }
+      return networkPromise;
     });
   }
 

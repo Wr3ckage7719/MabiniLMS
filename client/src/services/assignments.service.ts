@@ -148,8 +148,10 @@ const isOffline = (): boolean => {
 };
 
 export const assignmentsService = {
-  async getAssignments(courseId: string) {
-    const response = await apiClient.get(`/assignments?course_id=${courseId}&include_past=true`);
+  async getAssignments(courseId?: string) {
+    const params = new URLSearchParams({ include_past: 'true', limit: '200' });
+    if (courseId) params.set('course_id', courseId);
+    const response = await apiClient.get(`/assignments?${params.toString()}`);
     return {
       data: {
         assignments: response?.data || [],

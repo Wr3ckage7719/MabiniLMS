@@ -2,6 +2,26 @@ import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import { gradesService, WeightedCourseGradeBreakdown } from '@/services/grades.service';
 import { useAuth } from '@/contexts/AuthContext';
 
+export function useBatchWeightedCourseGrades(courseIds: string[]) {
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const key = courseIds.slice().sort().join(',');
+
+  return useQuery({
+    queryKey: ['batch-weighted-grades', key],
+    queryFn: async () => {
+      const response = await gradesService.getBatchWeightedCourseGrades(courseIds);
+      return response.data ?? {};
+    },
+    enabled: !authLoading && isLoggedIn && courseIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403) return false;
+      return failureCount < 1;
+    },
+  });
+}
+
 // Main export - used by GradesPage
 export function useGrades(courseId?: string) {
   const { isLoggedIn, isLoading: authLoading } = useAuth();

@@ -32,6 +32,11 @@ import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 import { assertAssessmentUnlocked } from './assessment-gating.js';
 
+// Trimmed select for list views — drops large JSON columns not needed in the list
+const ASSIGNMENT_LIST_SELECT =
+  'id, course_id, title, description, due_date, max_points, assignment_type, grading_period, ' +
+  'submissions_open, submission_open_at, submission_close_at, topics, status, created_at';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
   const author = Array.isArray(comment.author) ? comment.author[0] || null : comment.author;
@@ -1137,7 +1142,7 @@ export const listAssignments = async (
   let queryBuilder = supabaseAdmin
     .from('assignments')
     .select(`
-      *,
+      ${ASSIGNMENT_LIST_SELECT},
       course:courses(
         id, title,
         teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)

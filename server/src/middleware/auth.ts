@@ -9,6 +9,33 @@ import logger from '../utils/logger.js';
 let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+// Per-user auth profile cache — reduces DB round-trips from 3-5 to ~1 per request
+const PROFILE_CACHE_TTL_MS = 60_000;
+const PROFILE_CACHE_MAX = 5_000;
+type CachedAuthProfile = { profile: AuthProfile; cachedAt: number };
+const profileCache = new Map<string, CachedAuthProfile>();
+
+export const invalidateAuthProfileCache = (userId: string): void => {
+  profileCache.delete(userId);
+};
+
+const evictExpiredProfileCache = (): void => {
+  if (profileCache.size <= PROFILE_CACHE_MAX) return;
+  const now = Date.now();
+  for (const [key, val] of profileCache) {
+    if (now - val.cachedAt > PROFILE_CACHE_TTL_MS) profileCache.delete(key);
+    if (profileCache.size <= PROFILE_CACHE_MAX) break;
+  }
+  // If still over limit, evict oldest entries
+  if (profileCache.size > PROFILE_CACHE_MAX) {
+    const entries = [...profileCache.entries()].sort((a, b) => a[1].cachedAt - b[1].cachedAt);
+    for (const [key] of entries) {
+      profileCache.delete(key);
+      if (profileCache.size <= PROFILE_CACHE_MAX) break;
+    }
+  }
+};
 const PASSWORD_CHANGE_TOKEN_GRACE_MS = 1000;
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
 const PROFILE_SELECT_WITH_SECURITY_TRACKING =
@@ -139,7 +166,7 @@ const isTwoFactorEnabledForUser = async (
   return data?.is_enabled === true;
 };
 
-const fetchAuthProfile = async (
+const fetchAuthProfileFromDB = async (
   userId: string
 ): Promise<{ profile: AuthProfile | null; errorMessage?: string }> => {
   const { data, error } = await supabaseAdmin
@@ -202,6 +229,21 @@ const fetchAuthProfile = async (
     : null;
 
   return { profile: legacyProfile };
+};
+
+const fetchAuthProfile = async (
+  userId: string
+): Promise<{ profile: AuthProfile | null; errorMessage?: string }> => {
+  const cached = profileCache.get(userId);
+  if (cached && Date.now() - cached.cachedAt < PROFILE_CACHE_TTL_MS) {
+    return { profile: cached.profile };
+  }
+  const result = await fetchAuthProfileFromDB(userId);
+  if (result.profile && !result.errorMessage) {
+    evictExpiredProfileCache();
+    profileCache.set(userId, { profile: result.profile, cachedAt: Date.now() });
+  }
+  return result;
 };
 
 /**
