@@ -3,7 +3,6 @@ import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import { createBrotliCompress, constants as zlibConstants } from 'zlib';
 import dotenv from 'dotenv';
 import { supabase, verifySupabaseAdminCapabilities } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
@@ -186,55 +185,13 @@ app.use(express.raw({
   type: ['application/octet-stream'],
 }));
 
-// 4. Brotli + gzip compression — Brotli quality 4 (fast, good ratio), gzip fallback
-const brotliMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (req.headers['x-no-compression']) return next();
-  // Skip WebSocket upgrades and SSE streams
-  if (req.headers['upgrade'] || String(req.headers['accept'] || '').includes('text/event-stream')) return next();
-  const accept = String(req.headers['accept-encoding'] || '');
-  if (!accept.includes('br')) return next();
-  const contentType = res.getHeader('content-type') as string | undefined;
-  if (contentType && /application\/(gzip|zip|br|zstd)|image\/|video\//.test(contentType)) return next();
-
-  const origWrite = res.write.bind(res);
-  const origEnd = res.end.bind(res);
-  const brotli = createBrotliCompress({
-    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 },
-  });
-
-  let headersSent = false;
-  const patchHeaders = () => {
-    if (headersSent) return;
-    headersSent = true;
-    res.setHeader('Content-Encoding', 'br');
-    res.removeHeader('Content-Length');
-  };
-
-  brotli.on('data', (chunk: Buffer) => { origWrite(chunk); });
-  brotli.on('end', () => { origEnd(); });
-  brotli.on('error', () => { next(); });
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.write = (chunk: any, ..._args: any[]) => {
-    patchHeaders();
-    return brotli.write(chunk);
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.end = (chunk?: any, ..._args: any[]) => {
-    patchHeaders();
-    if (chunk) brotli.write(chunk);
-    brotli.end();
-    return res;
-  };
-  next();
-};
-// Apply Brotli before the gzip fallback
-app.use(brotliMiddleware);
+// 4. Compression — the `compression` package handles gzip/brotli automatically
+// based on Accept-Encoding. No custom brotli middleware needed.
 app.use(compression({
   threshold: 1024,
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
-    if (res.getHeader('content-encoding')) return false; // Brotli already applied
+    if (res.getHeader('content-encoding')) return false;
     const accept = String(req.headers['accept'] || '');
     if (accept.includes('text/event-stream')) return false;
     return compression.filter(req, res);
