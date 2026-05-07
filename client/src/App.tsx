@@ -33,7 +33,13 @@ const StudentManagementPage = React.lazy(() => import('./pages/admin/StudentMana
 const SystemSettingsPage = React.lazy(() => import('./pages/admin/SystemSettingsPage'));
 const AuditLogsPage = React.lazy(() => import('./pages/admin/AuditLogsPage'));
 const BugReportsPage = React.lazy(() => import('./pages/admin/BugReportsPage'));
-const TeacherDashboard = React.lazy(() => import('./pages/TeacherDashboard'));
+const TeacherLayout = React.lazy(() => import('./layouts/TeacherLayout'));
+const TeacherDashboardPage = React.lazy(() => import('./pages/teacher/TeacherDashboardPage'));
+const TeacherClassesPage = React.lazy(() => import('./pages/teacher/TeacherClassesPage'));
+const TeacherClassDetailPage = React.lazy(() => import('./pages/teacher/TeacherClassDetailPage'));
+const TeacherCalendarPage = React.lazy(() => import('./pages/teacher/TeacherCalendarPage'));
+const TeacherArchivedPage = React.lazy(() => import('./pages/teacher/TeacherArchivedPage'));
+const TeacherSettingsPageLazy = React.lazy(() => import('./pages/TeacherSettingsPage'));
 const LessonEditorPage = React.lazy(() => import('./pages/LessonEditorPage'));
 const MaterialReaderPage = React.lazy(() => import('./pages/MaterialReaderPage'));
 const AssignmentBuilderPage = React.lazy(() => import('./pages/AssignmentBuilderPage'));
@@ -79,14 +85,15 @@ const AppRoutes = () => (
     <Route path="/reset-password" element={<ResetPasswordPage />} />
 
     {/* Teacher Routes */}
-    <Route
-      path="/teacher"
-      element={(
-        <ProtectedRoute role="teacher">
-          <TeacherDashboard />
-        </ProtectedRoute>
-      )}
-    />
+    <Route element={<TeacherLayout />}>
+      <Route path="/teacher" element={<Navigate to="/teacher/dashboard" replace />} />
+      <Route path="/teacher/dashboard" element={<TeacherDashboardPage />} />
+      <Route path="/teacher/classes" element={<TeacherClassesPage />} />
+      <Route path="/teacher/classes/:classId" element={<TeacherClassDetailPage />} />
+      <Route path="/teacher/calendar" element={<TeacherCalendarPage />} />
+      <Route path="/teacher/archived" element={<TeacherArchivedPage />} />
+      <Route path="/teacher/settings" element={<TeacherSettingsPageLazy />} />
+    </Route>
     
     {/* Admin Routes */}
     <Route path="/admin/login" element={<AdminLoginPage />} />

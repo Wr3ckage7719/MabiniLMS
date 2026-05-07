@@ -7,146 +7,35 @@ import {
 import { authService } from '@/services/auth.service';
 import { cacheAuthRole } from '@/lib/pwa-zoom-policy';
 import type { Session as SupabaseSession, User as SupabaseUser } from '@supabase/supabase-js';
+import {
+  type LinkedStudentAccount,
+  normalizeEmail,
+  readStoredStudentAccountSessions,
+  writeStoredStudentAccountSessions,
+  toLinkedStudentAccounts,
+  rememberStudentAccountSession as _rememberStudentAccountSession,
+  renameLinkedStudentAccount as _renameLinkedStudentAccount,
+  removeLinkedStudentAccount as _removeLinkedStudentAccount,
+} from './auth/linked-accounts';
+import {
+  STUDENT_INSTITUTIONAL_DOMAIN,
+  TEACHER_PENDING_APPROVAL_MESSAGE,
+  TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE,
+  isInstitutionalStudentEmail,
+  isMissingLinkedAuthUserError,
+} from './auth/policy';
+import {
+  toTwoFactorChallengeKey,
+  addTwoFactorChallenge,
+  removeTwoFactorChallenge,
+} from './auth/two-factor';
+
+export type { LinkedStudentAccount };
 
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
-const STUDENT_INSTITUTIONAL_DOMAIN = 'mabinicolleges.edu.ph';
 const AUTH_ERROR_STORAGE_KEY = 'auth_error';
 const AUTH_ROLE_INTENT_STORAGE_KEY = 'auth_role_intent';
 const AUTH_OPERATION_TIMEOUT_MS = 30000;
-const STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY = 'mabini:student-account-sessions';
-const MAX_STUDENT_ACCOUNT_SESSIONS = 5;
-const TEACHER_PENDING_APPROVAL_MESSAGE = 'Your teacher account is pending admin approval. Please wait for approval from the admin.';
-const TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE = 'No approved teacher account was found for this Google login. Please request a teacher account and wait for admin approval.';
-
-const toTwoFactorChallengeKey = (portal: 'app' | 'admin', normalizedEmail: string): string => {
-  return `${portal}:${normalizedEmail}`;
-};
-
-interface StoredStudentAccountSession {
-  userId: string;
-  email: string;
-  name: string;
-  customName?: string;
-  avatarUrl: string | null;
-  accessToken: string;
-  refreshToken: string;
-  lastUsedAt: string;
-}
-
-export interface LinkedStudentAccount {
-  userId: string;
-  email: string;
-  name: string;
-  displayName: string;
-  customName: string | null;
-  avatarUrl: string | null;
-  lastUsedAt: string;
-}
-
-const isInstitutionalStudentEmail = (email: string): boolean => {
-  return email.trim().toLowerCase().endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`);
-};
-
-const normalizeEmail = (email: string): string => email.trim().toLowerCase();
-
-const isMissingLinkedAuthUserError = (message: string): boolean => {
-  const normalizedMessage = message.toLowerCase();
-  return (
-    (normalizedMessage.includes('sub claim') && normalizedMessage.includes('does not exist')) ||
-    (normalizedMessage.includes('user') && normalizedMessage.includes('does not exist')) ||
-    normalizedMessage.includes('invalid refresh token')
-  );
-};
-
-const readStoredStudentAccountSessions = (): StoredStudentAccountSession[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  try {
-    const rawValue = localStorage.getItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY);
-    if (!rawValue) {
-      return [];
-    }
-
-    const parsed = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const sanitizedSessions = parsed
-      .filter((item): item is StoredStudentAccountSession => {
-        if (!item || typeof item !== 'object') {
-          return false;
-        }
-
-        const candidate = item as Partial<StoredStudentAccountSession>;
-        return (
-          typeof candidate.userId === 'string' &&
-          typeof candidate.email === 'string' &&
-          typeof candidate.name === 'string' &&
-          (typeof candidate.customName === 'string' || candidate.customName === undefined) &&
-          (typeof candidate.avatarUrl === 'string' || candidate.avatarUrl === null || candidate.avatarUrl === undefined) &&
-          typeof candidate.accessToken === 'string' &&
-          typeof candidate.refreshToken === 'string' &&
-          typeof candidate.lastUsedAt === 'string'
-        );
-      })
-      .map((item) => ({
-        ...item,
-        email: normalizeEmail(item.email),
-        customName: typeof item.customName === 'string' ? item.customName.trim() : undefined,
-        avatarUrl: item.avatarUrl || null,
-      }))
-      .sort((a, b) => {
-        return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
-      });
-
-    // Keep only the latest session for each unique user and email to prevent duplicate same-email entries.
-    const seenUserIds = new Set<string>();
-    const seenEmails = new Set<string>();
-
-    return sanitizedSessions.filter((sessionRecord) => {
-      const normalizedEmail = normalizeEmail(sessionRecord.email);
-
-      if (seenUserIds.has(sessionRecord.userId)) {
-        return false;
-      }
-
-      if (normalizedEmail && seenEmails.has(normalizedEmail)) {
-        return false;
-      }
-
-      seenUserIds.add(sessionRecord.userId);
-      if (normalizedEmail) {
-        seenEmails.add(normalizedEmail);
-      }
-
-      return true;
-    });
-  } catch {
-    return [];
-  }
-};
-
-const writeStoredStudentAccountSessions = (sessions: StoredStudentAccountSession[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  localStorage.setItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
-};
-
-const toLinkedStudentAccounts = (sessions: StoredStudentAccountSession[]): LinkedStudentAccount[] => {
-  return sessions.map(({ accessToken: _accessToken, refreshToken: _refreshToken, customName, ...rest }) => {
-    const normalizedCustomName = (customName || '').trim();
-    return {
-      ...rest,
-      customName: normalizedCustomName || null,
-      displayName: normalizedCustomName || rest.name || rest.email,
-    };
-  });
-};
 
 const getApiErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'object' && error !== null) {
@@ -230,68 +119,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearStoredStudentAccountSessions = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(STUDENT_ACCOUNT_SESSIONS_STORAGE_KEY);
-    }
-
+    writeStoredStudentAccountSessions([]);
     setLinkedStudentAccounts([]);
   }, []);
 
-  const persistStudentAccountSession = useCallback((nextSession: StoredStudentAccountSession) => {
-    const currentSessions = readStoredStudentAccountSessions();
-    const normalizedNextEmail = normalizeEmail(nextSession.email);
-    const existingSession = currentSessions.find(
-      (sessionRecord) =>
-        sessionRecord.userId === nextSession.userId || normalizeEmail(sessionRecord.email) === normalizedNextEmail
-    );
-    const preservedCustomName = (existingSession?.customName || '').trim();
+  const rememberStudentAccountSession = useCallback(
+    (authSession: SupabaseSession | null, currentUser: User | null) =>
+      _rememberStudentAccountSession(authSession, currentUser, setLinkedStudentAccounts),
+    [],
+  );
 
-    const existing = currentSessions.filter(
-      (sessionRecord) =>
-        sessionRecord.userId !== nextSession.userId &&
-        normalizeEmail(sessionRecord.email) !== normalizedNextEmail
-    );
-    const updatedSessions = [{
-      ...nextSession,
-      email: normalizedNextEmail,
-      customName: preservedCustomName || undefined,
-    }, ...existing]
-      .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())
-      .slice(0, MAX_STUDENT_ACCOUNT_SESSIONS);
+  const renameLinkedStudentAccount = useCallback(
+    (userId: string, customName: string) =>
+      _renameLinkedStudentAccount(userId, customName, setLinkedStudentAccounts),
+    [],
+  );
 
-    writeStoredStudentAccountSessions(updatedSessions);
-    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
-  }, []);
-
-  const rememberStudentAccountSession = useCallback((authSession: SupabaseSession | null, currentUser: User | null) => {
-    if (!authSession?.user || !authSession.access_token || !authSession.refresh_token || !currentUser) {
-      return;
-    }
-
-    if (!isRememberSessionEnabled()) {
-      return;
-    }
-
-    const normalizedEmail = (currentUser.email || authSession.user.email || '').trim().toLowerCase();
-    if (!normalizedEmail) {
-      return;
-    }
-
-    const resolvedRole = (currentUser.role || 'student').toLowerCase();
-    if (resolvedRole !== 'student' || !isInstitutionalStudentEmail(normalizedEmail)) {
-      return;
-    }
-
-    persistStudentAccountSession({
-      userId: currentUser.id,
-      email: normalizedEmail,
-      name: currentUser.name,
-      avatarUrl: currentUser.avatarUrl || null,
-      accessToken: authSession.access_token,
-      refreshToken: authSession.refresh_token,
-      lastUsedAt: new Date().toISOString(),
-    });
-  }, [persistStudentAccountSession]);
+  const removeLinkedStudentAccount = useCallback(
+    (userId: string) => _removeLinkedStudentAccount(userId, setLinkedStudentAccounts),
+    [],
+  );
 
   const setStoredAuthError = useCallback((message: string) => {
     if (typeof window !== 'undefined') {
@@ -328,13 +175,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearRoleIntent, setStoredAuthError]);
 
   const enforceInstitutionalStudentPolicy = useCallback(async (candidateUser: User, email: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const resolvedRole = (candidateUser.role || 'student').toLowerCase();
 
-    if (
-      resolvedRole === 'student' &&
-      !normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)
-    ) {
+    if (resolvedRole === 'student' && !isInstitutionalStudentEmail(normalizedEmail)) {
       const message = `Student login requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`;
       await blockSignInWithMessage(message);
       throw new Error(message);
@@ -356,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(TEACHER_GOOGLE_APPROVAL_REQUIRED_MESSAGE);
       }
     },
-    [blockSignInWithMessage]
+    [blockSignInWithMessage],
   );
 
   type ApiProfile = {
@@ -389,8 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .then((r) => {
             if (r.error) console.warn('Profile lookup warning:', r.error.message);
             return r.data;
-          })
-          .catch(() => null),
+          }, () => null),
       ]);
 
       const apiProfileData: ApiProfile | null = apiResponseSettled;
@@ -469,12 +312,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         setSession(session || null);
-        
+
         if (session?.user) {
-          const normalizedEmail = (session.user.email || '').trim().toLowerCase();
-          const userData = await loadUserData(session.user.id, normalizedEmail, session.user);
+          const resolvedEmail = normalizeEmail(session.user.email || '');
+          const userData = await loadUserData(session.user.id, resolvedEmail, session.user);
           const roleIntent = getRoleIntent();
-          await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+          await enforceInstitutionalStudentPolicy(userData, resolvedEmail);
           await enforceTeacherApprovalPolicy(userData, roleIntent);
           setUser(userData);
           rememberStudentAccountSession(session, userData);
@@ -499,10 +342,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setTimeout(() => {
           void (async () => {
             try {
-              const normalizedEmail = (signedInUser.email || '').trim().toLowerCase();
-              const userData = await loadUserData(signedInUser.id, normalizedEmail, signedInUser);
+              const resolvedEmail = normalizeEmail(signedInUser.email || '');
+              const userData = await loadUserData(signedInUser.id, resolvedEmail, signedInUser);
               const roleIntent = getRoleIntent();
-              await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+              await enforceInstitutionalStudentPolicy(userData, resolvedEmail);
               await enforceTeacherApprovalPolicy(userData, roleIntent);
               setUser(userData);
               rememberStudentAccountSession(session, userData);
@@ -538,9 +381,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (
     email: string,
-    password: string,
+    _password: string,
     fullName: string,
-    role: 'student' | 'teacher' = 'teacher'
+    role: 'student' | 'teacher' = 'teacher',
   ) => {
     if (!email || !fullName) {
       throw new Error('Email and full name are required');
@@ -551,7 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      const trimmedEmail = normalizeEmail(email);
       const [firstToken, ...restTokens] = fullName.trim().split(' ').filter(Boolean);
 
       const response = await authService.signup({
@@ -575,13 +418,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Institutional email is required');
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
+    const resolvedEmail = normalizeEmail(email);
+    if (!resolvedEmail.endsWith(`@${STUDENT_INSTITUTIONAL_DOMAIN}`)) {
       throw new Error(`Student signup requires @${STUDENT_INSTITUTIONAL_DOMAIN} email.`);
     }
 
     try {
-      const response = await authService.requestStudentCredentials(normalizedEmail);
+      const response = await authService.requestStudentCredentials(resolvedEmail);
       if (!response?.success) {
         throw new Error(response?.error || 'Failed to request student credentials');
       }
@@ -592,7 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (message.toLowerCase().includes('request timed out')) {
         throw new Error(
-          'Student signup is taking longer than expected. The server may be waking up. Please wait a few seconds and try again.'
+          'Student signup is taking longer than expected. The server may be waking up. Please wait a few seconds and try again.',
         );
       }
 
@@ -612,8 +455,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Email and password are required');
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-    const challengeKey = toTwoFactorChallengeKey(portal, normalizedEmail);
+    const resolvedEmail = normalizeEmail(email);
+    const challengeKey = toTwoFactorChallengeKey(portal, resolvedEmail);
     const challengeId = twoFactorCode ? twoFactorChallenges[challengeKey] : undefined;
 
     try {
@@ -625,7 +468,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const response = await withTimeout(
         authService.login({
-          email: normalizedEmail,
+          email: resolvedEmail,
           password,
           twoFactorCode,
           twoFactorChallengeId: challengeId,
@@ -634,7 +477,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roleIntent,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
-        'Login timed out. Please try again.'
+        'Login timed out. Please try again.',
       );
 
       if (!response?.success || !response.data) {
@@ -647,21 +490,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error('Two-factor challenge was not issued. Please try signing in again.');
         }
 
-        setTwoFactorChallenges((currentMap) => ({
-          ...currentMap,
-          [challengeKey]: nextChallengeId,
-        }));
+        setTwoFactorChallenges((currentMap) => addTwoFactorChallenge(currentMap, challengeKey, nextChallengeId));
         return { requiresTwoFactor: true };
       }
 
-      setTwoFactorChallenges((currentMap) => {
-        if (!(challengeKey in currentMap)) {
-          return currentMap;
-        }
-
-        const { [challengeKey]: _removedChallenge, ...remainingChallenges } = currentMap;
-        return remainingChallenges;
-      });
+      setTwoFactorChallenges((currentMap) => removeTwoFactorChallenge(currentMap, challengeKey));
 
       const authSession = response.data.session;
       if (!authSession?.access_token || !authSession?.refresh_token) {
@@ -674,7 +507,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           refresh_token: authSession.refresh_token,
         }),
         AUTH_OPERATION_TIMEOUT_MS,
-        'Session initialization timed out. Please try again.'
+        'Session initialization timed out. Please try again.',
       );
 
       if (setSessionError) {
@@ -687,7 +520,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Failed to resolve authenticated user data. Please sign in again.');
       }
 
-      const authenticatedEmail = (authenticatedUser.email || normalizedEmail).trim().toLowerCase();
+      const authenticatedEmail = normalizeEmail(authenticatedUser.email || resolvedEmail);
       const userData = await loadUserData(authenticatedUser.id, authenticatedEmail, authenticatedUser);
       await enforceInstitutionalStudentPolicy(userData, authenticatedEmail);
       await enforceTeacherApprovalPolicy(userData, null);
@@ -700,14 +533,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       const message = getApiErrorMessage(err, 'Login failed');
       if (message.toLowerCase().includes('two-factor verification session')) {
-        setTwoFactorChallenges((currentMap) => {
-          if (!(challengeKey in currentMap)) {
-            return currentMap;
-          }
-
-          const { [challengeKey]: _removedChallenge, ...remainingChallenges } = currentMap;
-          return remainingChallenges;
-        });
+        setTwoFactorChallenges((currentMap) => removeTwoFactorChallenge(currentMap, challengeKey));
       }
 
       throw new Error(message);
@@ -719,7 +545,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (roleIntent === 'teacher') {
         clearRoleIntent();
         throw new Error(
-          'Teacher Google sign-in is not available. Please complete teacher signup and use your approved email and password.'
+          'Teacher Google sign-in is not available. Please complete teacher signup and use your approved email and password.',
         );
       }
 
@@ -763,50 +589,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const renameLinkedStudentAccount = useCallback((userId: string, customName: string) => {
-    const normalizedCustomName = customName.trim();
-
-    if (normalizedCustomName.length > 40) {
-      throw new Error('Account name must be 40 characters or less.');
-    }
-
-    const currentSessions = readStoredStudentAccountSessions();
-    let targetFound = false;
-
-    const updatedSessions = currentSessions.map((sessionRecord) => {
-      if (sessionRecord.userId !== userId) {
-        return sessionRecord;
-      }
-
-      targetFound = true;
-      return {
-        ...sessionRecord,
-        customName: normalizedCustomName || undefined,
-      };
-    });
-
-    if (!targetFound) {
-      throw new Error('Linked account not found.');
-    }
-
-    writeStoredStudentAccountSessions(updatedSessions);
-    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
-  }, []);
-
-  const removeLinkedStudentAccount = useCallback((userId: string) => {
-    const currentSessions = readStoredStudentAccountSessions();
-    const updatedSessions = currentSessions.filter((sessionRecord) => sessionRecord.userId !== userId);
-
-    if (updatedSessions.length === currentSessions.length) {
-      throw new Error('Linked account not found.');
-    }
-
-    writeStoredStudentAccountSessions(updatedSessions);
-    setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
-  }, []);
-
   const switchStudentAccount = async (userId: string) => {
-    const storedSession = readStoredStudentAccountSessions().find((sessionRecord) => sessionRecord.userId === userId);
+    const storedSession = readStoredStudentAccountSessions().find((s) => s.userId === userId);
 
     if (!storedSession) {
       throw new Error('This linked account is no longer available. Please add it again.');
@@ -818,16 +602,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refresh_token: storedSession.refreshToken,
       }),
       AUTH_OPERATION_TIMEOUT_MS,
-      'Switch account timed out. Please try again.'
+      'Switch account timed out. Please try again.',
     );
 
     if (setSessionError) {
       const message = getApiErrorMessage(setSessionError, 'Unable to switch account. Please sign in again.');
 
       if (isMissingLinkedAuthUserError(message)) {
-        const updatedSessions = readStoredStudentAccountSessions().filter(
-          (sessionRecord) => sessionRecord.userId !== userId
-        );
+        const updatedSessions = readStoredStudentAccountSessions().filter((s) => s.userId !== userId);
         writeStoredStudentAccountSessions(updatedSessions);
         setLinkedStudentAccounts(toLinkedStudentAccounts(updatedSessions));
 
@@ -842,10 +624,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Unable to start the selected account session.');
     }
 
-    const normalizedEmail = (activeSession.user.email || storedSession.email).trim().toLowerCase();
-    const userData = await loadUserData(activeSession.user.id, normalizedEmail, activeSession.user);
+    const resolvedEmail = normalizeEmail(activeSession.user.email || storedSession.email);
+    const userData = await loadUserData(activeSession.user.id, resolvedEmail, activeSession.user);
 
-    await enforceInstitutionalStudentPolicy(userData, normalizedEmail);
+    await enforceInstitutionalStudentPolicy(userData, resolvedEmail);
     await enforceTeacherApprovalPolicy(userData, null);
 
     setUser(userData);
@@ -856,10 +638,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateAvatar = (avatarUrl: string) => {
     setUser((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        avatarUrl,
-      };
+      return { ...prev, avatarUrl };
     });
   };
 

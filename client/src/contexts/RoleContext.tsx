@@ -34,10 +34,10 @@ const toInitials = (fullName?: string): string => {
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const currentUserName = user?.name || 'Kaide Olfindo';
+  const currentUserName = user?.name || '';
 
   const value: RoleContextType = {
-    currentUserId: user?.id || 'student-1',
+    currentUserId: user?.id || '',
     currentUserName,
     currentUserAvatar: toInitials(currentUserName),
     currentUserAvatarUrl: user?.avatarUrl || null,

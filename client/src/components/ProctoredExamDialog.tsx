@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { examsService, ExamAttemptSession, ExamSubmissionResult, ProctorViolationType } from '@/services/exams.service'
+import { Z } from '@/lib/z-index'
 
 interface ProctoredExamDialogProps {
   assignmentId: string
@@ -563,7 +564,8 @@ export function ProctoredExamDialog({
 
   return (
     <div
-      className={`fixed inset-0 z-[130] bg-background flex flex-col ${lockSelection ? 'select-none' : ''}`}
+      style={{ zIndex: Z.examChrome }}
+      className={`fixed inset-0 bg-background flex flex-col ${lockSelection ? 'select-none' : ''}`}
       onDragStart={lockSelection ? (event) => event.preventDefault() : undefined}
     >
       {/* Header */}
@@ -1213,7 +1215,7 @@ export function ProctoredExamDialog({
       </div>
 
       {confirmSubmit && !result && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-4">
+        <div style={{ zIndex: Z.examOverlay }} className="fixed inset-0 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl bg-background p-5 shadow-xl border border-border">
             <h3 className="text-base font-semibold mb-2">
               {isQuizMode ? 'Submit Quiz?' : 'Submit Exam?'}
@@ -1252,7 +1254,7 @@ export function ProctoredExamDialog({
       )}
 
       {submitError && !confirmSubmit && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[140] max-w-lg w-[92vw] rounded-xl border border-destructive/40 bg-destructive/10 p-3 shadow-lg">
+        <div style={{ zIndex: Z.examOverlay }} className="fixed top-4 left-1/2 -translate-x-1/2 max-w-lg w-[92vw] rounded-xl border border-destructive/40 bg-destructive/10 p-3 shadow-lg">
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
             <div className="flex-1 text-xs text-destructive">

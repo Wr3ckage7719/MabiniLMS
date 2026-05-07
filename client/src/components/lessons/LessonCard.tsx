@@ -2,23 +2,24 @@ import { Lock, Play, CheckCircle2, FileText, ClipboardList, ChevronRight } from 
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { Lesson, LessonStatus, LessonUnlockBlocker } from '@/lib/data';
+import { STATUS_BADGE } from '@/lib/utils';
 
 const STATUS_PILL: Record<LessonStatus, { label: string; className: string }> = {
   done: {
     label: 'Done',
-    className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    className: STATUS_BADGE.success,
   },
   active: {
     label: 'In progress',
-    className: 'bg-blue-100 text-blue-700 border-blue-200',
+    className: STATUS_BADGE.info,
   },
   locked: {
     label: 'Locked',
-    className: 'bg-muted text-muted-foreground border-border',
+    className: STATUS_BADGE.muted,
   },
   draft: {
     label: 'Draft',
-    className: 'bg-amber-100 text-amber-700 border-amber-200',
+    className: STATUS_BADGE.warning,
   },
 };
 

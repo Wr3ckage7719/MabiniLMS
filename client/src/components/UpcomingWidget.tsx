@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useClasses } from '@/hooks-api/useClasses';
+import { STATUS_BADGE } from '@/lib/utils';
 
 const TYPE_ICONS = {
   assignment: FileText,
@@ -13,10 +14,10 @@ const TYPE_ICONS = {
 };
 
 const TYPE_BADGE_STYLES: Record<string, string> = {
-  assignment: 'bg-primary/10 text-primary border-0',
-  quiz: 'bg-warning/10 text-warning border-0',
-  project: 'bg-accent/10 text-accent border-0',
-  discussion: 'bg-success/10 text-success border-0',
+  assignment: STATUS_BADGE.info,
+  quiz: STATUS_BADGE.warning,
+  project: STATUS_BADGE.info,
+  discussion: STATUS_BADGE.success,
 };
 
 export function UpcomingWidget() {
