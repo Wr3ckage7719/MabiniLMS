@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CLASS_COLORS } from '@/lib/data';
 import { useClasses } from '@/hooks-api/useClasses';
-import { useGrades } from '@/hooks-api/useGrades';
-import { useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useGrades, useBatchWeightedCourseGrades } from '@/hooks-api/useGrades';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -15,20 +14,20 @@ import {
   describeMabiniRemarks,
 } from '@/lib/grade-points';
 import { GRADING_PERIOD_LABELS } from '@/lib/task-types';
-import type { MabiniGradingPeriodKey, MabiniWeightedSummary } from '@/services/grades.service';
+import type { MabiniGradingPeriodKey, MabiniWeightedSummary, WeightedCourseGradeBreakdown } from '@/services/grades.service';
 import type { ClassItem } from '@/lib/data';
 
 const ALL_PERIODS: MabiniGradingPeriodKey[] = ['pre_mid', 'midterm', 'pre_final', 'final'];
 
 interface ClassGradeCardProps {
   cls: ClassItem;
+  weighted?: WeightedCourseGradeBreakdown | null;
   classGrades: Array<{ status: string; points?: number | null; maxPoints?: number | null; gradingPeriod?: string | null }>;
   isExporting: boolean;
   onExport: (cls: ClassItem, mabini: MabiniWeightedSummary | null | undefined, fallbackPercent: number | null) => void;
 }
 
-function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeCardProps) {
-  const { data: weighted } = useWeightedCourseGrade(cls.id);
+function ClassGradeCard({ cls, weighted, classGrades, isExporting, onExport }: ClassGradeCardProps) {
 
   const submitted = classGrades.filter((g) => g.status === 'submitted' || g.status === 'graded').length;
   const total = classGrades.length;
@@ -153,6 +152,8 @@ function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeC
 export default function GradesPage() {
   const { data: classes = [], isLoading: classesLoading, error: classesError, refetch: refetchClasses } = useClasses();
   const { data: grades = [], isLoading: gradesLoading, error: gradesError, refetch: refetchGrades } = useGrades();
+  const classIds = useMemo(() => classes.map((c) => c.id), [classes]);
+  const { data: batchWeighted = {} } = useBatchWeightedCourseGrades(classIds);
   const { toast } = useToast();
   const { user } = useAuth();
   const { currentUserName } = useRole();
@@ -290,6 +291,7 @@ export default function GradesPage() {
                 <ClassGradeCard
                   key={cls.id}
                   cls={cls}
+                  weighted={batchWeighted[cls.id] ?? null}
                   classGrades={classGrades}
                   isExporting={exportingCourseId === cls.id}
                   onExport={handleExportMyGrade}

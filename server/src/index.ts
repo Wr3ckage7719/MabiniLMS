@@ -1,14 +1,17 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import { createBrotliCompress, constants as zlibConstants } from 'zlib';
+import { Transform } from 'stream';
 import dotenv from 'dotenv';
 import { supabase, verifySupabaseAdminCapabilities } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { requestLogger } from './middleware/requestLogger.js';
+import { requestLogger, slowRequestLogger } from './middleware/requestLogger.js';
 import { apiLimiter, adminLimiter, batchLimiter, searchLimiter } from './middleware/rateLimiter.js';
+import { httpCache } from './middleware/httpCache.js';
 import logger from './utils/logger.js';
 import { initializeWebSocket } from './services/websocket.js';
 import {
@@ -184,11 +187,53 @@ app.use(express.raw({
   type: ['application/octet-stream'],
 }));
 
-// 4. Gzip/Brotli compression — skips already-compressed types and SSE streams
+// 4. Brotli + gzip compression — Brotli quality 4 (fast, good ratio), gzip fallback
+const brotliMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if (req.headers['x-no-compression']) return next();
+  const accept = String(req.headers['accept-encoding'] || '');
+  if (!accept.includes('br')) return next();
+  const contentType = res.getHeader('content-type') as string | undefined;
+  if (contentType && /application\/(gzip|zip|br|zstd)|image\/|video\//.test(contentType)) return next();
+
+  const origWrite = res.write.bind(res);
+  const origEnd = res.end.bind(res);
+  const brotli = createBrotliCompress({
+    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 },
+  });
+
+  let headersSent = false;
+  const patchHeaders = () => {
+    if (headersSent) return;
+    headersSent = true;
+    res.setHeader('Content-Encoding', 'br');
+    res.removeHeader('Content-Length');
+  };
+
+  brotli.on('data', (chunk: Buffer) => { origWrite(chunk); });
+  brotli.on('end', () => { origEnd(); });
+  brotli.on('error', () => { next(); });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res.write = (chunk: any, ...args: any[]) => {
+    patchHeaders();
+    return brotli.write(chunk);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res.end = (chunk?: any, ...args: any[]) => {
+    patchHeaders();
+    if (chunk) brotli.write(chunk);
+    brotli.end();
+    return res;
+  };
+  next();
+};
+// Apply Brotli before the gzip fallback
+app.use(brotliMiddleware);
 app.use(compression({
   threshold: 1024,
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
+    if (res.getHeader('content-encoding')) return false; // Brotli already applied
     const accept = String(req.headers['accept'] || '');
     if (accept.includes('text/event-stream')) return false;
     return compression.filter(req, res);
@@ -197,6 +242,7 @@ app.use(compression({
 
 // 5. Request logging with correlation IDs
 app.use(requestLogger);
+app.use(slowRequestLogger(1000));
 
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
@@ -357,21 +403,21 @@ app.use('/api/auth/google', googleOAuthRoutes); // Google OAuth routes
 app.use('/api/2fa', twoFactorRoutes); // Two-Factor Authentication routes
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes); // Admin-specific rate limiting
-app.use('/api/courses', courseRoutes);
+app.use('/api/courses', httpCache, courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
-app.use('/api/assignments', assignmentRoutes);
-app.use('/api/grades', gradeRoutes);
+app.use('/api/assignments', httpCache, assignmentRoutes);
+app.use('/api/grades', httpCache, gradeRoutes);
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);
-app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
+app.use('/api', httpCache, announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
 app.use('/api', discussionRoutes); // Course discussion stream routes
 app.use('/api/competency', competencyRoutes); // TESDA competency overlay
-app.use('/api/lessons', lessonRoutes); // LM-centric lesson flow
+app.use('/api/lessons', httpCache, lessonRoutes); // LM-centric lesson flow
 
 // Error handlers (must be last)
 app.use(notFoundHandler);

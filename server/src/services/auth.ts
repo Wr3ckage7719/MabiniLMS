@@ -1,5 +1,6 @@
 import { createIsolatedAuthClient, supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode, UserRole } from '../types/index.js';
+import { invalidateAuthProfileCache } from '../middleware/auth.js';
 import {
   SignupInput,
   StudentCredentialSignupInput,
@@ -1741,6 +1742,8 @@ export const updatePasswordChangedAt = async (userId: string): Promise<void> => 
   if (error) {
     logger.error('Failed to update password_changed_at', { userId, error: error.message });
     // Don't throw - this is not critical
+  } else {
+    invalidateAuthProfileCache(userId);
   }
 };
 

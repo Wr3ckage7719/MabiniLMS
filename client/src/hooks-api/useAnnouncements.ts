@@ -21,7 +21,7 @@ const toRelativeTime = (value: string): string => {
   return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 };
 
-const toDisplayAnnouncement = (announcement: ApiAnnouncement): Announcement => {
+export const toDisplayAnnouncement = (announcement: ApiAnnouncement): Announcement => {
   const firstName = announcement.author?.first_name?.trim() || '';
   const lastName = announcement.author?.last_name?.trim() || '';
   const author = `${firstName} ${lastName}`.trim() || announcement.author?.email || 'Instructor';

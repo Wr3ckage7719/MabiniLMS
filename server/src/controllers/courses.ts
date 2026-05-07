@@ -1133,3 +1133,17 @@ export const getCourseInsights = async (
     next(error);
   }
 };
+
+export const getCourseDashboard = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => { try { const courseId = req.params.id; const userId = req.user!.id; const userRole = req.user!.role; const data = await courseService.getCourseDashboard(courseId, userId, userRole); const response: ApiResponse = { success: true, data }; res.json(response); } catch (error) { next(error); } };
+
+
+export const getTeacherDashboardSummary = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const data = await courseService.getTeacherDashboardSummary(userId);
+    const response: ApiResponse = { success: true, data };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};

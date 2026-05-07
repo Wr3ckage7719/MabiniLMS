@@ -19,6 +19,22 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom',
+      '@tanstack/react-query',
+      '@supabase/supabase-js',
+      'lucide-react',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-select',
+      '@radix-ui/react-toast',
+      'date-fns',
+    ],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -57,6 +73,13 @@ export default defineConfig({
           if (id.includes('react-hook-form') || id.includes('@hookform/') || id.includes('zod')) {
             return 'vendor-forms';
           }
+
+          // Additional common libs — prevents vendor-misc from becoming monolithic
+          if (id.includes('framer-motion')) return 'vendor-motion';
+          if (id.includes('@dnd-kit/')) return 'vendor-dnd';
+          if (id.includes('react-virtualized') || id.includes('react-window')) return 'vendor-virtual';
+          if (id.includes('highlight.js') || id.includes('prismjs')) return 'vendor-highlight';
+          if (id.includes('xlsx') || id.includes('exceljs')) return 'vendor-excel';
 
           // Everything else — single hashed bucket, browser-cacheable across deploys
           return 'vendor-misc';

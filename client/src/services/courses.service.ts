@@ -91,6 +91,14 @@ export const coursesService = {
   async getCourseInsights(courseId: string) {
     return apiClient.get(`/courses/${courseId}/insights`);
   },
+
+  async getCourseDashboard(courseId: string) {
+    return apiClient.get(`/courses/${courseId}/dashboard`);
+  },
+
+  async getTeacherDashboardSummary() {
+    return apiClient.get('/courses/teacher/dashboard-summary');
+  },
 };
 
 export interface PerStudentInsight {

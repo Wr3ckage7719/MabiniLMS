@@ -370,8 +370,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadUserData = useCallback(async (id: string, email: string, authUser?: SupabaseUser | null): Promise<User> => {
     try {
-      // Fire all three independent reads in parallel — eliminates 2× serial RTTs on startup.
-      const [profile, apiResponseSettled, profileData] = await Promise.all([
+      // Two parallel reads: Supabase auth user (for metadata) + API profile (for role/flags).
+      // The direct profiles table query was removed — /auth/me already returns
+      // pending_approval and requires_google_student_setup.
+      const [profile, apiResponseSettled] = await Promise.all([
         authUser
           ? Promise.resolve(authUser)
           : supabase.auth.getUser().then((r) => r.data.user),
@@ -381,19 +383,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.warn('Auth profile API lookup warning:', profileApiError);
             return null;
           }),
-        supabase
-          .from('profiles')
-          .select('role, pending_approval, avatar_url')
-          .eq('id', id)
-          .maybeSingle()
-          .then((r) => {
-            if (r.error) console.warn('Profile lookup warning:', r.error.message);
-            return r.data;
-          })
-          .catch(() => null),
       ]);
 
       const apiProfileData: ApiProfile | null = apiResponseSettled;
+      const profileData = apiProfileData;
 
       const firstName = profile?.user_metadata?.first_name;
       const lastName = profile?.user_metadata?.last_name;

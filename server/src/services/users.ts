@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ApiError, ErrorCode } from '../types/index.js';
+import { invalidateAuthProfileCache } from '../middleware/auth.js';
 import {
   UpdateProfileInput,
   UpdateUserRoleInput,
@@ -139,6 +140,7 @@ export const updateProfile = async (
     );
   }
 
+  invalidateAuthProfileCache(userId);
   return data as UserProfile;
 };
 

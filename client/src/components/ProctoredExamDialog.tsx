@@ -57,6 +57,16 @@ export function ProctoredExamDialog({
 
   const isAttemptActive = session?.attempt.status === 'active' && !result && !terminated
   const isQuizMode = mode === 'quiz'
+
+  // Pause all background React Query refetches while the exam is in-progress
+  // to avoid network noise that could interfere with the timed session.
+  useEffect(() => {
+    if (!isAttemptActive) return;
+    queryClient.setDefaultOptions({ queries: { refetchOnWindowFocus: false, refetchInterval: false } });
+    return () => {
+      queryClient.setDefaultOptions({ queries: { refetchOnWindowFocus: false } });
+    };
+  }, [isAttemptActive, queryClient]);
   const isOneAtATime = Boolean(session?.policy.one_question_at_a_time)
   const lastViolationAtRef = useRef<Record<string, number>>({})
   const timeoutSubmitInFlightRef = useRef(false)

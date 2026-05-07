@@ -4,6 +4,7 @@ import qrcode from 'qrcode';
 import crypto from 'crypto';
 import { supabase } from '../lib/supabase.js';
 import { ApiError, ErrorCode } from '../types/index.js';
+import { invalidateAuthProfileCache } from '../middleware/auth.js';
 
 const APP_NAME = 'MabiniLMS';
 
@@ -175,6 +176,7 @@ export const enableTwoFactor = async (
       500
     );
   }
+  invalidateAuthProfileCache(userId);
 };
 
 /**
@@ -215,6 +217,7 @@ export const disableTwoFactor = async (
       500
     );
   }
+  invalidateAuthProfileCache(userId);
 };
 
 /**

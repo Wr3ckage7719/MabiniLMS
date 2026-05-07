@@ -49,6 +49,22 @@ router.post(
   courseController.createCourse
 );
 
+// Get teacher dashboard summary (one-shot: courses + deadlines + recent submissions)
+router.get(
+  '/teacher/dashboard-summary',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  courseController.getTeacherDashboardSummary
+);
+
+// Get aggregated course dashboard (single-call class view for ClassDetail)
+router.get(
+  '/:id/dashboard',
+  authenticate,
+  validate({ params: courseIdParamSchema }),
+  courseController.getCourseDashboard
+);
+
 // Get course by ID
 router.get(
   '/:id',

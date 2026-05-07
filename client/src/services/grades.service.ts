@@ -112,6 +112,14 @@ export const gradesService = {
     };
   },
 
+  async getBatchWeightedCourseGrades(courseIds: string[]) {
+    if (courseIds.length === 0) return { data: {} as Record<string, WeightedCourseGradeBreakdown | null> };
+    const response = await apiClient.get<{ success: boolean; data: Record<string, WeightedCourseGradeBreakdown | null> }>(
+      `/grades/weighted-courses?course_ids=${courseIds.map(encodeURIComponent).join(',')}`
+    );
+    return { ...response, data: response?.data ?? {} };
+  },
+
   async updateGrade(gradeId: string, data: { score?: number; feedback?: string }) {
     return apiClient.patch(`/grades/${gradeId}`, {
       points_earned: data.score,

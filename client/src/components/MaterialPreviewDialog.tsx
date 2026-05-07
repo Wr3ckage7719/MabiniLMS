@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { trackDownload, trackScrollProgress, trackViewEnd, trackViewStart } from '@/lib/material-actions';
 import { convertDocxToHtml, convertPptxToSlides, type PptxSlidePreview } from '@/lib/material-preview';
-import { useEngagementStats } from '@/hooks-api/useMaterials';
+import { useEngagementStats, usePrecacheMaterial } from '@/hooks-api/useMaterials';
 import { useToast } from '@/hooks/use-toast';
 import type { LearningMaterial } from '@/lib/data';
 import { materialsService, type MaterialEngagementEvent, type MaterialProgressRecord } from '@/services/materials.service';
@@ -278,6 +278,7 @@ export function MaterialPreviewDialog({
   courseId,
 }: MaterialPreviewDialogProps) {
   const { toast } = useToast();
+  usePrecacheMaterial(open ? material : null);
   const [scrollPercent, setScrollPercent] = useState(0);
   const [lastTrackedScroll, setLastTrackedScroll] = useState(0);
   const [activeTab, setActiveTab] = useState('preview');

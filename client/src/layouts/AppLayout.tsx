@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Header } from '@/components/Header';
 import { AppSidebar } from '@/components/Sidebar';
 import { CreateClassDialog } from '@/components/CreateClassDialog';
@@ -21,52 +22,15 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [passwordNoticeDismissed, setPasswordNoticeDismissed] = useState(false);
 
-  // Check if user still has an active temporary password requirement.
-  useEffect(() => {
-    let isActive = true;
-
-    const checkTempPassword = async () => {
-      if (!isLoggedIn || !user?.id) {
-        if (!isActive) {
-          return;
-        }
-
-        setMustChangePassword(false);
-        setPasswordNoticeDismissed(false);
-        return;
-      }
-
-      try {
-        const requiresPasswordChange = await passwordStatusService.requiresPasswordChange(user.id);
-
-        if (!isActive) {
-          return;
-        }
-
-        setMustChangePassword(requiresPasswordChange);
-        if (!requiresPasswordChange) {
-          setPasswordNoticeDismissed(false);
-        }
-      } catch {
-        if (!isActive) {
-          return;
-        }
-
-        // No temp password record or transient query error.
-        setMustChangePassword(false);
-        setPasswordNoticeDismissed(false);
-      }
-    };
-
-    void checkTempPassword();
-
-    return () => {
-      isActive = false;
-    };
-  }, [isLoggedIn, user]);
+  const { data: mustChangePassword = false } = useQuery({
+    queryKey: ['password-status', user?.id],
+    queryFn: () => passwordStatusService.requiresPasswordChange(user!.id),
+    enabled: isLoggedIn && !!user?.id,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
   // Show loading while checking auth
   if (isLoading) {

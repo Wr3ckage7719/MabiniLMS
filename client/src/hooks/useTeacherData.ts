@@ -6,8 +6,10 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { teacherService, TeacherCourse, CourseStudent, Submission, TeacherAssignment, Notification } from '@/services/teacher.service';
 import { notificationsService } from '@/services/notifications.service';
+import { coursesService } from '@/services/courses.service';
 
 // ============================================
 // useTeacherCourses - Fetch teacher's courses
@@ -432,117 +434,49 @@ export interface UseTeacherDashboardResult {
 }
 
 export function useTeacherDashboard(): UseTeacherDashboardResult {
-  const [data, setData] = useState<TeacherDashboardData>({
-    courses: [],
-    totalStudents: 0,
-    recentSubmissions: [],
-    upcomingDeadlines: [],
+  const { data: raw, isLoading, error: queryError, refetch } = useQuery({
+    queryKey: ['teacher-dashboard-summary'],
+    queryFn: async () => {
+      const res = await coursesService.getTeacherDashboardSummary();
+      return res.data;
+    },
+    staleTime: 2 * 60 * 1000,
+    retry: (failureCount, error: any) => {
+      const status = error?.response?.status;
+      if (status === 401 || status === 403) return false;
+      return failureCount < 1;
+    },
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchDashboard = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const data: TeacherDashboardData = {
+    courses: (raw?.courses || []) as TeacherCourse[],
+    totalStudents: raw?.total_students ?? 0,
+    recentSubmissions: (raw?.recent_submissions || []).map((s: any) => ({
+      id: s.id,
+      submitted_at: s.submitted_at,
+      status: s.status,
+      student_id: s.student_id,
+      assignment_id: s.assignment_id,
+      grade: s.grade ?? null,
+      assignment: {
+        id: s.assignment_id,
+        title: s.assignment_title,
+        due_date: '',
+        max_points: 0,
+        course_id: s.course_id,
+      },
+    })) as Submission[],
+    upcomingDeadlines: (raw?.upcoming_deadlines || []) as TeacherAssignment[],
+  };
 
-      // 1) Courses first — needed to know course ids
-      const coursesRes = await teacherService.getTeacherCourses({
-        status: 'published',
-        includeEnrollmentCount: true,
-        limit: 100,
-      });
-      const courses = coursesRes.data || [];
-      const totalStudents = courses.reduce((sum, c) => sum + (c.enrollment_count || 0), 0);
+  const error = queryError
+    ? ((queryError as any)?.response?.data?.message || 'Failed to load dashboard')
+    : null;
 
-      // 2) Fetch assignments for all visible courses IN PARALLEL
-      const visibleCourses = courses.slice(0, 5);
-      const assignmentResults = await Promise.allSettled(
-        visibleCourses.map((course) =>
-          teacherService.getCourseAssignments(course.id).then((res) => ({
-            courseId: course.id,
-            assignments: res.data || [],
-          }))
-        )
-      );
-
-      const allAssignments: TeacherAssignment[] = [];
-      const assignmentsByCourse: Array<{ courseId: string; assignments: TeacherAssignment[] }> = [];
-      for (const result of assignmentResults) {
-        if (result.status === 'fulfilled') {
-          allAssignments.push(...result.value.assignments);
-          assignmentsByCourse.push(result.value);
-        }
-      }
-
-      // 3) Fetch submissions for up to 3 assignments per course IN PARALLEL
-      const submissionPromises: Array<Promise<Submission[]>> = [];
-      for (const { assignments } of assignmentsByCourse) {
-        for (const assignment of assignments.slice(0, 3)) {
-          submissionPromises.push(
-            teacherService
-              .getAssignmentSubmissions(assignment.id)
-              .then((subRes) =>
-                (subRes.data || []).map((s) => ({
-                  ...s,
-                  assignment: {
-                    id: assignment.id,
-                    title: assignment.title,
-                    due_date: assignment.due_date,
-                    max_points: assignment.max_points,
-                    course_id: assignment.course_id,
-                  },
-                }))
-              )
-              .catch(() => [] as Submission[])
-          );
-        }
-      }
-      const submissionLists = await Promise.all(submissionPromises);
-      const allSubmissions: Submission[] = submissionLists.flat();
-
-      // 4) Filter + sort — same logic as before
-      const now = new Date();
-      const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const upcomingDeadlines = allAssignments
-        .filter((a) => {
-          if (!a.due_date) return false;
-          const dueDate = new Date(a.due_date);
-          return dueDate > now && dueDate <= weekFromNow;
-        })
-        .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
-        .slice(0, 5);
-
-      const recentSubmissions = allSubmissions
-        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
-        .slice(0, 5);
-
-      setData({
-        courses,
-        totalStudents,
-        recentSubmissions,
-        upcomingDeadlines,
-      });
-    } catch (err: any) {
-      console.error('Error fetching dashboard data:', err);
-      setError(err.response?.data?.message || 'Failed to load dashboard');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    // Only refetch when the network comes back — avoids the "loading on loop"
-    // that focus + visibility + setInterval caused on slow/cold connections.
-    const handleOnline = () => { void fetchDashboard(); };
-    window.addEventListener('online', handleOnline);
-    return () => { window.removeEventListener('online', handleOnline); };
-  }, [fetchDashboard]);
-
-  return { data, loading, error, refetch: fetchDashboard };
+  return {
+    data,
+    loading: isLoading,
+    error,
+    refetch: async () => { await refetch(); },
+  };
 }

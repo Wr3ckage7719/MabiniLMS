@@ -1211,3 +1211,19 @@ export const getWeightedCourseGrade = async (
 
   return result
 }
+
+export const getBatchWeightedCourseGrades = async (
+  courseIds: string[],
+  requesterId: string,
+  requesterRole: UserRole
+): Promise<Record<string, WeightedCourseGradeBreakdown | null>> => {
+  const results = await Promise.allSettled(
+    courseIds.map((id) => getWeightedCourseGrade(id, requesterId, requesterRole))
+  );
+  const out: Record<string, WeightedCourseGradeBreakdown | null> = {};
+  for (let i = 0; i < courseIds.length; i++) {
+    const r = results[i];
+    out[courseIds[i]] = r.status === 'fulfilled' ? r.value : null;
+  }
+  return out;
+};

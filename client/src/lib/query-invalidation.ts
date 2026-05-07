@@ -19,6 +19,7 @@ export const invalidateClassData = async (
   if (classId) {
     invalidations.push(
       queryClient.invalidateQueries({ queryKey: ['class', classId] }),
+      queryClient.invalidateQueries({ queryKey: ['class-dashboard', classId] }),
       queryClient.invalidateQueries({ queryKey: ['students', classId] }),
       queryClient.invalidateQueries({ queryKey: ['assignments', classId] }),
       queryClient.invalidateQueries({ queryKey: ['announcements', classId] }),

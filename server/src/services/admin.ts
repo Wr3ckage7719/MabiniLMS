@@ -4,6 +4,7 @@ import * as emailService from './email.js'
 import crypto from 'crypto'
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js'
 import { ApiError, ErrorCode, UserRole } from '../types/index.js'
+import { invalidateAuthProfileCache } from '../middleware/auth.js'
 
 const SYSTEM_SETTING_DESCRIPTIONS: Record<string, string> = {
   institutional_email_domains: 'Array of allowed email domains for student signup',
@@ -396,6 +397,7 @@ export const updateManagedUser = async (
     userAgent
   )
 
+  invalidateAuthProfileCache(userId)
   return updatedUser as ManagedUser
 }
 
@@ -417,6 +419,7 @@ export const deleteManagedUser = async (
     throw new Error('Failed to delete user')
   }
 
+  invalidateAuthProfileCache(userId)
   await logAdminAction(
     adminId,
     'managed_user_deleted',
@@ -663,6 +666,7 @@ export const approveTeacher = async (
       logger.error(`Failed to send teacher onboarding email: ${emailError}`)
     }
 
+    if (linkedUserId) invalidateAuthProfileCache(linkedUserId)
     logger.info(`Teacher application ${teacherId} approved by admin ${adminId}`)
     return
   }
@@ -741,6 +745,7 @@ export const approveTeacher = async (
     // Don't throw - approval succeeded even if email failed
   }
 
+  invalidateAuthProfileCache(teacherId)
   logger.info(`Teacher ${teacher.email} approved by admin ${adminId}`)
 }
 
@@ -868,6 +873,7 @@ export const rejectTeacher = async (
     throw new Error('Failed to reject teacher')
   }
 
+  invalidateAuthProfileCache(teacherId)
   logger.info(`Teacher ${teacher.email} rejected by admin ${adminId}`)
 }
 

@@ -179,7 +179,8 @@ export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Initialize socket connection
+  // Initialize socket connection — delayed by 2s so the main thread is free
+  // for first-paint rendering before the WS handshake competes for bandwidth.
   useEffect(() => {
     if (!session?.access_token) {
       // No session, don't connect
@@ -192,51 +193,53 @@ export function useWebSocket() {
       return;
     }
 
-    // Create socket connection
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-    });
+    const connectTimer = setTimeout(() => {
+      // Create socket connection
+      const socket = io(SOCKET_URL, {
+        transports: ['websocket', 'polling'],
+        autoConnect: true,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+      });
 
-    socketRef.current = socket;
+      socketRef.current = socket;
 
-    // Connection events
-    socket.on('connect', () => {
-      console.log('🔌 WebSocket connected');
-      setIsConnected(true);
-      
-      // Authenticate with token
-      socket.emit(SocketEvent.AUTHENTICATE, session.access_token);
-    });
+      // Connection events
+      socket.on('connect', () => {
+        console.log('🔌 WebSocket connected');
+        setIsConnected(true);
+        socket.emit(SocketEvent.AUTHENTICATE, session.access_token);
+      });
 
-    socket.on('disconnect', (reason) => {
-      console.log('🔌 WebSocket disconnected:', reason);
-      setIsConnected(false);
-      setIsAuthenticated(false);
-    });
+      socket.on('disconnect', (reason) => {
+        console.log('🔌 WebSocket disconnected:', reason);
+        setIsConnected(false);
+        setIsAuthenticated(false);
+      });
 
-    socket.on(SocketEvent.AUTHENTICATED, (data) => {
-      console.log('✅ WebSocket authenticated:', data);
-      setIsAuthenticated(true);
-    });
+      socket.on(SocketEvent.AUTHENTICATED, (data) => {
+        console.log('✅ WebSocket authenticated:', data);
+        setIsAuthenticated(true);
+      });
 
-    socket.on(SocketEvent.AUTH_ERROR, (error) => {
-      console.error('❌ WebSocket auth error:', error);
-      setIsAuthenticated(false);
-    });
+      socket.on(SocketEvent.AUTH_ERROR, (error) => {
+        console.error('❌ WebSocket auth error:', error);
+        setIsAuthenticated(false);
+      });
 
-    socket.on('connect_error', (error) => {
-      console.error('WebSocket connection error:', error.message);
-    });
+      socket.on('connect_error', (error) => {
+        console.error('WebSocket connection error:', error.message);
+      });
+    }, 2000);
 
-    // Cleanup on unmount
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      clearTimeout(connectTimer);
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, [session?.access_token]);
 

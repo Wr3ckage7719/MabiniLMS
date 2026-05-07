@@ -28,6 +28,9 @@ import {
 import { notifyMaterialAdded } from './websocket.js';
 import logger from '../utils/logger.js';
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
+import * as gradesService from './grades.js';
+import * as announcementsService from './announcements.js';
+import * as assignmentsService from './assignments.js';
 
 type DatabaseErrorShape = {
   code?: string;
@@ -47,11 +50,25 @@ type MaterialUploadFile = {
 // Helpers
 // ============================================
 
-// Wildcard select keeps the migration 033 columns optional for older
-// databases — Postgres returns whatever columns exist instead of failing
-// on a missing-column error. Matches the pattern used by the assignments
-// service.
-const COURSE_BASE_SELECT = '*';
+// Explicit column list for course reads. description + syllabus MUST stay —
+// data-transformer.ts derives room/schedule/section/block/level from them.
+const COURSE_BASE_SELECT =
+  'id, title, description, syllabus, section, room, schedule, cover_image, status, teacher_id, ' +
+  'created_at, updated_at, tags, completion_policy, category_weights, enrolment_key';
+
+// Includes embedded teacher join — reduces N+1 teacher-attach round-trip to 0.
+const COURSE_BASE_SELECT_WITH_TEACHER =
+  COURSE_BASE_SELECT +
+  ', teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)';
+
+// Compat version without migration-033 optional columns, used as fallback.
+const COURSE_BASE_SELECT_COMPAT =
+  'id, title, description, syllabus, section, room, schedule, cover_image, status, teacher_id, ' +
+  'created_at, updated_at';
+
+const COURSE_BASE_SELECT_COMPAT_WITH_TEACHER =
+  COURSE_BASE_SELECT_COMPAT +
+  ', teacher:profiles!courses_teacher_id_fkey(id, email, first_name, last_name)';
 
 // Columns that may not exist on databases that have not yet run migration
 // 033_course_lms_config — the create/update flows retry without them when
@@ -620,11 +637,27 @@ const computeTotalScanSeconds = (
   return Math.round(viewEndSeconds);
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normalizeTeacherField = (raw: any): CourseTeacher | null => {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw[0] ? (raw[0] as CourseTeacher) : null;
+  return raw as CourseTeacher;
+};
+
 const attachTeachersToCourses = async (courses: Course[]): Promise<Course[]> => {
-  if (!courses.length) {
-    return courses;
+  if (!courses.length) return courses;
+
+  // Fast path: teacher already embedded by the JOIN select
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ('teacher' in (courses[0] as any)) {
+    return courses.map((course) => ({
+      ...course,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      teacher: normalizeTeacherField((course as any).teacher),
+    }));
   }
 
+  // Fallback: fetch teachers separately (older schema or join failure)
   const teacherIds = Array.from(
     new Set(
       courses
@@ -677,43 +710,27 @@ const attachEnrollmentCountsToCourses = async (
     new Set(courses.map((course) => course.id).filter(Boolean))
   );
 
-  const { data: enrollmentRows, error } = await supabaseAdmin
-    .from('enrollments')
-    .select('course_id, student_id')
-    .in('course_id', courseIds)
-    .in('status', ACTIVE_ENROLLMENT_STATUSES);
+  // TODO(B4-view): replace with course_active_enrollment_counts view (migration 041 view variant)
+  // For now: use one HEAD count per course in parallel — O(courses) fast HEAD queries instead of
+  // shipping all enrollment rows as JSON.
+  const countResults = await Promise.all(
+    courseIds.map(async (courseId) => {
+      const { count, error } = await supabaseAdmin
+        .from('enrollments')
+        .select('*', { count: 'exact', head: true })
+        .eq('course_id', courseId)
+        .in('status', ACTIVE_ENROLLMENT_STATUSES);
+      return { courseId, count: error ? 0 : (count ?? 0) };
+    })
+  );
 
-  if (error) {
-    logger.warn('Failed to fetch enrollment counts for course list', {
-      error: error.message,
-      courseCount: courseIds.length,
-    });
-
-    return courses.map((course) => ({
-      ...course,
-      enrollment_count: 0,
-    }));
-  }
-
-  const enrollmentStudentIdsByCourseId = new Map<string, Set<string>>();
-
-  for (const row of (enrollmentRows || []) as Array<{ course_id: string | null; student_id: string | null }>) {
-    if (!row.course_id || !row.student_id) {
-      continue;
-    }
-
-    let studentIds = enrollmentStudentIdsByCourseId.get(row.course_id);
-    if (!studentIds) {
-      studentIds = new Set<string>();
-      enrollmentStudentIdsByCourseId.set(row.course_id, studentIds);
-    }
-
-    studentIds.add(row.student_id);
-  }
+  const countByCourseId = new Map<string, number>(
+    countResults.map(({ courseId, count }) => [courseId, count])
+  );
 
   return courses.map((course) => ({
     ...course,
-    enrollment_count: enrollmentStudentIdsByCourseId.get(course.id)?.size || 0,
+    enrollment_count: countByCourseId.get(course.id) ?? 0,
   }));
 };
 
@@ -853,13 +870,35 @@ export const getCourseById = async (
   requesterId?: string,
   requesterRole?: UserRole
 ): Promise<CourseWithStats> => {
-  const query = supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from('courses')
-    .select(COURSE_BASE_SELECT)
+    .select(COURSE_BASE_SELECT_WITH_TEACHER)
     .eq('id', courseId)
     .single();
 
-  const { data, error } = await query;
+  // Fallback: retry without optional migration-033 columns if join works but columns are missing
+  if (error && extractMissingCourseColumn(error)) {
+    const fallback = await supabaseAdmin
+      .from('courses')
+      .select(COURSE_BASE_SELECT_COMPAT_WITH_TEACHER)
+      .eq('id', courseId)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  // Fallback: retry without teacher join if FK name is different
+  if (error) {
+    const fallback2 = await supabaseAdmin
+      .from('courses')
+      .select(COURSE_BASE_SELECT_COMPAT)
+      .eq('id', courseId)
+      .single();
+    if (!fallback2.error) {
+      data = fallback2.data;
+      error = fallback2.error;
+    }
+  }
 
   if (error || !data) {
     if (error?.code === 'PGRST116') {
@@ -947,7 +986,7 @@ export const listCourses = async (
 
   let queryBuilder = supabaseAdmin
     .from('courses')
-    .select(COURSE_BASE_SELECT, { count: 'exact' });
+    .select(COURSE_BASE_SELECT_WITH_TEACHER, { count: 'exact' });
 
   // Role-based filtering
   let studentArchivedByCourseId: Map<string, string | null> | null = null;
@@ -1045,7 +1084,32 @@ export const listCourses = async (
     .range(offset, offset + limit - 1)
     .order('created_at', { ascending: false });
 
-  const { data, error, count } = await queryBuilder;
+  let { data, error, count } = await queryBuilder;
+
+  // Retry with compat select when optional migration-033 columns are missing
+  if (error && extractMissingCourseColumn(error)) {
+    const compatBuilder = supabaseAdmin
+      .from('courses')
+      .select(COURSE_BASE_SELECT_COMPAT_WITH_TEACHER, { count: 'exact' });
+    // Re-apply all the same filters from the original queryBuilder isn't easy
+    // so we rebuild the compat query inline.
+    let retryBuilder = compatBuilder;
+
+    if (userRole === UserRole.STUDENT && studentArchivedByCourseId) {
+      const ids = Array.from(studentArchivedByCourseId.keys());
+      retryBuilder = retryBuilder.in('id', ids);
+    } else if (userRole === UserRole.TEACHER && userId) {
+      retryBuilder = retryBuilder.eq('teacher_id', userId);
+    }
+    if (status) retryBuilder = retryBuilder.eq('status', status);
+    if (teacher_id && userRole === UserRole.ADMIN) retryBuilder = retryBuilder.eq('teacher_id', teacher_id);
+    if (search) retryBuilder = retryBuilder.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+    retryBuilder = retryBuilder.range(offset, offset + limit - 1).order('created_at', { ascending: false });
+    const retryResult = await retryBuilder;
+    data = retryResult.data;
+    error = retryResult.error;
+    count = retryResult.count;
+  }
 
   if (error) {
     logger.error('Failed to list courses', { error: error.message });
@@ -1528,7 +1592,7 @@ export const listMaterials = async (
 
   const { data, error } = await supabaseAdmin
     .from('course_materials')
-    .select('*')
+    .select('id, course_id, title, description, type, file_type, file_size, file_url, page_count, uploaded_by, uploaded_at, created_at, download_count')
     .eq('course_id', courseId)
     .order('uploaded_at', { ascending: false });
 
@@ -2817,5 +2881,179 @@ export const getCourseInsights = async (
       at_risk_count: perStudent.filter((r) => r.at_risk).length,
       grade_distribution: computeGradeBins(allGradePercents),
     },
+  };
+};
+
+// ============================================
+// Course Dashboard Aggregator (F1)
+// ============================================
+
+export interface CourseDashboardPayload {
+  course: CourseWithStats;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assignments: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  announcements: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  materials: CourseMaterial[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  students: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  grades: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  weighted_grade: any;
+  discussion_post_count: number;
+}
+
+export const getCourseDashboard = async (
+  courseId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<CourseDashboardPayload> => {
+  const [
+    course,
+    assignmentsResult,
+    announcementsResult,
+    materials,
+    students,
+    grades,
+    weightedGrade,
+    discussionCountResult,
+  ] = await Promise.all([
+    getCourseById(courseId, false, userId, userRole),
+    assignmentsService.listAssignments(
+      { course_id: courseId, limit: 100, offset: 0, include_past: 'true' },
+      userId,
+      userRole
+    ),
+    announcementsService.listAnnouncements(courseId, { limit: 50, offset: 0 }),
+    listMaterials(courseId, userId, userRole),
+    getCourseStudents(courseId, userId, userRole),
+    userRole === UserRole.STUDENT
+      ? gradesService.getStudentGrades(userId)
+      : Promise.resolve([]),
+    userRole === UserRole.STUDENT
+      ? gradesService.getWeightedCourseGrade(courseId, userId, userRole)
+          .catch(() => null)
+      : Promise.resolve(null),
+    supabaseAdmin
+      .from('discussion_posts')
+      .select('*', { count: 'exact', head: true })
+      .eq('course_id', courseId)
+      .then(({ count }) => count ?? 0)
+      .catch(() => 0),
+  ]);
+
+  return {
+    course,
+    assignments: assignmentsResult,
+    announcements: announcementsResult,
+    materials,
+    students,
+    grades: userRole === UserRole.STUDENT
+      ? (grades as any[]).filter((g: any) => g.course_id === courseId)
+      : [],
+    weighted_grade: weightedGrade,
+    discussion_post_count: discussionCountResult as number,
+  };
+};
+
+export interface TeacherDashboardSummary {
+  courses: Array<{ id: string; title: string; enrollment_count: number }>;
+  total_students: number;
+  upcoming_deadlines: Array<{
+    id: string;
+    title: string;
+    due_date: string;
+    course_id: string;
+    assignment_type: string | null;
+  }>;
+  recent_submissions: Array<{
+    id: string;
+    submitted_at: string;
+    status: string;
+    student_id: string;
+    assignment_id: string;
+    assignment_title: string;
+    course_id: string;
+    grade: { points_earned: number } | null;
+  }>;
+}
+
+export const getTeacherDashboardSummary = async (
+  teacherId: string
+): Promise<TeacherDashboardSummary> => {
+  const now = new Date().toISOString();
+  const weekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [coursesResult, deadlinesResult, submissionsResult] = await Promise.all([
+    supabaseAdmin
+      .from('courses')
+      .select('id, title')
+      .eq('teacher_id', teacherId)
+      .eq('status', 'published'),
+
+    supabaseAdmin
+      .from('assignments')
+      .select('id, title, due_date, course_id, assignment_type, courses!inner(teacher_id)')
+      .eq('courses.teacher_id', teacherId)
+      .eq('status', 'published')
+      .gt('due_date', now)
+      .lte('due_date', weekFromNow)
+      .order('due_date', { ascending: true })
+      .limit(10),
+
+    supabaseAdmin
+      .from('submissions')
+      .select(`
+        id, submitted_at, status, student_id, assignment_id,
+        assignment:assignments!inner(title, course_id, courses!inner(teacher_id)),
+        grade:grades(points_earned)
+      `)
+      .eq('assignments.courses.teacher_id', teacherId)
+      .neq('status', 'draft')
+      .order('submitted_at', { ascending: false })
+      .limit(10),
+  ]);
+
+  const courses = (coursesResult.data || []) as Array<{ id: string; title: string }>;
+
+  let total_students = 0;
+  if (courses.length > 0) {
+    const courseIds = courses.map((c) => c.id);
+    const { count } = await supabaseAdmin
+      .from('enrollments')
+      .select('*', { count: 'exact', head: true })
+      .in('course_id', courseIds)
+      .in('status', ACTIVE_ENROLLMENT_STATUSES);
+    total_students = count ?? 0;
+  }
+
+  const coursesWithCount = courses.map((c) => ({ ...c, enrollment_count: 0 }));
+
+  const upcoming_deadlines = (deadlinesResult.data || []).map((a: any) => ({
+    id: a.id,
+    title: a.title,
+    due_date: a.due_date,
+    course_id: a.course_id,
+    assignment_type: a.assignment_type ?? null,
+  }));
+
+  const recent_submissions = (submissionsResult.data || []).map((s: any) => ({
+    id: s.id,
+    submitted_at: s.submitted_at,
+    status: s.status,
+    student_id: s.student_id,
+    assignment_id: s.assignment_id,
+    assignment_title: s.assignment?.title ?? '',
+    course_id: s.assignment?.course_id ?? '',
+    grade: s.grade?.[0] ?? null,
+  }));
+
+  return {
+    courses: coursesWithCount,
+    total_students,
+    upcoming_deadlines,
+    recent_submissions,
   };
 };

@@ -487,3 +487,26 @@ export const bulkGrade = async (
     next(error)
   }
 }
+
+export const getBatchWeightedCourseGrades = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const raw = (req.query as { course_ids?: string }).course_ids || '';
+    const courseIds = raw.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (courseIds.length === 0) {
+      res.json({ success: true, data: {} });
+      return;
+    }
+    const data = await gradeService.getBatchWeightedCourseGrades(
+      courseIds,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
