@@ -148,9 +148,9 @@ router.get(
   gradeController.getAssignmentGradeStats
 )
 
-export default router
-
 router.get(
   '/weighted-courses',
   gradeController.getBatchWeightedCourseGrades
 )
+
+export default router
