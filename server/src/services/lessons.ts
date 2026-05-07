@@ -219,7 +219,7 @@ const loadLessonRowsForCourse = async (
     logger.error('Failed to load lessons', { courseId, error: error.message });
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load lessons', 500);
   }
-  return (data ?? []) as LessonRow[];
+  return (data ?? []) as unknown as LessonRow[];
 };
 
 const loadSingleLessonRow = async (

@@ -4,7 +4,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import { createBrotliCompress, constants as zlibConstants } from 'zlib';
-import { Transform } from 'stream';
 import dotenv from 'dotenv';
 import { supabase, verifySupabaseAdminCapabilities } from './lib/supabase.js';
 import { setupSwagger } from './config/swagger.js';
@@ -214,12 +213,12 @@ const brotliMiddleware = (req: Request, res: Response, next: NextFunction) => {
   brotli.on('error', () => { next(); });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.write = (chunk: any, ...args: any[]) => {
+  res.write = (chunk: any, ..._args: any[]) => {
     patchHeaders();
     return brotli.write(chunk);
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.end = (chunk?: any, ...args: any[]) => {
+  res.end = (chunk?: any, ..._args: any[]) => {
     patchHeaders();
     if (chunk) brotli.write(chunk);
     brotli.end();
