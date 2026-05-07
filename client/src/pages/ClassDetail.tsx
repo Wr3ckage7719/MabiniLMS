@@ -13,7 +13,8 @@ import { useGrades, useWeightedCourseGrade } from '@/hooks-api/useGrades';
 import { useDiscussionPosts } from '@/hooks-api/useDiscussions';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, FileText, Calendar, MessageSquare, Users, Paperclip, LogOut, Trash2, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, UserRound, Tag } from 'lucide-react';
+import { ArrowLeft, FileText, Calendar, MoreVertical, Users, Paperclip, LogOut, Download, ExternalLink, Book, Music, Image as ImageIcon, Archive, Loader2, RefreshCw, Monitor, UserRound, Tag } from 'lucide-react';
+import { Z } from '@/lib/z-index';
 import { getTaskTypeMeta, GRADING_PERIOD_LABELS } from '@/lib/task-types';
 import { formatMabiniGradePoint } from '@/lib/grade-points';
 import type { MabiniGradingPeriodKey, WeightedGradeCategory } from '@/services/grades.service';
@@ -392,7 +393,7 @@ export default function ClassDetail() {
                     size="icon"
                     className="text-white/80 hover:text-white hover:bg-white/20 rounded-lg h-7 w-7 md:h-9 md:w-9"
                   >
-                    <MessageSquare className="h-4 w-4 md:h-5 md:w-5" />
+                    <MoreVertical className="h-4 w-4 md:h-5 md:w-5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48 rounded-xl">
@@ -400,7 +401,7 @@ export default function ClassDetail() {
                     onClick={() => setConfirmAction('archive')}
                     className="rounded-lg cursor-pointer"
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
+                    <Archive className="h-4 w-4 mr-2" />
                     Archive Class
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -716,7 +717,8 @@ export default function ClassDetail() {
 
       {discussionOpen && (
         <div
-          className="fixed inset-0 z-[90] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          style={{ zIndex: Z.modal }}
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
           onClick={() => setDiscussionOpen(false)}
         >
           <div
@@ -744,7 +746,8 @@ export default function ClassDetail() {
 
       {selectedAnnouncementForComments && (
         <div
-          className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          style={{ zIndex: Z.modalNested }}
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
           onClick={() => setSelectedAnnouncementForComments(null)}
         >
           <div

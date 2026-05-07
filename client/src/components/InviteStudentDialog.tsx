@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Mail, Check, AlertCircle, Users } from 'lucide-react';
+import { STATUS_BADGE } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -71,7 +72,7 @@ export function InviteStudentDialog({
       case 'enrolled':
         return 'bg-green-100 text-green-800 border-green-200';
       case 'already_enrolled':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return STATUS_BADGE.info;
       default:
         return 'bg-red-100 text-red-800 border-red-200';
     }

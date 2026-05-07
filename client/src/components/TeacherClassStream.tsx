@@ -13,6 +13,7 @@ import {
   Upload,
   Download,
 } from 'lucide-react';
+import { Z } from '@/lib/z-index';
 import { LessonListBoard } from '@/components/lessons/LessonListBoard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1729,7 +1730,8 @@ export function TeacherClassStream({
 
       {selectedAnnouncementForComments && (
         <div
-          className="fixed inset-0 z-[95] bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
+          style={{ zIndex: Z.modalNested }}
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm animate-in fade-in-0 duration-200"
           onClick={() => setSelectedAnnouncementForComments(null)}
         >
           <div

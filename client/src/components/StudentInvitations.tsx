@@ -40,10 +40,10 @@ export function StudentInvitations() {
   };
 
   return (
-    <Card className="border-0 shadow-sm mb-6 bg-gradient-to-r from-blue-50 to-blue-50/50">
+    <Card className="border-0 shadow-sm mb-6 bg-info/5">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
-          <Mail className="h-5 w-5 text-blue-600" />
+          <Mail className="h-5 w-5 text-info" />
           Class Invitations
         </CardTitle>
       </CardHeader>
@@ -54,7 +54,7 @@ export function StudentInvitations() {
           return (
             <div
               key={invitation.id}
-              className="flex items-center justify-between p-4 bg-white rounded-lg border border-blue-100 hover:shadow-sm transition-all"
+              className="flex items-center justify-between p-4 bg-card rounded-lg border border-info/20 hover:shadow-sm transition-all"
             >
               <div className="flex items-center gap-3 flex-1">
                 <div className="flex-shrink-0">

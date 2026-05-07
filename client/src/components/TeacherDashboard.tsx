@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { STATUS_BADGE } from '@/lib/utils';
 import {
   BookOpen,
   Users,
@@ -191,7 +192,7 @@ export function TeacherDashboard({
                     Recent Submissions
                   </CardTitle>
                   {needsGrading.length > 0 && (
-                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]">
+                    <Badge className={`${STATUS_BADGE.warning} text-[10px]`}>
                       {needsGrading.length} to grade
                     </Badge>
                   )}
@@ -243,11 +244,11 @@ export function TeacherDashboard({
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {graded ? (
-                            <Badge className="bg-green-100 text-green-700 border-green-200">
+                            <Badge className={STATUS_BADGE.success}>
                               Graded
                             </Badge>
                           ) : (
-                            <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                            <Badge className={STATUS_BADGE.warning}>
                               Grade now
                             </Badge>
                           )}
@@ -277,10 +278,10 @@ export function TeacherDashboard({
                     const relative = formatRelativeDeadline(assignment.due_date);
                     const toneClass =
                       relative.tone === 'urgent'
-                        ? 'bg-rose-100 text-rose-700 border-rose-200'
+                        ? STATUS_BADGE.danger
                         : relative.tone === 'soon'
-                        ? 'bg-amber-100 text-amber-700 border-amber-200'
-                        : 'bg-blue-100 text-blue-700 border-blue-200';
+                        ? STATUS_BADGE.warning
+                        : STATUS_BADGE.info;
                     return (
                       <button
                         key={assignment.id}

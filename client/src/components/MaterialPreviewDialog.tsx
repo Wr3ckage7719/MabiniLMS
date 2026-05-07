@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Z } from '@/lib/z-index';
 import { CheckCircle2, Download, RefreshCw, X, ArrowLeft, ChevronRight, Eye, Clock, FileDown, Activity, BarChart2, BookOpen } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -1664,7 +1665,7 @@ export function MaterialPreviewDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] bg-background" onMouseMove={markInteraction} onTouchStart={markInteraction}>
+    <div style={{ zIndex: Z.fullscreenReader }} className="fixed inset-0 bg-background" onMouseMove={markInteraction} onTouchStart={markInteraction}>
       <div className={`h-full w-full ${isTeacher ? 'px-3 py-3 md:px-6 md:py-5' : ''}`}>
         <div className={`${isTeacher ? 'mx-auto max-w-[1500px] rounded-xl border border-border bg-card/90 shadow-xl' : 'h-full w-full'} flex h-full flex-col overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 border-b border-border p-3 md:p-4">
