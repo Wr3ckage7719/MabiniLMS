@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { format, parseISO } from 'date-fns';
 import { useAssignments } from '@/hooks-api/useAssignments';
 import { useClasses } from '@/hooks-api/useClasses';
 import { ChevronLeft, ChevronRight, Clock, AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
@@ -25,20 +26,22 @@ interface CalendarDay {
   assignments: CalendarAssignment[];
 }
 
+const toLocalDateKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const toDateKey = (value: string | null | undefined): string | null => {
   if (!value) return null;
 
-  // Fast-path for plain YYYY-MM-DD values.
+  // Fast-path for plain YYYY-MM-DD values — no parsing needed.
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;
   }
 
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) {
+  try {
+    return format(parseISO(value), 'yyyy-MM-dd');
+  } catch {
     return null;
   }
-
-  return new Date(timestamp).toISOString().split('T')[0];
 };
 
 export default function InteractiveCalendar() {
@@ -68,7 +71,7 @@ export default function InteractiveCalendar() {
 
     while (current <= lastDay || current.getDay() !== 0) {
       const isCurrentMonth = current.getMonth() === month;
-      const dateStr = current.toISOString().split('T')[0];
+      const dateStr = toLocalDateKey(current);
       const dayAssignments = allAssignments.filter((a) => toDateKey(a.dueDate) === dateStr);
 
       days.push({
@@ -85,7 +88,7 @@ export default function InteractiveCalendar() {
 
   const selectedDateAssignments = useMemo(() => {
     if (!selectedDate) return [];
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    const dateStr = toLocalDateKey(selectedDate);
     return allAssignments.filter((a) => toDateKey(a.dueDate) === dateStr);
   }, [selectedDate, allAssignments]);
 
@@ -297,7 +300,7 @@ export default function InteractiveCalendar() {
 
               <div className="grid grid-cols-7 gap-1 md:gap-2 lg:gap-3">
                 {calendar.map((day, idx) => {
-                  const dateStr = day.date.toISOString().split('T')[0];
+                  const dateStr = toLocalDateKey(day.date);
                   const isCurrentDay = isToday(day.date);
                   const isPastDay = isPast(day.date);
                   const hasAssignments = day.assignments.length > 0;

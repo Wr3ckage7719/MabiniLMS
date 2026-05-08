@@ -73,8 +73,14 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
   const handleSearchQueryChange = (value: string) => {
     setSearchQuery(value);
-    applySearchQuery(value);
   };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      applySearchQuery(searchQuery);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = async () => {
     await logout();

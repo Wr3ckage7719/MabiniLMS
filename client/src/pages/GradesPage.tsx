@@ -140,7 +140,7 @@ function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeC
 
         <div className="space-y-1.5">
           <div className="flex justify-between text-sm text-muted-foreground">
-            <span>{submitted}/{total} assignments completed</span>
+            <span>{submitted}/{total} assessments completed</span>
             <span>{Math.round(progress)}%</span>
           </div>
           <Progress value={progress} className="h-2" />
@@ -184,7 +184,10 @@ export default function GradesPage() {
       a.href = url;
       const safeName = cls.name.replace(/[^a-z0-9-_]+/gi, '_');
       a.download = `report-card-${safeName}.pdf`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error: any) {
       toast({
@@ -257,9 +260,15 @@ export default function GradesPage() {
           ) : (
             classes.map((cls) => {
               // /grades/my-grades returns the raw server shape:
-              //   { course:{id}, assignment:{max_points, grading_period}, grade:{points_earned}, submission_status }
+              //   { course:{id}, assignment:{max_points, assignment_type, grading_period}, grade:{points_earned}, submission_status }
+              // Only count graded assessment types — exclude attendance and any non-scored item.
+              const ASSESSMENT_TYPES = new Set(['quiz', 'exam', 'activity', 'recitation', 'project']);
               const classGrades = (grades as any[])
-                .filter((g) => (g?.course?.id || g?.classId) === cls.id)
+                .filter((g) => {
+                  if ((g?.course?.id || g?.classId) !== cls.id) return false;
+                  const type = g?.assignment?.assignment_type;
+                  return !type || ASSESSMENT_TYPES.has(type);
+                })
                 .map((g) => {
                   const gradePoints =
                     typeof g?.grade?.points_earned === 'number'
