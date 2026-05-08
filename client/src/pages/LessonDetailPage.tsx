@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -21,8 +21,14 @@ import {
   useTrackLessonView,
 } from '@/hooks-api/useLessons';
 import { useClass } from '@/hooks-api/useClasses';
-import type { Lesson, LessonAssessmentRef, LessonMaterialRef } from '@/lib/data';
+import { useAssignment } from '@/hooks-api/useAssignments';
+import type { Assignment, Lesson, LessonAssessmentRef, LessonMaterialRef } from '@/lib/data';
+import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
 import { downloadMaterialWithTracking } from '@/lib/material-actions';
+
+const ProctoredExamDialog = lazy(() =>
+  import('@/components/ProctoredExamDialog').then((m) => ({ default: m.ProctoredExamDialog }))
+);
 
 const completionRuleCopy = (lesson: Lesson): string => {
   if (lesson.materials.length === 0) {
@@ -259,7 +265,11 @@ export default function LessonDetailPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [examAssignment, setExamAssignment] = useState<Assignment | null>(null);
+
   const classQuery = useClass(classId);
+  const assignmentQuery = useAssignment(classId, selectedAssignmentId ?? '');
   const lessonQuery = useStudentLesson(classId, lessonId);
   const allLessonsQuery = useStudentLessons(classId);
   const markDone = useMarkLessonAsDone(classId);
@@ -309,7 +319,7 @@ export default function LessonDetailPage() {
   };
 
   const handleOpenAssessment = (assignmentId: string) => {
-    navigate(`/class/${classId}?assignmentId=${assignmentId}`);
+    setSelectedAssignmentId(assignmentId);
   };
 
   const handleMarkDone = async () => {
@@ -546,6 +556,34 @@ export default function LessonDetailPage() {
           </section>
         )}
       </main>
+
+      <AssignmentDetailDialog
+        assignment={assignmentQuery.data ?? null}
+        open={!!assignmentQuery.data}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAssignmentId(null);
+        }}
+        teacherName={classQuery.data?.teacher ?? ''}
+        classId={classId}
+        onStartExam={(assignment) => {
+          setExamAssignment(assignment);
+          setSelectedAssignmentId(null);
+        }}
+      />
+
+      {examAssignment && (examAssignment.rawType === 'quiz' || examAssignment.rawType === 'exam') && (
+        <Suspense fallback={null}>
+          <ProctoredExamDialog
+            assignmentId={examAssignment.id}
+            assignmentTitle={examAssignment.title}
+            open={!!examAssignment}
+            onOpenChange={(open) => {
+              if (!open) setExamAssignment(null);
+            }}
+            mode={examAssignment.rawType === 'quiz' ? 'quiz' : 'exam'}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
