@@ -6,6 +6,7 @@ import { ClassesProvider } from '@/contexts/ClassesContext';
 import { TeacherHeader } from '@/components/TeacherHeader';
 import { TeacherSidebar } from '@/components/TeacherSidebar';
 import { TeacherCreateClassDialog } from '@/components/TeacherCreateClassDialog';
+import PendingApprovalOverlay from '@/components/PendingApprovalOverlay';
 import { useRealtimeNotifications } from '@/hooks/useWebSocket';
 import { useClasses } from '@/hooks-api/useClasses';
 import { Loader2 } from 'lucide-react';
@@ -63,6 +64,7 @@ export default function TeacherLayout() {
             onOpenChange={setCreateClassOpen}
             onSuccess={() => void refetchClasses()}
           />
+          <PendingApprovalOverlay />
         </div>
       </ClassesProvider>
     </RoleProvider>

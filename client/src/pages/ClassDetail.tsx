@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { CLASS_COLORS, type Announcement as ClassAnnouncement, type Assignment, type LearningMaterial } from '@/lib/data';
 import { useRole } from '@/contexts/RoleContext';
@@ -24,10 +24,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AssignmentDetailDialog } from '@/components/AssignmentDetailDialog';
-import { ProctoredExamDialog } from '@/components/ProctoredExamDialog';
+const ProctoredExamDialog = lazy(() =>
+  import('@/components/ProctoredExamDialog').then((m) => ({ default: m.ProctoredExamDialog }))
+);
 import { AnnouncementCard } from '@/components/AnnouncementCard';
 import { AnnouncementCommentsPanel } from '@/components/AnnouncementCommentsPanel';
-import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
+const MaterialPreviewDialog = lazy(() =>
+  import('@/components/material-preview').then((m) => ({ default: m.MaterialPreviewDialog }))
+);
 import { StudentClassStream } from '@/components/StudentClassStream';
 import { LessonsTab } from '@/components/lessons/LessonsTab';
 import {
@@ -734,15 +738,17 @@ export default function ClassDetail() {
         </div>
       )}
 
-      <MaterialPreviewDialog
-        open={Boolean(previewMaterial)}
-        material={previewMaterial}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPreviewMaterial(null);
-          }
-        }}
-      />
+      <Suspense fallback={null}>
+        <MaterialPreviewDialog
+          open={Boolean(previewMaterial)}
+          material={previewMaterial}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPreviewMaterial(null);
+            }
+          }}
+        />
+      </Suspense>
 
       {selectedAnnouncementForComments && (
         <div
@@ -793,15 +799,17 @@ export default function ClassDetail() {
       />
 
       {examAssignment && (examAssignment.rawType === 'quiz' || examAssignment.rawType === 'exam') && (
-        <ProctoredExamDialog
-          assignmentId={examAssignment.id}
-          assignmentTitle={examAssignment.title}
-          open={!!examAssignment}
-          onOpenChange={(open) => {
-            if (!open) setExamAssignment(null);
-          }}
-          mode={examAssignment.rawType === 'quiz' ? 'quiz' : 'exam'}
-        />
+        <Suspense fallback={null}>
+          <ProctoredExamDialog
+            assignmentId={examAssignment.id}
+            assignmentTitle={examAssignment.title}
+            open={!!examAssignment}
+            onOpenChange={(open) => {
+              if (!open) setExamAssignment(null);
+            }}
+            mode={examAssignment.rawType === 'quiz' ? 'quiz' : 'exam'}
+          />
+        </Suspense>
       )}
 
       <AlertDialog open={confirmAction !== null} onOpenChange={(open) => !open && setConfirmAction(null)}>
