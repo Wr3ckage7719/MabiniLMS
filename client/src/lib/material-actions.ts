@@ -63,19 +63,30 @@ const defaultOpenUrl: OpenMaterialUrl = (url) => {
 };
 
 const defaultDownloadUrl: DownloadMaterialUrl = (url, fileName) => {
-  if (typeof document === 'undefined') {
-    return;
-  }
+  if (typeof document === 'undefined') return;
 
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.target = '_blank';
-  anchor.rel = 'noopener noreferrer';
-  anchor.download = fileName;
-
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
+  // Use fetch→blob so the browser treats it as a same-origin object URL.
+  // A plain <a download> is silently ignored for cross-origin URLs (security
+  // spec), causing DOCX/PPTX files to open in Microsoft Office Online instead
+  // of downloading directly.
+  void fetch(url, { credentials: 'omit' })
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    })
+    .then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+    })
+    .catch(() => {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
 };
 
 const triggerSafeTracking = (action: () => Promise<unknown>): void => {

@@ -133,9 +133,13 @@ function AssessmentRow({ assessment, isLessonDone, onOpen }: AssessmentRowProps)
             <p className="text-xs text-muted-foreground mt-1">{stateLabel}</p>
           )}
         </div>
-        {!locked && (
+        {submitted ? (
+          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
+            <CheckCircle2 className="h-3 w-3 mr-1" /> Completed
+          </Badge>
+        ) : !locked ? (
           <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

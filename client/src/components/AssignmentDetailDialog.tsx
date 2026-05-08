@@ -628,7 +628,29 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </div>
               ) : null}
 
-              {isQuizAssignment ? (
+              {(isQuizAssignment || isExamAssignment) && submission ? (
+                <div className="rounded-xl border border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/30 p-3 sm:p-4 space-y-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <p className="text-xs sm:text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                      Assessment Completed
+                    </p>
+                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border text-[10px]">
+                      Done
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80">
+                    This assessment can only be taken once. Your submission has been recorded.
+                  </p>
+                  <div className="text-[11px] text-muted-foreground space-y-0.5">
+                    <p>Submitted: {new Date(submission.submitted_at).toLocaleString()}</p>
+                    <p>Status: <span className="capitalize">{submission.status.replace('_', ' ')}</span></p>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground italic">
+                    See the "My Submissions" tab for your full submission details.
+                  </p>
+                </div>
+              ) : isQuizAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
                   <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
                     <li>Answer questions directly inside the app.</li>
