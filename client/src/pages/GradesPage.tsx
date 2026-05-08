@@ -3,6 +3,7 @@ import { CLASS_COLORS } from '@/lib/data';
 import { useClasses } from '@/hooks-api/useClasses';
 import { useGrades } from '@/hooks-api/useGrades';
 import { useWeightedCourseGrade } from '@/hooks-api/useGrades';
+import { useAssignments } from '@/hooks-api/useAssignments';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -27,11 +28,18 @@ interface ClassGradeCardProps {
   onExport: (cls: ClassItem, mabini: MabiniWeightedSummary | null | undefined, fallbackPercent: number | null) => void;
 }
 
+const ASSESSMENT_TYPES_SET = new Set(['quiz', 'exam', 'activity', 'recitation', 'project']);
+
 function ClassGradeCard({ cls, classGrades, isExporting, onExport }: ClassGradeCardProps) {
   const { data: weighted } = useWeightedCourseGrade(cls.id);
+  const { data: allAssignments = [] } = useAssignments(cls.id);
 
   const submitted = classGrades.filter((g) => g.status === 'submitted' || g.status === 'graded').length;
-  const total = classGrades.length;
+  const totalFromAssignments = allAssignments.filter((a) => {
+    const type = ((a as any).rawType || (a as any).type || '').toLowerCase();
+    return ASSESSMENT_TYPES_SET.has(type);
+  }).length;
+  const total = totalFromAssignments || classGrades.length;
   const progress = total > 0 ? (submitted / total) * 100 : 0;
 
   // Average percentage across graded assignments — corrects the previous
@@ -262,12 +270,11 @@ export default function GradesPage() {
               // /grades/my-grades returns the raw server shape:
               //   { course:{id}, assignment:{max_points, assignment_type, grading_period}, grade:{points_earned}, submission_status }
               // Only count graded assessment types — exclude attendance and any non-scored item.
-              const ASSESSMENT_TYPES = new Set(['quiz', 'exam', 'activity', 'recitation', 'project']);
               const classGrades = (grades as any[])
                 .filter((g) => {
                   if ((g?.course?.id || g?.classId) !== cls.id) return false;
                   const type = g?.assignment?.assignment_type;
-                  return !type || ASSESSMENT_TYPES.has(type);
+                  return !type || ASSESSMENT_TYPES_SET.has(type);
                 })
                 .map((g) => {
                   const gradePoints =
