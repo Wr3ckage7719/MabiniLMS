@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Paperclip, Send, Clock, CheckCircle2, Calendar, Lock } from 'lucide-react';
+import { Paperclip, Send, Clock, CheckCircle2, Calendar, Lock, AlertTriangle, Loader2, XCircle } from 'lucide-react';
 import { useAssessmentLockState } from '@/hooks-api/useAssessmentGating';
 import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -61,6 +61,32 @@ interface ApiSubmission {
   submission_url?: string | null;
   submitted_at: string;
   status: 'draft' | 'submitted' | 'late' | 'under_review' | 'graded';
+}
+
+interface ExamQuestionResult {
+  question_id: string;
+  prompt: string;
+  item_type: string;
+  points_possible: number;
+  points_awarded: number;
+  is_correct: boolean | null;
+  selected_choice_index: number | null;
+  answer_text: string | null;
+  correct_choice_index: number | null;
+  correct_answer_text: string | null;
+  choices: string[];
+  explanation: string | null;
+}
+
+interface ExamScoreSummary {
+  attempt_id: string;
+  score: number;
+  max_score: number;
+  percentage: number;
+  answered_count: number;
+  total_questions: number;
+  violation_count: number;
+  question_results: ExamQuestionResult[];
 }
 
 interface DrivePickerSelection {
@@ -170,6 +196,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [openingPicker, setOpeningPicker] = useState(false);
   const [submission, setSubmission] = useState<ApiSubmission | null>(null);
   const [loadingSubmission, setLoadingSubmission] = useState(false);
+  const [terminalAttempt, setTerminalAttempt] = useState<{ id: string; status: string; started_at: string; ended_at: string | null } | null>(null);
+  const [examScore, setExamScore] = useState<ExamScoreSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [comments, setComments] = useState<AssignmentComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -243,17 +271,47 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const loadSubmission = useCallback(async () => {
     if (!assignment?.id) return;
 
+    const rawType = (assignment.rawType || '').toLowerCase();
+    const isExamType = rawType === 'quiz' || rawType === 'exam';
+
     setLoadingSubmission(true);
+    setTerminalAttempt(null);
+    setExamScore(null);
+
     try {
-      const response = await assignmentsService.getMySubmission(classId, assignment.id);
-      const apiSubmission = (response as any)?.data as ApiSubmission | null | undefined;
+      const [submissionResponse, attemptResponse] = await Promise.all([
+        assignmentsService.getMySubmission(classId, assignment.id),
+        isExamType ? assignmentsService.getMyExamAttempt(assignment.id).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      const apiSubmission = (submissionResponse as any)?.data as ApiSubmission | null | undefined;
       setSubmission(apiSubmission || null);
+
+      const attemptData = (attemptResponse as any)?.data?.attempt;
+      const TERMINAL_STATUSES = new Set(['submitted', 'terminated', 'timed_out']);
+      if (isExamType && attemptData && TERMINAL_STATUSES.has(attemptData.status)) {
+        setTerminalAttempt({
+          id: attemptData.id,
+          status: attemptData.status,
+          started_at: attemptData.started_at,
+          ended_at: attemptData.ended_at ?? null,
+        });
+
+        // Fetch per-question results for the score card
+        try {
+          const resultsResponse = await assignmentsService.getExamAttemptResults(attemptData.id);
+          const resultData = (resultsResponse as any)?.data as ExamScoreSummary | null | undefined;
+          if (resultData) setExamScore(resultData);
+        } catch {
+          // Results unavailable — score card will fall back to summary from submission content
+        }
+      }
     } catch {
       setSubmission(null);
     } finally {
       setLoadingSubmission(false);
     }
-  }, [assignment?.id, classId]);
+  }, [assignment?.id, assignment?.rawType, classId]);
 
   const loadComments = useCallback(async () => {
     if (!assignment?.id) return;
@@ -628,28 +686,54 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </div>
               ) : null}
 
-              {(isQuizAssignment || isExamAssignment) && submission ? (
-                <div className="rounded-xl border border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/30 p-3 sm:p-4 space-y-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                    <p className="text-xs sm:text-sm font-semibold text-emerald-900 dark:text-emerald-200">
-                      Assessment Completed
+              {(isQuizAssignment || isExamAssignment) && (loadingSubmission || submission || terminalAttempt) ? (
+                loadingSubmission ? (
+                  <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Checking submission status…
+                  </div>
+                ) : submission ? (
+                  <div className="rounded-xl border border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/30 p-3 sm:p-4 space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                      <p className="text-xs sm:text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+                        Assessment Completed
+                      </p>
+                      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border text-[10px]">
+                        Done
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80">
+                      This assessment can only be taken once. Your submission has been recorded.
                     </p>
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border text-[10px]">
-                      Done
-                    </Badge>
+                    <div className="text-[11px] text-muted-foreground space-y-0.5">
+                      <p>Submitted: {new Date(submission.submitted_at).toLocaleString()}</p>
+                      <p>Status: <span className="capitalize">{submission.status.replace('_', ' ')}</span></p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground italic">
+                      See the &quot;My Submissions&quot; tab for your full submission details.
+                    </p>
                   </div>
-                  <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80">
-                    This assessment can only be taken once. Your submission has been recorded.
-                  </p>
-                  <div className="text-[11px] text-muted-foreground space-y-0.5">
-                    <p>Submitted: {new Date(submission.submitted_at).toLocaleString()}</p>
-                    <p>Status: <span className="capitalize">{submission.status.replace('_', ' ')}</span></p>
+                ) : (
+                  <div className="rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 p-3 sm:p-4 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                      <p className="text-xs sm:text-sm font-semibold text-amber-900 dark:text-amber-200">
+                        Assessment Ended
+                      </p>
+                    </div>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                      {terminalAttempt?.status === 'terminated'
+                        ? 'Your attempt was ended due to proctoring violations. You cannot retake this assessment.'
+                        : 'Your attempt timed out. You cannot retake this assessment.'}
+                    </p>
+                    {terminalAttempt?.started_at && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Started: {new Date(terminalAttempt.started_at).toLocaleString()}
+                        {terminalAttempt.ended_at ? ` · Ended: ${new Date(terminalAttempt.ended_at).toLocaleString()}` : ''}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground italic">
-                    See the "My Submissions" tab for your full submission details.
-                  </p>
-                </div>
+                )
               ) : isQuizAssignment ? (
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 sm:p-4 space-y-3">
                   <ul className="text-xs sm:text-sm text-muted-foreground space-y-1 list-disc pl-4">
@@ -893,7 +977,113 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                       <Badge variant="secondary" className="text-xs w-fit capitalize">{s.status.replace('_', ' ')}</Badge>
                     </div>
                   </div>
-                  <p className="text-xs sm:text-sm text-muted-foreground mb-2 break-words">{s.content}</p>
+                  {(isQuizAssignment || isExamAssignment) ? (() => {
+                    // Parse the JSON summary stored by the server on submission
+                    let summary: { attempt_id?: string; answered_count?: number; total_questions?: number; raw_score?: number; max_question_score?: number; scaled_score?: number; violation_count?: number } | null = null;
+                    try { summary = JSON.parse(s.content); } catch { /* not JSON */ }
+
+                    const scoreData = examScore || null;
+                    const score = scoreData?.score ?? summary?.scaled_score ?? null;
+                    const maxScore = scoreData?.max_score ?? null;
+                    const answered = scoreData?.answered_count ?? summary?.answered_count ?? null;
+                    const total = scoreData?.total_questions ?? summary?.total_questions ?? null;
+                    const violations = scoreData?.violation_count ?? summary?.violation_count ?? null;
+                    const pct = scoreData?.percentage ?? (score !== null && maxScore ? Math.round((score / maxScore) * 100) : null);
+
+                    return (
+                      <div className="mb-2 space-y-3">
+                        {/* Score summary */}
+                        <div className="rounded-lg border bg-muted/30 p-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Score</div>
+                            <div className="text-sm font-semibold">
+                              {score !== null ? `${score}${maxScore ? `/${maxScore}` : ''}` : '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Percentage</div>
+                            <div className="text-sm font-semibold">{pct !== null ? `${pct}%` : '—'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Answered</div>
+                            <div className="text-sm font-semibold">{answered !== null ? `${answered}/${total ?? '?'}` : '—'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Violations</div>
+                            <div className="text-sm font-semibold">{violations !== null ? violations : '—'}</div>
+                          </div>
+                        </div>
+
+                        {/* Per-question breakdown */}
+                        {scoreData?.question_results && scoreData.question_results.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Question Breakdown</p>
+                            {scoreData.question_results.map((qr, idx) => (
+                              <div key={qr.question_id} className={`rounded-lg border p-2 sm:p-3 space-y-1 ${
+                                qr.is_correct === true ? 'border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20' :
+                                qr.is_correct === false ? 'border-rose-200 bg-rose-50/50 dark:bg-rose-950/20' :
+                                'border-border bg-muted/20'
+                              }`}>
+                                <div className="flex items-start gap-2">
+                                  {qr.is_correct === true ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  ) : qr.is_correct === false ? (
+                                    <XCircle className="h-3.5 w-3.5 text-rose-500 flex-shrink-0 mt-0.5" />
+                                  ) : (
+                                    <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                                  )}
+                                  <p className="text-xs font-medium leading-snug flex-1">
+                                    <span className="text-muted-foreground mr-1">Q{idx + 1}.</span>
+                                    {qr.prompt}
+                                  </p>
+                                  <span className="text-[10px] text-muted-foreground flex-shrink-0">{qr.points_awarded}/{qr.points_possible} pts</span>
+                                </div>
+
+                                {qr.item_type !== 'short_answer' && qr.choices.length > 0 && (
+                                  <div className="pl-5 space-y-0.5">
+                                    {qr.choices.map((choice, ci) => {
+                                      const isSelected = ci === qr.selected_choice_index;
+                                      const isCorrect = ci === qr.correct_choice_index;
+                                      return (
+                                        <div key={ci} className={`flex items-center gap-1.5 text-[11px] rounded px-1.5 py-0.5 ${
+                                          isSelected && isCorrect ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' :
+                                          isSelected && !isCorrect ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' :
+                                          isCorrect ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' :
+                                          'text-muted-foreground'
+                                        }`}>
+                                          <span className="font-mono text-[10px]">{String.fromCharCode(65 + ci)}.</span>
+                                          <span>{choice}</span>
+                                          {isSelected && <span className="ml-auto text-[9px] font-medium">{isCorrect ? '✓ Your answer' : '✗ Your answer'}</span>}
+                                          {!isSelected && isCorrect && <span className="ml-auto text-[9px] font-medium text-emerald-600">Correct</span>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                {qr.item_type === 'short_answer' && (
+                                  <div className="pl-5 text-[11px] space-y-0.5">
+                                    {qr.answer_text && (
+                                      <p><span className="text-muted-foreground">Your answer:</span> <span className="font-medium">{qr.answer_text}</span></p>
+                                    )}
+                                    {qr.correct_answer_text && (
+                                      <p><span className="text-muted-foreground">Correct answer:</span> <span className="font-medium text-emerald-700 dark:text-emerald-400">{qr.correct_answer_text}</span></p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {qr.explanation && (
+                                  <p className="pl-5 text-[11px] text-muted-foreground italic">{qr.explanation}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })() : (
+                    <p className="text-xs sm:text-sm text-muted-foreground mb-2 break-words">{s.content}</p>
+                  )}
                   {(s.providerFileName || s.providerViewLink || s.providerFileId) && (
                     <div className="p-2 sm:p-3 bg-primary/5 rounded-lg">
                       <p className="text-xs font-medium text-primary mb-1">

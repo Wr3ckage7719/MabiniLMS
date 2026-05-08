@@ -287,4 +287,12 @@ export const assignmentsService = {
       feedback,
     });
   },
+
+  async getExamAttemptResults(attemptId: string) {
+    return apiClient.get(`/assignments/exam/attempts/${attemptId}/results`);
+  },
+
+  async getMyExamAttempt(assignmentId: string) {
+    return apiClient.get(`/assignments/${assignmentId}/exam/my-attempt`);
+  },
 };

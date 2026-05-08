@@ -171,6 +171,14 @@ router.get(
   examController.listAssignmentViolations
 );
 
+// GET /api/assignments/:assignmentId/exam/my-attempt - get student's own latest attempt
+router.get(
+  '/:assignmentId/exam/my-attempt',
+  authorize(UserRole.STUDENT),
+  validate({ params: examAssignmentParamSchema }),
+  examController.getMyExamAttempt
+);
+
 // POST /api/assignments/:assignmentId/exam/attempts/start - start exam attempt (student)
 router.post(
   '/:assignmentId/exam/attempts/start',
@@ -207,6 +215,13 @@ router.get(
   '/exam/attempts/:attemptId/violations',
   validate({ params: examAttemptParamSchema, query: listViolationsQuerySchema }),
   examController.listAttemptViolations
+);
+
+// GET /api/assignments/exam/attempts/:attemptId/results - get per-question results for a completed attempt
+router.get(
+  '/exam/attempts/:attemptId/results',
+  validate({ params: examAttemptParamSchema }),
+  examController.getExamAttemptResults
 );
 
 // POST /api/assignments/exam/attempts/:attemptId/submit - finalize and auto-grade exam attempt

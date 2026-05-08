@@ -1702,3 +1702,104 @@ export const submitExamAttempt = async (
     question_results: questionResults,
   }
 }
+
+export const getExamAttemptResults = async (
+  attemptId: string,
+  userId: string,
+  userRole: UserRole
+): Promise<ExamSubmissionResult> => {
+  const context = await resolveAttemptContext(attemptId)
+  assertAttemptAccess(context, userId, userRole)
+
+  const questions = await listQuestionsForAssignment(context.assignment.id)
+
+  const { data: answersData, error: answersError } = await supabaseAdmin
+    .from('exam_attempt_answers')
+    .select('*')
+    .eq('attempt_id', attemptId)
+
+  if (answersError) {
+    logger.error('Failed to load attempt answers for results', { attemptId, error: answersError.message })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load exam results', 500)
+  }
+
+  const answerByQuestionId = new Map(
+    (answersData || []).map((a) => [a.question_id as string, a])
+  )
+
+  const answeredCount = (answersData || []).length
+  const rawScore = roundToTwo(
+    (answersData || []).reduce((sum, answer) => sum + toNumber(answer.points_awarded, 0), 0)
+  )
+  const totalQuestionPoints = roundToTwo(questions.reduce((sum, q) => sum + q.points, 0))
+  const scaledScore = totalQuestionPoints > 0
+    ? roundToTwo((rawScore / totalQuestionPoints) * context.assignment.max_points)
+    : 0
+  const percentage = context.assignment.max_points > 0
+    ? roundToTwo((scaledScore / context.assignment.max_points) * 100)
+    : 0
+
+  const { data: violationsData } = await supabaseAdmin
+    .from('exam_violations')
+    .select('id', { count: 'exact', head: true })
+    .eq('attempt_id', attemptId)
+
+  const violationCount = Array.isArray(violationsData) ? violationsData.length : 0
+
+  const questionResults: ExamQuestionResult[] = questions.map((question) => {
+    const answer = answerByQuestionId.get(question.id)
+    const acceptedAnswers: string[] = Array.isArray(question.answer_payload?.accepted_answers)
+      ? (question.answer_payload.accepted_answers as string[])
+      : []
+    const correctAnswerText = acceptedAnswers.length > 0 ? acceptedAnswers[0] : null
+
+    return {
+      question_id: question.id,
+      prompt: question.prompt,
+      item_type: question.item_type,
+      points_possible: question.points,
+      points_awarded: answer ? roundToTwo(toNumber(answer.points_awarded, 0)) : 0,
+      is_correct: answer ? (answer.is_correct as boolean | null) : null,
+      selected_choice_index: answer ? (answer.selected_choice_index as number | null) : null,
+      answer_text: answer ? (answer.answer_text as string | null) : null,
+      correct_choice_index: question.item_type !== 'short_answer' ? question.correct_choice_index : null,
+      correct_answer_text: correctAnswerText,
+      choices: question.choices,
+      explanation: question.explanation,
+    }
+  })
+
+  return {
+    attempt_id: attemptId,
+    submission_id: '',
+    grade_id: '',
+    score: scaledScore,
+    max_score: context.assignment.max_points,
+    percentage,
+    answered_count: answeredCount,
+    total_questions: questions.length,
+    violation_count: violationCount,
+    question_results: questionResults,
+  }
+}
+
+export const getMyExamAttempt = async (
+  assignmentId: string,
+  studentId: string
+): Promise<{ attempt: ExamAttempt | null }> => {
+  const { data, error } = await supabaseAdmin
+    .from('exam_attempts')
+    .select('*')
+    .eq('assignment_id', assignmentId)
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    logger.error('Failed to fetch student exam attempt', { assignmentId, studentId, error: error.message })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to fetch exam attempt', 500)
+  }
+
+  return { attempt: data ? parseExamAttempt(data as Record<string, unknown>) : null }
+}

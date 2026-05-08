@@ -287,3 +287,48 @@ export const listAssignmentViolations = async (
     next(error)
   }
 }
+
+export const getExamAttemptResults = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { attemptId } = req.params
+
+    const result = await examService.getExamAttemptResults(
+      attemptId,
+      req.user!.id,
+      req.user!.role as UserRole
+    )
+
+    res.json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export const getMyExamAttempt = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { assignmentId } = req.params
+
+    const result = await examService.getMyExamAttempt(
+      assignmentId,
+      req.user!.id
+    )
+
+    res.json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
