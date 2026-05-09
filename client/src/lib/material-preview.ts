@@ -155,10 +155,11 @@ export const convertDocxToHtml = async (url: string): Promise<string> => {
   return String(result?.value || '');
 };
 
-// Renders a DOCX to an array of page HTML strings using docx-preview.
-// Each entry corresponds to one real Word page (honoring w:sectPr page size /
-// margins and w:pageBreakBefore). Falls back to a single-entry array when the
-// lib emits no section elements (continuous-layout docs).
+// Renders a DOCX to an array of page HTML strings using docx-preview, then
+// paginates each rendered <section.docx> by measuring child heights against
+// the section's content-area height. docx-preview's breakPages only honors
+// EXPLICIT w:br page breaks; most natural Word docs (3-page A4 by overflow)
+// have none, so without this measurement step we'd get one giant page.
 export const renderDocxToPages = async (url: string): Promise<string[]> => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -168,8 +169,13 @@ export const renderDocxToPages = async (url: string): Promise<string[]> => {
   const arrayBuffer = await response.arrayBuffer();
   const { renderAsync } = await import('docx-preview');
 
+  // Off-screen but laid out so offsetHeight measurements are accurate. Pure
+  // visibility:hidden inside a flex/grid ancestor can still influence layout;
+  // a fixed off-canvas position guarantees independence from page flow.
   const host = document.createElement('div');
-  host.style.position = 'absolute';
+  host.style.position = 'fixed';
+  host.style.left = '-99999px';
+  host.style.top = '0';
   host.style.visibility = 'hidden';
   host.style.pointerEvents = 'none';
   document.body.appendChild(host);
@@ -185,15 +191,77 @@ export const renderDocxToPages = async (url: string): Promise<string[]> => {
     });
 
     const sections = Array.from(host.querySelectorAll<HTMLElement>('section.docx'));
-    if (sections.length > 0) {
-      return sections.map((s) => s.outerHTML);
+    if (sections.length === 0) {
+      return [host.innerHTML];
     }
 
-    // Fallback: library did not emit per-page sections (continuous doc).
-    return [host.innerHTML];
+    const pages: string[] = [];
+    for (const section of sections) {
+      pages.push(...paginateDocxSection(section));
+    }
+
+    return pages.length > 0 ? pages : sections.map((s) => s.outerHTML);
   } finally {
     document.body.removeChild(host);
   }
+};
+
+// Splits a single rendered <section.docx> into one or more page-sized chunks
+// by walking its block-level children top-to-bottom and accumulating heights.
+// Returns serialized outerHTML strings — each is a clone of the section with
+// the same inline styles + class, holding only that page's children.
+const paginateDocxSection = (section: HTMLElement): string[] => {
+  const computed = window.getComputedStyle(section);
+  const minHeight = parseFloat(computed.minHeight) || section.offsetHeight;
+  const paddingTop = parseFloat(computed.paddingTop) || 0;
+  const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+  const contentAreaHeight = Math.max(0, minHeight - paddingTop - paddingBottom);
+
+  const children = Array.from(section.children) as HTMLElement[];
+
+  // Degenerate cases: nothing to split, or page area is unmeasured. Either
+  // way the safest output is the section as-is so the reader still has
+  // something to render.
+  if (children.length === 0 || contentAreaHeight <= 0) {
+    return [section.outerHTML];
+  }
+
+  const buffer: HTMLElement[] = [];
+  let bufferHeight = 0;
+  const flushedPages: string[] = [];
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    const clone = section.cloneNode(false) as HTMLElement;
+    for (const child of buffer) {
+      clone.appendChild(child.cloneNode(true));
+    }
+    flushedPages.push(clone.outerHTML);
+    buffer.length = 0;
+    bufferHeight = 0;
+  };
+
+  for (const child of children) {
+    const childStyle = window.getComputedStyle(child);
+    const marginTop = parseFloat(childStyle.marginTop) || 0;
+    const marginBottom = parseFloat(childStyle.marginBottom) || 0;
+    const childHeight = child.offsetHeight + marginTop + marginBottom;
+
+    // If adding this child would overflow and we've already buffered
+    // something, flush first so the child starts a fresh page. A child
+    // that's larger than a full page on its own still gets placed on
+    // its own page (don't infinite-loop trying to split it further).
+    if (bufferHeight > 0 && bufferHeight + childHeight > contentAreaHeight) {
+      flushBuffer();
+    }
+
+    buffer.push(child);
+    bufferHeight += childHeight;
+  }
+
+  flushBuffer();
+
+  return flushedPages.length > 0 ? flushedPages : [section.outerHTML];
 };
 
 export const convertPptxToSlides = async (url: string): Promise<PptxSlidePreview[]> => {

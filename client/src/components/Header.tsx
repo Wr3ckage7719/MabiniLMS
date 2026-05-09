@@ -53,6 +53,15 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
   const applySearchQuery = (rawValue: string) => {
     const nextValue = rawValue.trim();
+    // Header mounts fresh whenever AppLayout (re)mounts — including back-nav
+    // from full-screen routes like /class/:id/lessons/:lessonId. The debounced
+    // effect on searchQuery fires applySearchQuery('') on that mount; without
+    // this guard, an empty value on any non-search route would redirect to
+    // /dashboard, kicking students off /class/:id right after they pressed
+    // "Back to lessons".
+    if (!nextValue && !isStudentSearchRoute) {
+      return;
+    }
     const targetPath = isStudentSearchRoute ? location.pathname : '/dashboard';
     const currentParams = new URLSearchParams(isStudentSearchRoute ? location.search : '');
 
