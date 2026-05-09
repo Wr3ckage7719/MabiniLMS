@@ -110,6 +110,7 @@ export function StreamTab({
                 variant="ghost"
                 size="icon"
                 className="rounded-lg h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-muted"
+                aria-label="Add attachment"
                 onClick={() => {
                   toast({
                     title: 'Attachments not available',

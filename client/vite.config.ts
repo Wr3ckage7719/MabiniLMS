@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     host: "::",
     port: 8080,
-    open: "/teacher",
+    open: "/",
     hmr: {
       overlay: false,
     },
@@ -28,7 +28,7 @@ export default defineConfig({
   build: {
     target: 'es2020',
     cssCodeSplit: true,
-    sourcemap: false,
+    sourcemap: 'hidden',
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {

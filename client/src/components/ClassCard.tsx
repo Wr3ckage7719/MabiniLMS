@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ClassItem, CLASS_COLORS } from '@/lib/data';
 import { FileText, ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
@@ -32,6 +34,14 @@ interface ProgressRingProps {
   percent: number;
   size?: number;
   stroke?: number;
+}
+
+interface ColoredHeaderProps {
+  classItem: Pick<ClassItem, 'coverImage' | 'color'>;
+  isArchived: boolean;
+  archivedOpacity?: string;
+  className?: string;
+  children: ReactNode;
 }
 
 // Small inline SVG ring so we don't pull a chart lib for one indicator.
@@ -71,6 +81,29 @@ function ProgressRing({ percent, size = 36, stroke = 4 }: ProgressRingProps) {
   );
 }
 
+function ColoredHeader({
+  classItem,
+  isArchived,
+  archivedOpacity = 'opacity-70',
+  className = '',
+  children,
+}: ColoredHeaderProps) {
+  return (
+    <div
+      className={`relative overflow-hidden ${isArchived ? archivedOpacity : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''} ${className}`}
+      style={
+        classItem.coverImage
+          ? { backgroundImage: `url(${classItem.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : undefined
+      }
+    >
+      {classItem.coverImage && <div className="absolute inset-0 bg-black/45" />}
+      <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
+      {children}
+    </div>
+  );
+}
+
 export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, completion }: ClassCardProps) {
   const navigate = useNavigate();
   const [confirmAction, setConfirmAction] = useState<'archive' | 'unenroll' | 'restore' | null>(null);
@@ -98,20 +131,13 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
         className={`group overflow-hidden border-0 cursor-pointer bg-transparent shadow-none md:bg-card md:shadow-sm md:card-interactive md:hover:shadow-glow`}
         onClick={() => navigate(`/class/${classItem.id}`)}
       >
-        <div
-          className={`md:hidden min-h-[146px] px-4 py-4 relative overflow-hidden rounded-[24px] ${isArchived ? 'opacity-70' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
-          style={
-            classItem.coverImage
-              ? {
-                  backgroundImage: `url(${classItem.coverImage})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }
-              : undefined
-          }
+        {/* Mobile card */}
+        <ColoredHeader
+          classItem={classItem}
+          isArchived={isArchived}
+          archivedOpacity="opacity-70"
+          className="md:hidden min-h-[146px] px-4 py-4 rounded-[24px]"
         >
-          {classItem.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
-          <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
           <div className="absolute -right-5 -bottom-7 w-32 h-32 rounded-full bg-white/12" />
           <div className="absolute -right-2 -top-4 w-16 h-16 rounded-full bg-white/10" />
 
@@ -135,6 +161,7 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
                   {onRestore && (
                     <button
                       type="button"
+                      aria-label={`Unarchive ${classItem.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmAction('restore');
@@ -148,88 +175,81 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
               )}
             </div>
           </div>
-        </div>
+        </ColoredHeader>
 
+        {/* Desktop card */}
         <div className="hidden md:block">
-        <div
-          className={`h-28 p-5 relative overflow-hidden ${isArchived ? 'opacity-60' : ''} ${!classItem.coverImage ? CLASS_COLORS[classItem.color] : ''}`}
-          style={
-            classItem.coverImage
-              ? {
-                  backgroundImage: `url(${classItem.coverImage})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }
-              : undefined
-          }
-        >
-          {classItem.coverImage ? <div className="absolute inset-0 bg-black/45" /> : null}
-          <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/20" />
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10 group-hover:scale-110 transition-transform duration-500" />
-          <div className="absolute -right-8 -top-8 w-20 h-20 rounded-full bg-white/5" />
-          <div className="relative z-10 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-lg font-bold text-white truncate">{classItem.name}</h3>
-              <p className="text-sm text-white/80 mt-0.5 truncate">{classItem.section}</p>
-              {isArchived && (
-                <div className="mt-2 inline-block">
-                  <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-md">Archived</span>
-                </div>
+          <ColoredHeader
+            classItem={classItem}
+            isArchived={isArchived}
+            archivedOpacity="opacity-60"
+            className="h-28 p-5"
+          >
+            <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10 group-hover:scale-110 transition-transform duration-500" />
+            <div className="absolute -right-8 -top-8 w-20 h-20 rounded-full bg-white/5" />
+            <div className="relative z-10 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-white truncate">{classItem.name}</h3>
+                <p className="text-sm text-white/80 mt-0.5 truncate">{classItem.section}</p>
+                {isArchived && (
+                  <div className="mt-2 inline-block">
+                    <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-md">Archived</span>
+                  </div>
+                )}
+              </div>
+              {completion && completion.total > 0 && !isArchived && (
+                <ProgressRing percent={completion.percent} size={44} stroke={4} />
               )}
             </div>
-            {completion && completion.total > 0 && !isArchived && (
-              <ProgressRing percent={completion.percent} size={44} stroke={4} />
-            )}
-          </div>
-        </div>
+          </ColoredHeader>
 
-        <div className={`p-5 ${isArchived ? 'opacity-90' : ''}`}>
-          <p className="text-sm text-muted-foreground mb-2">{classItem.teacher}</p>
-          <p className="text-xs text-muted-foreground mb-2">{classItem.room} • {classItem.schedule}</p>
-          {(classItem.tags?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap gap-1 mb-3">
-              {classItem.tags!.slice(0, 4).map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-medium"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-2">
-            {isArchived && onRestore ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-lg text-xs gap-1.5"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmAction('restore');
-                }}
-              >
-                <ArchiveRestore className="h-3.5 w-3.5" />
-                Unarchive
-              </Button>
-            ) : <span />}
-            {!isArchived && completion && completion.total > 0 ? (
-              <div className="flex items-center gap-1.5 text-primary">
-                <FileText className="h-4 w-4" />
-                <span className="text-sm font-medium">
-                  {completion.completed}/{completion.total} done
-                </span>
+          <div className={`p-5 ${isArchived ? 'opacity-90' : ''}`}>
+            <p className="text-sm text-muted-foreground mb-2">{classItem.teacher}</p>
+            <p className="text-xs text-muted-foreground mb-2">{classItem.room} • {classItem.schedule}</p>
+            {(classItem.tags?.length ?? 0) > 0 && (
+              <div className="flex flex-wrap gap-1 mb-3">
+                {classItem.tags!.slice(0, 4).map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-medium"
+                  >
+                    #{tag}
+                  </span>
+                ))}
               </div>
-            ) : (
-              classItem.pendingAssignments > 0 && !isArchived && (
+            )}
+            <div className="flex items-center justify-between gap-2">
+              {isArchived && onRestore ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg text-xs gap-1.5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmAction('restore');
+                  }}
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                  Unarchive
+                </Button>
+              ) : <span />}
+              {!isArchived && completion && completion.total > 0 ? (
                 <div className="flex items-center gap-1.5 text-primary">
                   <FileText className="h-4 w-4" />
-                  <span className="text-sm font-medium">{classItem.pendingAssignments} pending</span>
+                  <span className="text-sm font-medium">
+                    {completion.completed}/{completion.total} done
+                  </span>
                 </div>
-              )
-            )}
+              ) : (
+                classItem.pendingAssignments > 0 && !isArchived && (
+                  <div className="flex items-center gap-1.5 text-primary">
+                    <FileText className="h-4 w-4" />
+                    <span className="text-sm font-medium">{classItem.pendingAssignments} pending</span>
+                  </div>
+                )
+              )}
+            </div>
           </div>
-        </div>
         </div>
       </Card>
 
@@ -247,17 +267,19 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
                 : `Are you sure you want to permanently delete "${classItem.name}"? This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (confirmAction === 'archive') handleArchive();
-              else if (confirmAction === 'restore') handleRestore();
-              else if (confirmAction === 'unenroll') handleUnenroll();
-            }}
-            className={`rounded-lg ${confirmAction === 'unenroll' ? 'bg-destructive hover:bg-destructive/90' : ''}`}
-          >
-            {confirmAction === 'archive' ? 'Archive' : confirmAction === 'restore' ? 'Restore' : 'Delete'}
-          </AlertDialogAction>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmAction === 'archive') handleArchive();
+                else if (confirmAction === 'restore') handleRestore();
+                else if (confirmAction === 'unenroll') handleUnenroll();
+              }}
+              className={`rounded-lg ${confirmAction === 'unenroll' ? 'bg-destructive hover:bg-destructive/90' : ''}`}
+            >
+              {confirmAction === 'archive' ? 'Archive' : confirmAction === 'restore' ? 'Restore' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>

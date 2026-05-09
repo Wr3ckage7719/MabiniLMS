@@ -44,7 +44,7 @@ export function AppSidebar({ open, onClose }: SidebarProps) {
       >
         <div className="flex items-center justify-between p-4 md:hidden">
           <span className="font-semibold text-sm">Menu</span>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onClose} aria-label="Close menu">
             <ChevronLeft className="h-5 w-5" />
           </Button>
         </div>
