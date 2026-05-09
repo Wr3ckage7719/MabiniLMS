@@ -4,12 +4,40 @@ import { AuthRequest, ApiError, ErrorCode, UserRole } from '../types/index.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import logger from '../utils/logger.js';
+import { decodeJwtPayload } from '../utils/jwt.js';
 
 // Cache for session timeout setting (refreshed every 5 minutes)
 let cachedSessionTimeout: number | null = null;
 let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const PASSWORD_CHANGE_TOKEN_GRACE_MS = 1000;
+
+// Short-lived cache for the expensive per-request DB lookups that follow
+// Supabase token verification. Keyed by SHA-256 of the raw access token.
+// TTL is intentionally short (30 s) so role/approval changes propagate quickly.
+// Safe because: (1) token changes on password change, busting the cache key;
+// (2) 2FA session proof is also cached per-token for the same TTL.
+type AuthCache = {
+  profile: AuthProfile;
+  isTwoFactor: boolean;
+  hasSessionProof: boolean;
+  exp: number;
+};
+const authProfileCache = new Map<string, AuthCache>();
+const AUTH_CACHE_TTL_MS = 30_000;
+const AUTH_CACHE_MAX_ENTRIES = 2000;
+
+const getTokenCacheKey = (token: string): string =>
+  crypto.createHash('sha256').update(token).digest('hex');
+
+const pruneAuthCache = () => {
+  if (authProfileCache.size <= AUTH_CACHE_MAX_ENTRIES) return;
+  const now = Date.now();
+  for (const [key, entry] of authProfileCache) {
+    if (entry.exp < now) authProfileCache.delete(key);
+    if (authProfileCache.size <= AUTH_CACHE_MAX_ENTRIES) break;
+  }
+};
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
 const PROFILE_SELECT_WITH_SECURITY_TRACKING =
   'role, email, first_name, last_name, pending_approval, password_changed_at, two_factor_enabled';
@@ -43,23 +71,6 @@ const isMissingColumnError = (message: string | undefined, columnName: string): 
     normalizedMessage.includes(columnName.toLowerCase()) &&
     normalizedMessage.includes('column')
   );
-};
-
-const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
-  const parts = token.split('.');
-  if (parts.length < 2) {
-    return null;
-  }
-
-  try {
-    const payload = parts[1]
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
-    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 };
 
 const getTokenSessionId = (accessToken: string): string | undefined => {
@@ -267,7 +278,7 @@ export const authenticate = async (
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    // Verify JWT token with Supabase
+    // Verify JWT token with Supabase (always — this is the cryptographic check).
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !user) {
@@ -284,7 +295,7 @@ export const authenticate = async (
     const tokenIssuedAt = getTokenIssuedAt(token);
     const lastSignInAt = user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() / 1000 : undefined;
     const timeoutAnchor = tokenIssuedAt || lastSignInAt;
-    
+
     if (timeoutAnchor && isSessionTimedOut(timeoutAnchor, sessionTimeout)) {
       logger.warn('Session timed out', {
         userId: user.id,
@@ -297,6 +308,21 @@ export const authenticate = async (
         'Session has expired. Please sign in again.',
         401
       );
+    }
+
+    // Check short-lived profile cache before hitting the database.
+    // Cache key is the SHA-256 of the raw token so it naturally expires when
+    // the token rotates (e.g. after a password change or re-login).
+    pruneAuthCache();
+    const cacheKey = getTokenCacheKey(token);
+    const cached = authProfileCache.get(cacheKey);
+    if (cached && cached.exp > Date.now()) {
+      req.user = {
+        id: user.id,
+        email: cached.profile.email,
+        role: cached.profile.role as UserRole,
+      };
+      return next();
     }
 
     // Fetch user profile to get role and approval status.
@@ -453,9 +479,10 @@ export const authenticate = async (
     }
 
     const isTwoFactorEnabled = await isTwoFactorEnabledForUser(user.id, profile.two_factor_enabled);
+    let hasSessionProof = true;
 
     if (isTwoFactorEnabled) {
-      const hasSessionProof = await hasServerSessionProof(user.id, token);
+      hasSessionProof = await hasServerSessionProof(user.id, token);
 
       if (!hasSessionProof) {
         logger.warn('Access denied - missing server session proof for 2FA user', {
@@ -470,6 +497,14 @@ export const authenticate = async (
         );
       }
     }
+
+    // Populate cache so subsequent requests skip the DB round-trips.
+    authProfileCache.set(cacheKey, {
+      profile,
+      isTwoFactor: isTwoFactorEnabled,
+      hasSessionProof,
+      exp: Date.now() + AUTH_CACHE_TTL_MS,
+    });
 
     // Attach user info to request
     req.user = {

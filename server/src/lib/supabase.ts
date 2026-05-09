@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { decodeJwtPayload as decodeJwt } from '../utils/jwt.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,10 +26,6 @@ const normalizeEnvValue = (value?: string): string => {
   return trimmed;
 };
 
-type JwtPayload = {
-  role?: unknown;
-};
-
 type SupabaseKeyKind =
   | 'jwt_anon'
   | 'jwt_service_role'
@@ -43,20 +40,8 @@ type KeyCandidate = {
   kind: SupabaseKeyKind;
 };
 
-const decodeJwtPayload = (token: string): JwtPayload | null => {
-  const segments = token.split('.');
-  if (segments.length !== 3) {
-    return null;
-  }
-
-  try {
-    const payloadSegment = segments[1].replace(/-/g, '+').replace(/_/g, '/');
-    const paddedPayload = payloadSegment.padEnd(Math.ceil(payloadSegment.length / 4) * 4, '=');
-    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as JwtPayload;
-  } catch {
-    return null;
-  }
-};
+const decodeJwtPayload = (token: string): { role?: unknown } | null =>
+  decodeJwt(token) as { role?: unknown } | null;
 
 const classifySupabaseKey = (key: string): SupabaseKeyKind => {
   if (!key) {

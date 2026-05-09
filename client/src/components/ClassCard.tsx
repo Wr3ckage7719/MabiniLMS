@@ -10,6 +10,7 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
@@ -135,6 +136,7 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
                   {onRestore && (
                     <button
                       type="button"
+                      aria-label={`Unarchive ${classItem.name}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmAction('restore');
@@ -247,17 +249,19 @@ export function ClassCard({ classItem, onArchive, onUnenroll, onRestore, complet
                 : `Are you sure you want to permanently delete "${classItem.name}"? This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (confirmAction === 'archive') handleArchive();
-              else if (confirmAction === 'restore') handleRestore();
-              else if (confirmAction === 'unenroll') handleUnenroll();
-            }}
-            className={`rounded-lg ${confirmAction === 'unenroll' ? 'bg-destructive hover:bg-destructive/90' : ''}`}
-          >
-            {confirmAction === 'archive' ? 'Archive' : confirmAction === 'restore' ? 'Restore' : 'Delete'}
-          </AlertDialogAction>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmAction === 'archive') handleArchive();
+                else if (confirmAction === 'restore') handleRestore();
+                else if (confirmAction === 'unenroll') handleUnenroll();
+              }}
+              className={`rounded-lg ${confirmAction === 'unenroll' ? 'bg-destructive hover:bg-destructive/90' : ''}`}
+            >
+              {confirmAction === 'archive' ? 'Archive' : confirmAction === 'restore' ? 'Restore' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>

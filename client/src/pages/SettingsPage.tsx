@@ -22,7 +22,7 @@ import {
   writePwaMobileZoomPolicyPreference,
 } from '@/lib/pwa-zoom-policy';
 import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
-import axios from 'axios';
+import { isAxiosError } from 'axios';
 import { AlertCircle, CheckCircle2, Clock3, Eye, EyeOff, Link2, Loader2, Trash2, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -317,8 +317,8 @@ export default function SettingsPage() {
       }
       notifySuccess(toast, 'Your profile avatar has been updated.', 'Avatar updated');
     } catch (error) {
-      const isNetworkError = axios.isAxiosError(error) && !error.response;
-      const responseMessage = axios.isAxiosError(error)
+      const isNetworkError = isAxiosError(error) && !error.response;
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       const errorMessage = isNetworkError
@@ -439,7 +439,7 @@ export default function SettingsPage() {
 
       notifySuccess(toast, 'Your password has been changed successfully.', 'Password updated');
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       setPasswordChangeError(

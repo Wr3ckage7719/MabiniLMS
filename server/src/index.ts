@@ -40,7 +40,10 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
-const JSON_BODY_LIMIT = '5mb';
+// Tight default; routes that handle large payloads (batch operations, exam
+// submissions with rich content) apply their own larger limit via middleware.
+const JSON_BODY_LIMIT = '500kb';
+const JSON_BODY_LIMIT_LARGE = '5mb';
 
 const isEnvFlagEnabled = (value: string | undefined): boolean => {
   return (value || '').trim().toLowerCase() === 'true';
@@ -123,14 +126,21 @@ app.use(helmet({
 }));
 
 // 2. CORS Configuration - Strict origin validation
+// Prefer env vars for production origins; the hardcoded Vercel URLs are kept
+// as a fallback so deployments with no CLIENT_URL set don't break silently.
+// To add origins without touching source code, set ADDITIONAL_CORS_ORIGINS
+// as a comma-separated list of URLs in the environment.
 const allowedOrigins = parseOrigins(
   process.env.CLIENT_URL,
   process.env.CORS_ORIGIN,
   process.env.FRONTEND_URL,
+  process.env.ADDITIONAL_CORS_ORIGINS,
   'http://localhost:5173',
   'http://localhost:8080',
   'http://localhost:8081',
   'http://localhost:3000',
+  // Fallback: kept for deployments that don't yet set CLIENT_URL.
+  // Set CLIENT_URL=https://mabinilms.vercel.app in production env to remove this dependency.
   'https://mabinilms.vercel.app',
   'https://www.mabinilms.vercel.app'
 );
@@ -351,6 +361,10 @@ if (shouldExposeDbTestEndpoint) {
   });
 }
 
+// Large-body middleware for routes that legitimately handle big JSON payloads.
+// Applied per-prefix so auth/search/admin endpoints keep the tight default.
+const largeJsonBody = express.json({ limit: JSON_BODY_LIMIT_LARGE, strict: true });
+
 // API Routes with specific rate limiters
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/google', googleOAuthRoutes); // Google OAuth routes
@@ -360,13 +374,13 @@ app.use('/api/admin', adminLimiter, adminRoutes); // Admin-specific rate limitin
 app.use('/api/courses', courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
-app.use('/api/assignments', assignmentRoutes);
-app.use('/api/grades', gradeRoutes);
+app.use('/api/assignments', largeJsonBody, assignmentRoutes); // quiz/exam bodies can be large
+app.use('/api/grades', largeJsonBody, gradeRoutes);           // bulk grade payloads
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
+app.use('/api/batch', batchLimiter, largeJsonBody, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);
 app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
 app.use('/api', discussionRoutes); // Course discussion stream routes

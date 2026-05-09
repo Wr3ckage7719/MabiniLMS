@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
@@ -86,7 +87,11 @@ try {
 	// Bad URLs are non-fatal.
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+);
 
 // Defer non-paint-critical side effects so React gets first pick of the main thread.
 scheduleIdle(() => {

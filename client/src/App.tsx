@@ -59,7 +59,7 @@ const queryClient = new QueryClient({
       },
       refetchOnWindowFocus: false, // opt-in per query; blanket refetch on Alt-Tab is wasteful
       refetchOnReconnect: true,
-      refetchOnMount: 'always',
+      refetchOnMount: true,
     },
     mutations: {
       retry: 0,
