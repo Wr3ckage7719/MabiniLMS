@@ -140,6 +140,21 @@ const buildImageDataUrl = (path: string, base64: string): string => {
   return `data:${mimeType};base64,${base64}`;
 };
 
+// Simple mammoth-based single-page HTML conversion used by the teacher
+// MaterialPreviewDialog (non-paginated scroll view).
+export const convertDocxToHtml = async (url: string): Promise<string> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch DOCX document');
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const mammothModule: any = await import('mammoth');
+  const result = await mammothModule.convertToHtml({ arrayBuffer });
+
+  return String(result?.value || '');
+};
+
 // Renders a DOCX to an array of page HTML strings using docx-preview.
 // Each entry corresponds to one real Word page (honoring w:sectPr page size /
 // margins and w:pageBreakBefore). Falls back to a single-entry array when the
