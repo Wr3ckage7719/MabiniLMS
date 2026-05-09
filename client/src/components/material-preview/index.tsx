@@ -581,6 +581,13 @@ export function MaterialPreviewDialog({
     };
   }, []);
 
+  const handleDocxPageVisible = useCallback((pageNumber: number) => {
+    if (isTeacher || !material) return;
+    markInteraction();
+    const mergedPages = toUniqueSortedPages([...pagesViewedRef.current, pageNumber]);
+    pushProgressEvent({ scrollPercent: highestScrollRef.current, pageNumber, pages: mergedPages });
+  }, [isTeacher, markInteraction, material, pushProgressEvent]);
+
   const handleScroll = useCallback(() => {
     markInteraction();
 
@@ -726,6 +733,7 @@ export function MaterialPreviewDialog({
           docPreviewMode={docPreviewMode}
           setDocPreviewMode={setDocPreviewMode}
           markInteraction={markInteraction}
+          onPageVisible={handleDocxPageVisible}
         />
       );
     }

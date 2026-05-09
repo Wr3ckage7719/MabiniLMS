@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface DocxPreviewProps {
   url: string;
@@ -12,7 +12,12 @@ interface DocxPreviewProps {
   docPreviewMode: 'office' | 'extracted' | 'print';
   setDocPreviewMode: (mode: 'office' | 'extracted' | 'print') => void;
   markInteraction: () => void;
+  onPageVisible?: (pageNumber: number) => void;
 }
+
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2.0;
 
 export function DocxPreview({
   url,
@@ -26,12 +31,30 @@ export function DocxPreview({
   docPreviewMode,
   setDocPreviewMode,
   markInteraction,
+  onPageVisible,
 }: DocxPreviewProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [pageScale, setPageScale] = useState(1);
+  const [manualZoom, setManualZoom] = useState<number | null>(null);
 
-  // Measure the natural page width from the first rendered section and compute
-  // a zoom factor so pages always fit the canvas without horizontal overflow.
+  const effectiveZoom = manualZoom ?? pageScale;
+
+  const zoomIn = useCallback(() => {
+    markInteraction();
+    setManualZoom((z) => Math.min(ZOOM_MAX, Math.round(((z ?? pageScale) + ZOOM_STEP) * 10) / 10));
+  }, [markInteraction, pageScale]);
+
+  const zoomOut = useCallback(() => {
+    markInteraction();
+    setManualZoom((z) => Math.max(ZOOM_MIN, Math.round(((z ?? pageScale) - ZOOM_STEP) * 10) / 10));
+  }, [markInteraction, pageScale]);
+
+  const resetZoom = useCallback(() => {
+    markInteraction();
+    setManualZoom(null);
+  }, [markInteraction]);
+
+  // Measure natural A4 page width and compute auto-fit zoom factor.
   useEffect(() => {
     if (docPreviewMode !== 'print' || docxPages.length === 0) {
       setPageScale(1);
@@ -45,17 +68,46 @@ export function DocxPreview({
       if (!section) return;
       const naturalWidth = section.scrollWidth || section.offsetWidth;
       if (naturalWidth <= 0) return;
-      // 24px padding on each side (p-6)
+      // Subtract p-6 padding (24px each side)
       const available = canvas.clientWidth - 48;
       setPageScale(Math.min(1, Math.max(0.3, available / naturalWidth)));
     };
 
     const ro = new ResizeObserver(measure);
     ro.observe(canvas);
-    // Short delay so docx-preview styles are fully applied before we measure
+    // Brief delay so docx-preview styles are applied before measuring
     const tid = window.setTimeout(measure, 80);
     return () => { ro.disconnect(); window.clearTimeout(tid); };
   }, [docPreviewMode, docxPages]);
+
+  // Reset manual zoom when the document changes (new pages loaded).
+  useEffect(() => {
+    setManualZoom(null);
+  }, [docxPages]);
+
+  // Track which pages become visible so the progress system records page numbers.
+  useEffect(() => {
+    if (!onPageVisible || !canvasRef.current || docxPages.length === 0 || docPreviewMode !== 'print') return;
+    const canvas = canvasRef.current;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const pageNum = Number((entry.target as HTMLElement).dataset.page);
+            if (pageNum > 0) onPageVisible(pageNum);
+          }
+        }
+      },
+      { threshold: 0.2 },
+    );
+
+    // Page wrappers are marked with data-page after render
+    const pageEls = canvas.querySelectorAll<HTMLElement>('[data-page]');
+    for (const el of Array.from(pageEls)) observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [docxPages, docPreviewMode, onPageVisible]);
 
   const docOfficeEmbedUrl = url
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
@@ -156,12 +208,48 @@ export function DocxPreview({
       );
     }
 
+    const zoomPct = `${Math.round(effectiveZoom * 100)}%`;
+
     return (
       <div className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-xs text-muted-foreground">
-            Print layout · {docxPages.length} page{docxPages.length !== 1 ? 's' : ''}
-          </span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-muted-foreground">
+              Print layout · {docxPages.length} page{docxPages.length !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Zoom out"
+                onClick={zoomOut}
+                disabled={effectiveZoom <= ZOOM_MIN}
+                className="rounded px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                −
+              </button>
+              <span className="text-xs tabular-nums w-10 text-center text-muted-foreground select-none">
+                {zoomPct}
+              </span>
+              <button
+                type="button"
+                aria-label="Zoom in"
+                onClick={zoomIn}
+                disabled={effectiveZoom >= ZOOM_MAX}
+                className="rounded px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                +
+              </button>
+              {manualZoom !== null && (
+                <button
+                  type="button"
+                  onClick={resetZoom}
+                  className="rounded px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                >
+                  Auto
+                </button>
+              )}
+            </div>
+          </div>
           {modeToggle}
         </div>
         <div
@@ -169,10 +257,10 @@ export function DocxPreview({
           className="rounded-lg bg-neutral-300 dark:bg-neutral-700 p-6 flex flex-col items-center gap-4 overflow-x-auto"
         >
           {docxPages.map((pageHtml, index) => (
-            <div key={index} className="flex flex-col items-center gap-1.5">
+            <div key={index} data-page={index + 1} className="flex flex-col items-center gap-1.5">
               <div
                 className="shadow-xl"
-                style={pageScale < 1 ? { zoom: pageScale } : undefined}
+                style={effectiveZoom !== 1 ? { zoom: effectiveZoom } : undefined}
                 dangerouslySetInnerHTML={{ __html: pageHtml }}
               />
               <span className="text-xs tabular-nums select-none text-neutral-500 dark:text-neutral-400">
