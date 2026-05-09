@@ -37,7 +37,7 @@ export function TeacherSidebar({ open, onClose }: TeacherSidebarProps) {
         {/* Sidebar header - Mobile only */}
         <div className="flex items-center justify-between p-4 md:hidden border-b">
           <span className="font-semibold flex items-center gap-2">Menu</span>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close menu">
             <ChevronLeft className="h-5 w-5" />
           </Button>
         </div>

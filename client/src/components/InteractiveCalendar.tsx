@@ -148,6 +148,7 @@ export default function InteractiveCalendar() {
                 variant="ghost"
                 size="icon"
                 className="rounded-lg h-9 w-9 flex-shrink-0 mt-0.5"
+                aria-label="Back to calendar"
               >
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -250,6 +251,7 @@ export default function InteractiveCalendar() {
           variant="outline"
           size="icon"
           className="hover:bg-primary/10 transition-colors duration-200 h-9 w-9 md:h-10 md:w-10"
+          aria-label="Previous month"
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -261,6 +263,7 @@ export default function InteractiveCalendar() {
           variant="outline"
           size="icon"
           className="hover:bg-primary/10 transition-colors duration-200 h-9 w-9 md:h-10 md:w-10"
+          aria-label="Next month"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>

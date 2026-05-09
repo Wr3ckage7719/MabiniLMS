@@ -40,7 +40,8 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
-const JSON_BODY_LIMIT = '5mb';
+const JSON_BODY_LIMIT = '500kb';
+const JSON_BODY_LIMIT_LARGE = '5mb';
 
 const isEnvFlagEnabled = (value: string | undefined): boolean => {
   return (value || '').trim().toLowerCase() === 'true';
@@ -95,8 +96,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // Needed for Swagger UI
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", process.env.SUPABASE_URL || ''].filter(Boolean),
       fontSrc: ["'self'", "https:", "data:"],
@@ -127,6 +128,7 @@ const allowedOrigins = parseOrigins(
   process.env.CLIENT_URL,
   process.env.CORS_ORIGIN,
   process.env.FRONTEND_URL,
+  process.env.ADDITIONAL_CORS_ORIGINS,
   'http://localhost:5173',
   'http://localhost:8080',
   'http://localhost:8081',
@@ -169,7 +171,8 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // 3. Body parsing with size limits (DoS prevention)
-app.use(express.json({ 
+const largeJsonBody = express.json({ limit: JSON_BODY_LIMIT_LARGE, strict: true });
+app.use(express.json({
   limit: JSON_BODY_LIMIT,  // Max JSON body size
   strict: true,  // Only accept arrays and objects
 }));
@@ -201,8 +204,15 @@ app.use(requestLogger);
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
 
-// Setup Swagger documentation
+// Setup Swagger documentation (relaxed CSP scoped to docs routes only)
 if (shouldExposeApiDocs) {
+  app.use(['/api-docs', '/api-docs.json'], (_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https: data:; object-src 'none'; frame-src 'none';"
+    );
+    next();
+  });
   setupSwagger(app);
 }
 
@@ -360,13 +370,13 @@ app.use('/api/admin', adminLimiter, adminRoutes); // Admin-specific rate limitin
 app.use('/api/courses', courseRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
-app.use('/api/assignments', assignmentRoutes);
-app.use('/api/grades', gradeRoutes);
+app.use('/api/assignments', largeJsonBody, assignmentRoutes);
+app.use('/api/grades', largeJsonBody, gradeRoutes);
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/batch', batchLimiter, batchRoutes); // Batch-specific rate limiting
+app.use('/api/batch', batchLimiter, largeJsonBody, batchRoutes); // Batch-specific rate limiting
 app.use('/api/invitations', invitationRoutes);
 app.use('/api', announcementRoutes); // Announcements routes (nested under /api/courses/:courseId/announcements)
 app.use('/api', discussionRoutes); // Course discussion stream routes

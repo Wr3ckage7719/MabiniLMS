@@ -139,7 +139,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
       <header className="sticky top-0 z-50 border-b bg-background md:glass">
         <div className="flex items-center justify-between h-16 md:h-16 px-3.5 md:px-6">
           <div className="flex items-center gap-1.5 md:gap-3">
-            <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="h-10 w-10 rounded-full md:hidden">
+            <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="h-10 w-10 rounded-full md:hidden" aria-label="Open menu">
               <Menu className="h-5 w-5" />
             </Button>
             <button onClick={handleHomeClick} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
@@ -161,7 +161,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
           </div>
 
           <div className="flex items-center gap-2.5 md:gap-2">
-            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)}>
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full md:hidden" onClick={() => setSearchOpen(!searchOpen)} aria-label="Search">
               <Search className="h-5 w-5" />
             </Button>
 
@@ -191,24 +191,25 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
             {/* Install App Button - only shown when installable */}
             {isInstallable && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="hidden md:inline-flex rounded-xl hover:bg-primary/10"
                 onClick={install}
                 title="Install App"
+                aria-label="Install App"
               >
                 <Download className="h-5 w-5" />
               </Button>
             )}
 
-            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 hidden md:flex" onClick={() => navigate('/settings')}>
+            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 hidden md:flex" onClick={() => navigate('/settings')} aria-label="Settings">
               <Settings className="h-5 w-5" />
             </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 p-1.5 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors">
+                <button className="flex items-center gap-2 p-1.5 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors" aria-label="Open user menu">
                   <Avatar className="h-8 w-8 md:h-8 md:w-8">
                     {currentUserAvatarUrl && (
                       <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />

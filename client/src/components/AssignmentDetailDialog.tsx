@@ -951,6 +951,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 onClick={() => {
                   void handleComment();
                 }}
+                aria-label="Send comment"
               >
                 <Send className="h-4 w-4" />
               </Button>

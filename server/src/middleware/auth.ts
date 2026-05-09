@@ -4,6 +4,7 @@ import { AuthRequest, ApiError, ErrorCode, UserRole } from '../types/index.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { ALLOWED_DOMAIN } from '../types/google-oauth.js';
 import logger from '../utils/logger.js';
+import { decodeJwtPayload } from '../utils/jwt.js';
 
 // Cache for session timeout setting (refreshed every 5 minutes)
 let cachedSessionTimeout: number | null = null;
@@ -11,12 +12,8 @@ let cacheTimestamp: number = 0;
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const PASSWORD_CHANGE_TOKEN_GRACE_MS = 1000;
 const STUDENT_INSTITUTIONAL_DOMAIN = ALLOWED_DOMAIN.toLowerCase();
-const PROFILE_SELECT_WITH_SECURITY_TRACKING =
+const PROFILE_SELECT =
   'role, email, first_name, last_name, pending_approval, password_changed_at, two_factor_enabled';
-const PROFILE_SELECT_WITH_PASSWORD_TRACKING =
-  'role, email, first_name, last_name, pending_approval, password_changed_at';
-const PROFILE_SELECT_LEGACY =
-  'role, email, first_name, last_name, pending_approval';
 
 type AuthProfile = {
   role: UserRole | string;
@@ -37,30 +34,6 @@ const resolveUserRole = (roleValue: unknown): UserRole => {
   return UserRole.STUDENT;
 };
 
-const isMissingColumnError = (message: string | undefined, columnName: string): boolean => {
-  const normalizedMessage = (message || '').toLowerCase();
-  return (
-    normalizedMessage.includes(columnName.toLowerCase()) &&
-    normalizedMessage.includes('column')
-  );
-};
-
-const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
-  const parts = token.split('.');
-  if (parts.length < 2) {
-    return null;
-  }
-
-  try {
-    const payload = parts[1]
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    const paddedPayload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
-    return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-};
 
 const getTokenSessionId = (accessToken: string): string | undefined => {
   const payload = decodeJwtPayload(accessToken);
@@ -144,64 +117,15 @@ const fetchAuthProfile = async (
 ): Promise<{ profile: AuthProfile | null; errorMessage?: string }> => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select(PROFILE_SELECT_WITH_SECURITY_TRACKING)
+    .select(PROFILE_SELECT)
     .eq('id', userId)
     .maybeSingle();
 
-  if (!error) {
-    return { profile: data as AuthProfile | null };
-  }
-
-  const isMissingTwoFactorEnabled = isMissingColumnError(error.message, 'two_factor_enabled');
-  const isMissingPasswordChangedAt = isMissingColumnError(error.message, 'password_changed_at');
-
-  if (!isMissingTwoFactorEnabled && !isMissingPasswordChangedAt) {
+  if (error) {
     return { profile: null, errorMessage: error.message };
   }
 
-  if (isMissingTwoFactorEnabled) {
-    const { data: dataWithoutTwoFactor, error: fallbackError } = await supabaseAdmin
-      .from('profiles')
-      .select(PROFILE_SELECT_WITH_PASSWORD_TRACKING)
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (!fallbackError) {
-      const fallbackProfile = dataWithoutTwoFactor
-        ? ({
-            ...dataWithoutTwoFactor,
-            two_factor_enabled: false,
-          } as AuthProfile)
-        : null;
-
-      return { profile: fallbackProfile };
-    }
-
-    if (!isMissingColumnError(fallbackError.message, 'password_changed_at')) {
-      return { profile: null, errorMessage: fallbackError.message };
-    }
-  }
-
-  // Backward compatibility for environments that have not applied migration 005/007 yet.
-  const { data: legacyData, error: legacyError } = await supabaseAdmin
-    .from('profiles')
-    .select(PROFILE_SELECT_LEGACY)
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (legacyError) {
-    return { profile: null, errorMessage: legacyError.message };
-  }
-
-  const legacyProfile = legacyData
-    ? ({
-        ...legacyData,
-        password_changed_at: null,
-        two_factor_enabled: false,
-      } as AuthProfile)
-    : null;
-
-  return { profile: legacyProfile };
+  return { profile: data as AuthProfile | null };
 };
 
 /**

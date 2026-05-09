@@ -141,6 +141,7 @@ export function NotificationsPopover({ role = 'student', buttonClassName }: Noti
           variant="ghost"
           size="icon"
           className={cn('relative rounded-xl hover:bg-primary/10', buttonClassName)}
+          aria-label="Notifications"
         >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (

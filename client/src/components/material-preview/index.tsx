@@ -766,7 +766,7 @@ export function MaterialPreviewDialog({
         <div className={`${isTeacher ? 'mx-auto max-w-[1500px] rounded-xl border border-border bg-card/90 shadow-xl' : 'h-full w-full'} flex h-full flex-col overflow-hidden`}>
           <div className="flex items-center justify-between gap-3 border-b border-border p-3 md:p-4">
             <h2 className="line-clamp-1 text-base md:text-2xl font-semibold text-foreground">{material.title}</h2>
-            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={closePreview}>
+            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={closePreview} aria-label="Close preview">
               <X className="h-5 w-5" />
             </Button>
           </div>

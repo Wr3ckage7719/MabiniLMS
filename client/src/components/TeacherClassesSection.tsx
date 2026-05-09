@@ -321,6 +321,7 @@ export function TeacherClassesSection({
               size="icon"
               className="rounded-lg"
               onClick={() => setViewMode('grid')}
+              aria-label="Grid view"
             >
               <Grid2X2 className="h-4 w-4" />
             </Button>
@@ -329,6 +330,7 @@ export function TeacherClassesSection({
               size="icon"
               className="rounded-lg"
               onClick={() => setViewMode('list')}
+              aria-label="List view"
             >
               <List className="h-4 w-4" />
             </Button>
@@ -366,6 +368,7 @@ export function TeacherClassesSection({
                             size="icon"
                             className="h-9 w-9 md:h-8 md:w-8 rounded-lg bg-card/90 hover:bg-card shadow-sm hover:shadow-md transition-all active:bg-card/95 text-foreground"
                             title="Class options"
+                            aria-label="Class options"
                           >
                             <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
                           </Button>
@@ -502,6 +505,7 @@ export function TeacherClassesSection({
                                 size="icon"
                                 className="h-9 w-9 md:h-8 md:w-8 rounded-lg hover:bg-secondary/50 transition-all active:bg-secondary/70 text-foreground"
                                 title="Class options"
+                                aria-label="Class options"
                               >
                                 <MoreVertical className="h-5 md:h-4 w-5 md:w-4" />
                               </Button>

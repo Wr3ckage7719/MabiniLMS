@@ -61,11 +61,12 @@ export function TeacherHeader({
       <div className="flex items-center justify-between h-16 px-4 md:px-6 gap-4">
         {/* Left section - Logo, branding, and Teacher label */}
         <div className="flex items-center gap-3 min-w-0">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={onToggleSidebar} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
             className="md:hidden hover:bg-primary/10"
+            aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -93,11 +94,12 @@ export function TeacherHeader({
         {/* Right section - Actions */}
         <div className="flex items-center gap-2">
           {/* Mobile search */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="md:hidden"
             onClick={() => setSearchOpen(!searchOpen)}
+            aria-label="Search"
           >
             <Search className="h-5 w-5" />
           </Button>
@@ -116,11 +118,12 @@ export function TeacherHeader({
           <NotificationsPopover role="teacher" />
 
           {/* Settings */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="rounded-xl hover:bg-primary/10 hidden sm:flex transition-colors"
             title="Settings"
+            aria-label="Settings"
             onClick={handleSettings}
           >
             <Settings className="h-5 w-5" />
@@ -129,7 +132,7 @@ export function TeacherHeader({
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary/50 transition-colors ml-2">
+              <button className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary/50 transition-colors ml-2" aria-label="Open user menu">
                 <Avatar className="h-8 w-8">
                   {currentUserAvatarUrl ? (
                     <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />
