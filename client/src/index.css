@@ -114,6 +114,19 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    /* Prevent native text-selection context menu (removes "Web search" on Android Chrome) */
+    user-select: none;
+    -webkit-user-select: none;
+    /* Suppress iOS long-press callout (Safari) */
+    -webkit-touch-callout: none;
+  }
+  /* Re-enable selection inside editable form elements */
+  input,
+  textarea,
+  select,
+  [contenteditable] {
+    user-select: text;
+    -webkit-user-select: text;
   }
 }
 
