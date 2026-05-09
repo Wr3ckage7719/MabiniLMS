@@ -113,26 +113,27 @@ export default function MaterialReaderPage() {
   const [downloading, setDownloading] = useState(false);
   const downloadCooldownRef = useRef<number | null>(null);
 
-  // DOCX mobile scale — measure the rendered section width and scale it
-  // down so it fits the viewport without horizontal scrolling.
+  // DOCX mobile zoom — CSS zoom affects layout (unlike transform: scale), so
+  // margin: 0 auto centers the page correctly and overflow-x: hidden never clips.
+  // We temporarily clear zoom before reading scrollWidth to always get the
+  // natural (unzoomed) page width, preventing a ResizeObserver feedback loop.
   const docxSurfaceRef = useRef<HTMLDivElement | null>(null);
-  const [docxScale, setDocxScale] = useState(1);
+  const [docxZoom, setDocxZoom] = useState(1);
   useEffect(() => {
-    if (!docxSurfaceRef.current) return;
+    if (!docxSurfaceRef.current || !docxPages) return;
     const el = docxSurfaceRef.current;
     const measure = () => {
+      const prev = el.style.zoom;
+      el.style.zoom = '';
       const naturalWidth = el.scrollWidth;
-      const availableWidth = window.innerWidth - 32; // 16px padding each side
-      setDocxScale(naturalWidth > availableWidth ? availableWidth / naturalWidth : 1);
+      el.style.zoom = prev;
+      if (naturalWidth <= 0) return;
+      const availableWidth = el.parentElement?.offsetWidth ?? (window.innerWidth - 32);
+      setDocxZoom(naturalWidth > availableWidth ? availableWidth / naturalWidth : 1);
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
+    requestAnimationFrame(measure);
     window.addEventListener('resize', measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', measure);
-    };
+    return () => window.removeEventListener('resize', measure);
   }, [docxPages, pageIndex]);
 
   // Load material metadata
@@ -482,14 +483,12 @@ export default function MaterialReaderPage() {
         );
       }
       return (
-        <div className="docx-reader-host flex justify-center">
+        <div className="docx-reader-host">
           <div
             ref={docxSurfaceRef}
             className="docx-page-surface"
             style={{
-              transformOrigin: 'top center',
-              transform: docxScale < 1 ? `scale(${docxScale})` : undefined,
-              marginBottom: docxScale < 1 ? `calc((${docxScale} - 1) * 100%)` : undefined,
+              zoom: docxZoom < 1 ? docxZoom : undefined,
               ...(readerTheme === 'dark' ? { filter: 'invert(1) hue-rotate(180deg)' } : {}),
             }}
             dangerouslySetInnerHTML={{ __html: docxPages[pageIndex] || '' }}
@@ -550,8 +549,7 @@ export default function MaterialReaderPage() {
         </p>
       </div>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, loadError, meta, pdfReady, docxPages, pptxSlides, pageIndex]);
+  }, [loading, loadError, meta, pdfReady, docxPages, pptxSlides, pageIndex, docxZoom, readerTheme]);
 
   const showPager = !loading && !loadError && totalPages > 0;
 
