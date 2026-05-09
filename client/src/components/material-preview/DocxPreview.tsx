@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 interface DocxPreviewProps {
   url: string;
   title: string;
@@ -25,6 +27,36 @@ export function DocxPreview({
   setDocPreviewMode,
   markInteraction,
 }: DocxPreviewProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [pageScale, setPageScale] = useState(1);
+
+  // Measure the natural page width from the first rendered section and compute
+  // a zoom factor so pages always fit the canvas without horizontal overflow.
+  useEffect(() => {
+    if (docPreviewMode !== 'print' || docxPages.length === 0) {
+      setPageScale(1);
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const measure = () => {
+      const section = canvas.querySelector('section.docx') as HTMLElement | null;
+      if (!section) return;
+      const naturalWidth = section.scrollWidth || section.offsetWidth;
+      if (naturalWidth <= 0) return;
+      // 24px padding on each side (p-6)
+      const available = canvas.clientWidth - 48;
+      setPageScale(Math.min(1, Math.max(0.3, available / naturalWidth)));
+    };
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(canvas);
+    // Short delay so docx-preview styles are fully applied before we measure
+    const tid = window.setTimeout(measure, 80);
+    return () => { ro.disconnect(); window.clearTimeout(tid); };
+  }, [docPreviewMode, docxPages]);
+
   const docOfficeEmbedUrl = url
     ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`
     : null;
@@ -82,8 +114,20 @@ export function DocxPreview({
   if (docPreviewMode === 'print') {
     if (docxPagesLoading) {
       return (
-        <div className="rounded-lg border border-border p-6 bg-muted/20 text-sm text-muted-foreground">
-          Rendering print layout...
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-xs text-muted-foreground">Preparing print layout…</span>
+            {modeToggle}
+          </div>
+          <div className="rounded-lg bg-neutral-300 dark:bg-neutral-700 p-6 flex flex-col items-center gap-6">
+            {[1, 2, 3].map((n) => (
+              <div
+                key={n}
+                className="w-full max-w-[793px] bg-white/50 dark:bg-white/10 animate-pulse shadow-lg rounded-sm"
+                style={{ aspectRatio: '210 / 297' }}
+              />
+            ))}
+          </div>
         </div>
       );
     }
@@ -120,13 +164,21 @@ export function DocxPreview({
           </span>
           {modeToggle}
         </div>
-        <div className="rounded-lg overflow-hidden bg-neutral-300 dark:bg-neutral-700 p-6 flex flex-col items-center gap-6">
+        <div
+          ref={canvasRef}
+          className="rounded-lg bg-neutral-300 dark:bg-neutral-700 p-6 flex flex-col items-center gap-4 overflow-x-auto"
+        >
           {docxPages.map((pageHtml, index) => (
-            <div
-              key={index}
-              className="shadow-xl overflow-x-auto"
-              dangerouslySetInnerHTML={{ __html: pageHtml }}
-            />
+            <div key={index} className="flex flex-col items-center gap-1.5">
+              <div
+                className="shadow-xl"
+                style={pageScale < 1 ? { zoom: pageScale } : undefined}
+                dangerouslySetInnerHTML={{ __html: pageHtml }}
+              />
+              <span className="text-xs tabular-nums select-none text-neutral-500 dark:text-neutral-400">
+                {index + 1} / {docxPages.length}
+              </span>
+            </div>
           ))}
         </div>
       </div>
