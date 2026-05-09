@@ -308,3 +308,52 @@
 .animate-float {
   animation: float-animation 6s ease-in-out infinite;
 }
+
+/* ── DOCX reader surface ────────────────────────────────────────────────── */
+/* docx-preview renders one <section class="docx"> per real Word page.      */
+/* We float it on a desk-gray background and give it a paper drop-shadow.  */
+
+.docx-reader-host {
+  background: transparent;
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* The paper surface that wraps one <section.docx> */
+.docx-page-surface {
+  margin: 0 auto;
+  /* Paper drop-shadow, rounded edge visible */
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  /* Ensure background stays white even when dark mode inverts the host */
+  background: #ffffff;
+}
+
+/* Constrain any images/tables the doc may contain */
+.docx-page-surface img {
+  max-width: 100%;
+  height: auto;
+}
+
+.docx-page-surface table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Mobile: allow the page to scale down to fit the viewport width.          */
+/* docx-preview writes pixel widths from w:pgSz onto .docx-wrapper and     */
+/* section.docx. We scale those down on narrow screens.                    */
+@media (max-width: 900px) {
+  .docx-page-surface {
+    --docx-viewport: calc(100vw - 2rem);
+    transform-origin: top center;
+    /* The actual inline scale is applied via JS in MaterialReaderPage      */
+    /* for accurate runtime measurement; this just ensures the host clips   */
+    overflow: visible;
+  }
+
+  .docx-reader-host {
+    overflow-x: hidden;
+  }
+}
+/* ─────────────────────────────────────────────────────────────────────── */

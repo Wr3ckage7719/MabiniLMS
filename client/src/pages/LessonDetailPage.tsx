@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { getClassHomePath } from '@/lib/navigation';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -264,6 +266,7 @@ export default function LessonDetailPage() {
   const classId = id ?? '';
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [examAssignment, setExamAssignment] = useState<Assignment | null>(null);
@@ -304,7 +307,7 @@ export default function LessonDetailPage() {
   }, [lesson, allLessons]);
 
   const handleBack = () => {
-    navigate(`/class/${classId}`);
+    navigate(getClassHomePath(user?.role, classId));
   };
 
   const handleOpenMaterial = (material: LessonMaterialRef) => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { getClassHomePath } from '@/lib/navigation';
 import {
   ArrowLeft,
   Loader2,
@@ -280,7 +281,7 @@ export default function LessonEditorPage() {
     return allLessons.filter((other) => other.id !== lesson.id);
   }, [allLessons, lesson]);
 
-  const handleBack = () => navigate(`/class/${classId}?tab=lessons`);
+  const handleBack = () => navigate(getClassHomePath('teacher', classId));
 
   const refreshLesson = async () => {
     // Force a fresh fetch (not just an invalidation) so we don't render the

@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { getClassHomePath } from '@/lib/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTeacherLesson } from '@/hooks-api/useLessons';
@@ -29,7 +30,7 @@ export default function AssignmentBuilderPage() {
     if (lessonId) {
       navigate(`/class/${classId}/lessons/${lessonId}/edit`);
     } else {
-      navigate(`/class/${classId}`);
+      navigate(getClassHomePath('teacher', classId));
     }
   };
 

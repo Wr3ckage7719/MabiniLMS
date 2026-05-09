@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { getClassHomePath } from '@/lib/navigation';
 import {
   ArrowLeft,
   BookOpen,
@@ -107,7 +108,7 @@ export default function MaterialUploadPage() {
     if (lessonId) {
       navigate(`/class/${classId}/lessons/${lessonId}/edit`);
     } else {
-      navigate(`/class/${classId}`);
+      navigate(getClassHomePath('teacher', classId));
     }
   };
 

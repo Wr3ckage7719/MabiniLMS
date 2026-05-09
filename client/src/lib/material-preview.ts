@@ -140,17 +140,45 @@ const buildImageDataUrl = (path: string, base64: string): string => {
   return `data:${mimeType};base64,${base64}`;
 };
 
-export const convertDocxToHtml = async (url: string): Promise<string> => {
+// Renders a DOCX to an array of page HTML strings using docx-preview.
+// Each entry corresponds to one real Word page (honoring w:sectPr page size /
+// margins and w:pageBreakBefore). Falls back to a single-entry array when the
+// lib emits no section elements (continuous-layout docs).
+export const renderDocxToPages = async (url: string): Promise<string[]> => {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error('Failed to fetch DOCX document');
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  const mammothModule: any = await import('mammoth');
-  const result = await mammothModule.convertToHtml({ arrayBuffer });
+  const { renderAsync } = await import('docx-preview');
 
-  return String(result?.value || '');
+  const host = document.createElement('div');
+  host.style.position = 'absolute';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  document.body.appendChild(host);
+
+  try {
+    await renderAsync(arrayBuffer, host, undefined, {
+      className: 'docx',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      breakPages: true,
+      useBase64URL: true,
+    });
+
+    const sections = Array.from(host.querySelectorAll<HTMLElement>('section.docx'));
+    if (sections.length > 0) {
+      return sections.map((s) => s.outerHTML);
+    }
+
+    // Fallback: library did not emit per-page sections (continuous doc).
+    return [host.innerHTML];
+  } finally {
+    document.body.removeChild(host);
+  }
 };
 
 export const convertPptxToSlides = async (url: string): Promise<PptxSlidePreview[]> => {
