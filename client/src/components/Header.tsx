@@ -191,12 +191,13 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
             {/* Install App Button - only shown when installable */}
             {isInstallable && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="hidden md:inline-flex rounded-xl hover:bg-primary/10"
                 onClick={install}
                 title="Install App"
+                aria-label="Install App"
               >
                 <Download className="h-5 w-5" />
               </Button>
@@ -208,7 +209,7 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 p-1.5 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors">
+                <button className="flex items-center gap-2 p-1.5 md:p-2 rounded-full md:rounded-xl hover:bg-secondary/50 transition-colors" aria-label="Open user menu">
                   <Avatar className="h-8 w-8 md:h-8 md:w-8">
                     {currentUserAvatarUrl && (
                       <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />

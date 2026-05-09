@@ -300,6 +300,7 @@ export function StudentClassStream({ classId, variant = 'embedded', onBack }: St
                       });
                     }}
                     className="gap-2 text-muted-foreground hover:text-foreground rounded-lg h-8 w-8 p-0 md:w-auto md:px-2"
+                    aria-label="Attach file"
                   >
                     <Paperclip className="h-4 w-4" />
                     <span className="hidden sm:inline text-xs">Attach</span>

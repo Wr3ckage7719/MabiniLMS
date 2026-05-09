@@ -132,7 +132,7 @@ export function TeacherHeader({
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary/50 transition-colors ml-2">
+              <button className="flex items-center gap-2 p-2 rounded-xl hover:bg-secondary/50 transition-colors ml-2" aria-label="Open user menu">
                 <Avatar className="h-8 w-8">
                   {currentUserAvatarUrl ? (
                     <AvatarImage src={currentUserAvatarUrl} alt={`${currentUserName} avatar`} />

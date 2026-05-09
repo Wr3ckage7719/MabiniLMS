@@ -596,6 +596,7 @@ export function ProctoredExamDialog({
             onOpenChange(false)
           }}
           title="Close"
+          aria-label="Close dialog"
         >
           <X className="h-5 w-5" />
         </Button>
@@ -801,6 +802,7 @@ export function ProctoredExamDialog({
                                   onClick={() => toggleFlag(question.id)}
                                   className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
                                   title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                                  aria-label={isFlagged ? 'Remove flag' : 'Flag for review'}
                                 >
                                   <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
                                 </button>
@@ -966,6 +968,7 @@ export function ProctoredExamDialog({
                                   onClick={() => toggleFlag(question.id)}
                                   className={`p-1 rounded transition ${isFlagged ? 'text-amber-500' : 'text-muted-foreground hover:text-amber-500'}`}
                                   title={isFlagged ? 'Remove flag' : 'Flag for review'}
+                                  aria-label={isFlagged ? 'Remove flag' : 'Flag for review'}
                                 >
                                   <Flag className="h-3.5 w-3.5" fill={isFlagged ? 'currentColor' : 'none'} />
                                 </button>
