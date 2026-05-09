@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { getClassHomePath } from '@/lib/navigation';
 import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -14,7 +16,7 @@ import {
   downloadMaterialWithTracking,
 } from '@/lib/material-actions';
 import {
-  convertDocxToHtml,
+  renderDocxToPages,
   convertPptxToSlides,
   type PptxSlidePreview,
 } from '@/lib/material-preview';
@@ -47,41 +49,6 @@ const detectKindFromUrl = (url: string, declaredType?: string): FileKind => {
   return 'unsupported';
 };
 
-// Split DOCX HTML into reader pages by character budget so long documents
-// paginate naturally. The budget is sized so a typical resume-sized DOCX
-// (~3.5K printable chars) lands on a single page; longer documents paginate
-// at paragraph boundaries to avoid splitting headings from their content.
-const PAGE_CHAR_BUDGET = 3500;
-
-const splitDocxHtmlIntoPages = (html: string): string[] => {
-  if (!html.trim()) return [''];
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  const blocks = Array.from(container.children) as HTMLElement[];
-
-  if (blocks.length === 0) return [html];
-
-  const pages: string[] = [];
-  let buffer = '';
-  let bufferLength = 0;
-
-  for (const block of blocks) {
-    const blockHtml = block.outerHTML;
-    const textLength = (block.textContent || '').length;
-
-    if (bufferLength > 0 && bufferLength + textLength > PAGE_CHAR_BUDGET) {
-      pages.push(buffer);
-      buffer = '';
-      bufferLength = 0;
-    }
-
-    buffer += blockHtml;
-    bufferLength += textLength;
-  }
-
-  if (buffer) pages.push(buffer);
-  return pages.length > 0 ? pages : [html];
-};
 
 export default function MaterialReaderPage() {
   const { id, lessonId, materialId } = useParams();
@@ -89,6 +56,7 @@ export default function MaterialReaderPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const lessonQuery = useStudentLesson(classId, lessonId);
   const lesson = lessonQuery.data ?? null;
@@ -144,6 +112,28 @@ export default function MaterialReaderPage() {
   // Download state — spam protection via cooldown ref
   const [downloading, setDownloading] = useState(false);
   const downloadCooldownRef = useRef<number | null>(null);
+
+  // DOCX mobile scale — measure the rendered section width and scale it
+  // down so it fits the viewport without horizontal scrolling.
+  const docxSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const [docxScale, setDocxScale] = useState(1);
+  useEffect(() => {
+    if (!docxSurfaceRef.current) return;
+    const el = docxSurfaceRef.current;
+    const measure = () => {
+      const naturalWidth = el.scrollWidth;
+      const availableWidth = window.innerWidth - 32; // 16px padding each side
+      setDocxScale(naturalWidth > availableWidth ? availableWidth / naturalWidth : 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [docxPages, pageIndex]);
 
   // Load material metadata
   useEffect(() => {
@@ -222,16 +212,15 @@ export default function MaterialReaderPage() {
     };
   }, [meta]);
 
-  // DOCX load
+  // DOCX load — renderDocxToPages uses docx-preview to split into real Word pages
   useEffect(() => {
     if (!meta || meta.kind !== 'docx') return;
     let active = true;
 
     void (async () => {
       try {
-        const html = await convertDocxToHtml(meta.url);
+        const pages = await renderDocxToPages(meta.url);
         if (!active) return;
-        const pages = splitDocxHtmlIntoPages(html);
         setDocxPages(pages);
         setTotalPages(pages.length);
       } catch (err) {
@@ -356,9 +345,9 @@ export default function MaterialReaderPage() {
     if (lessonId) {
       navigate(`/class/${classId}/lessons/${lessonId}`);
     } else {
-      navigate(`/class/${classId}`);
+      navigate(getClassHomePath(user?.role, classId));
     }
-  }, [classId, finalize, lessonId, navigate]);
+  }, [classId, finalize, lessonId, navigate, user?.role]);
 
   const handlePrev = useCallback(() => {
     setPageIndex((current) => Math.max(0, current - 1));
@@ -493,8 +482,18 @@ export default function MaterialReaderPage() {
         );
       }
       return (
-        <div className={`mx-auto max-w-3xl rounded-lg border ${surfaceBg} p-6 md:p-10 shadow prose prose-sm md:prose-base max-w-none ${surfaceText} ${proseInvertClass} [&_*]:!color-inherit [&_a]:!text-blue-600`}>
-          <div dangerouslySetInnerHTML={{ __html: docxPages[pageIndex] || '' }} />
+        <div className="docx-reader-host flex justify-center">
+          <div
+            ref={docxSurfaceRef}
+            className="docx-page-surface"
+            style={{
+              transformOrigin: 'top center',
+              transform: docxScale < 1 ? `scale(${docxScale})` : undefined,
+              marginBottom: docxScale < 1 ? `calc((${docxScale} - 1) * 100%)` : undefined,
+              ...(readerTheme === 'dark' ? { filter: 'invert(1) hue-rotate(180deg)' } : {}),
+            }}
+            dangerouslySetInnerHTML={{ __html: docxPages[pageIndex] || '' }}
+          />
         </div>
       );
     }
