@@ -4,7 +4,7 @@ import { CheckCircle2, Download, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { trackDownload, trackScrollProgress, trackViewEnd, trackViewStart } from '@/lib/material-actions';
-import { convertDocxToHtml, convertPptxToSlides, type PptxSlidePreview } from '@/lib/material-preview';
+import { convertDocxToHtml, convertPptxToSlides, renderDocxToPages, type PptxSlidePreview } from '@/lib/material-preview';
 import { useEngagementStats } from '@/hooks-api/useMaterials';
 import { useToast } from '@/hooks/use-toast';
 import type { LearningMaterial } from '@/lib/data';
@@ -147,12 +147,15 @@ export function MaterialPreviewDialog({
   const [docxHtml, setDocxHtml] = useState('');
   const [docxLoading, setDocxLoading] = useState(false);
   const [docxError, setDocxError] = useState<string | null>(null);
+  const [docxPages, setDocxPages] = useState<string[]>([]);
+  const [docxPagesLoading, setDocxPagesLoading] = useState(false);
+  const [docxPagesError, setDocxPagesError] = useState<string | null>(null);
   const [pptxSlides, setPptxSlides] = useState<PptxSlidePreview[]>([]);
   const [pptxLoading, setPptxLoading] = useState(false);
   const [pptxError, setPptxError] = useState<string | null>(null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [pptPreviewMode, setPptPreviewMode] = useState<'true-content' | 'extracted'>('true-content');
-  const [docPreviewMode, setDocPreviewMode] = useState<'office' | 'extracted'>('office');
+  const [docPreviewMode, setDocPreviewMode] = useState<'office' | 'extracted' | 'print'>('print');
   const [markingDone, setMarkingDone] = useState(false);
   const [studentProgress, setStudentProgress] = useState<MaterialProgressRecord | null>(null);
   const [studentProgressLoading, setStudentProgressLoading] = useState(false);
@@ -330,12 +333,15 @@ export function MaterialPreviewDialog({
     setDocxHtml('');
     setDocxError(null);
     setDocxLoading(false);
+    setDocxPages([]);
+    setDocxPagesError(null);
+    setDocxPagesLoading(false);
     setPptxSlides([]);
     setPptxError(null);
     setPptxLoading(false);
     setCurrentSlideIndex(0);
     setPptPreviewMode('true-content');
-    setDocPreviewMode('office');
+    setDocPreviewMode('print');
     setMarkingDone(false);
     setStudentProgress(null);
     setStudentProgressLoading(false);
@@ -419,6 +425,21 @@ export function MaterialPreviewDialog({
 
     return () => { active = false; };
   }, [docPreviewMode, open, isDoc, material?.id, material?.url]);
+
+  useEffect(() => {
+    if (!open || !material?.url || !isDoc || docPreviewMode !== 'print' || docxPages.length > 0 || docxPagesLoading) return;
+
+    let active = true;
+    setDocxPagesLoading(true);
+    setDocxPagesError(null);
+
+    void renderDocxToPages(material.url)
+      .then((pages) => { if (active) setDocxPages(pages); })
+      .catch((error) => { if (active) setDocxPagesError(error instanceof Error ? error.message : 'Failed to render print layout'); })
+      .finally(() => { if (active) setDocxPagesLoading(false); });
+
+    return () => { active = false; };
+  }, [docPreviewMode, open, isDoc, material?.id, material?.url, docxPages.length, docxPagesLoading]);
 
   useEffect(() => {
     if (!open || !material?.url || !isPresentation || pptxSlides.length > 0 || pptxLoading || Boolean(pptxError)) return;
@@ -699,6 +720,9 @@ export function MaterialPreviewDialog({
           docxHtml={docxHtml}
           docxLoading={docxLoading}
           docxError={docxError}
+          docxPages={docxPages}
+          docxPagesLoading={docxPagesLoading}
+          docxPagesError={docxPagesError}
           docPreviewMode={docPreviewMode}
           setDocPreviewMode={setDocPreviewMode}
           markInteraction={markInteraction}
