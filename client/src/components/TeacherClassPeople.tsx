@@ -283,6 +283,7 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 rounded-lg flex-shrink-0"
+                          aria-label="Student options"
                         >
                           <MoreVertical className="h-4 w-4" />
                         </Button>

@@ -921,6 +921,7 @@ export function TeacherAssignmentDetail({
                   setIsEditing(!isEditing);
                 }}
                 className="h-8 w-8"
+                aria-label={isEditing ? 'Cancel editing' : 'Edit assignment'}
               >
                 {isEditing ? (
                   <X className="h-4 w-4" />
