@@ -1,4 +1,4 @@
-import { Clock, Download } from 'lucide-react';
+import { CalendarDays, Clock, Download, FileText, Target } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -144,13 +144,8 @@ export function SubmissionsTab({
 
       {/* Submission Detail Dialog */}
       <Dialog open={showSubmissionDetail} onOpenChange={setShowSubmissionDetail}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
-          <DialogHeader>
-            <DialogTitle>Student Submission</DialogTitle>
-          </DialogHeader>
-
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-0">
           {selectedSubmission && (() => {
-            // Parse quiz result JSON if content is a quiz blob
             let quizResult: { raw_score?: number; max_question_score?: number; total_questions?: number; answered_count?: number; scaled_score?: number; violation_count?: number } | null = null;
             if (selectedSubmission.submissionContent) {
               try {
@@ -182,167 +177,207 @@ export function SubmissionsTab({
             };
             const typeLabel = selectedSubmission.assignmentType ? (typeLabels[selectedSubmission.assignmentType] ?? selectedSubmission.assignmentType) : null;
 
+            const autoScoreRaw = quizResult?.raw_score ?? quizResult?.scaled_score ?? null;
+            const autoScoreMax = quizResult?.max_question_score ?? quizResult?.total_questions ?? null;
+            const autoScorePct =
+              typeof autoScoreRaw === 'number' && typeof autoScoreMax === 'number' && autoScoreMax > 0
+                ? Math.round((autoScoreRaw / autoScoreMax) * 100)
+                : null;
+
             return (
-              <div className="space-y-6">
-                {/* Student header */}
-                <div className="border-b border-muted pb-4">
-                  <div className="flex items-start gap-4 mb-4">
-                    <Avatar className="h-12 w-12">
-                      <AvatarFallback className="bg-primary/10 text-primary">
+              <>
+                {/* Compact header — student identity + status in one row */}
+                <DialogHeader className="px-5 pt-5 pb-3 border-b">
+                  <div className="flex items-center gap-3 pr-8">
+                    <Avatar className="h-10 w-10 flex-shrink-0">
+                      <AvatarFallback className="bg-primary/10 text-primary text-sm">
                         {selectedSubmission.avatar}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{selectedSubmission.student}</h3>
-                      <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <Badge className={selectedSubmission.onTime ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}>
+                    <div className="min-w-0 flex-1">
+                      <DialogTitle className="text-base font-semibold truncate">
+                        {selectedSubmission.student}
+                      </DialogTitle>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        <Badge className={`text-[10px] py-0 px-1.5 h-5 ${selectedSubmission.onTime ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
                           {selectedSubmission.onTime ? 'On Time' : 'Late'}
                         </Badge>
-                        <Badge variant="outline" className={statusInfo.className}>
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 h-5 ${statusInfo.className}`}>
                           {statusInfo.label}
                         </Badge>
                         {typeLabel && (
-                          <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200">
+                          <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-5 bg-slate-100 text-slate-600 border-slate-200">
                             {typeLabel}
                           </Badge>
                         )}
-                        <span className="text-xs text-muted-foreground">Submitted: {selectedSubmission.submittedAt}</span>
+                        <span className="text-[11px] text-muted-foreground">• {selectedSubmission.submittedAt}</span>
                       </div>
                     </div>
                   </div>
+                </DialogHeader>
 
-                  {/* Assignment details */}
-                  <div className="space-y-3 bg-blue-50 rounded-lg p-3 mt-4">
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">ASSIGNMENT</p>
-                      <p className="font-semibold text-sm">{selectedSubmission.assignment}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-1">DUE DATE</p>
-                      <p className="text-sm">{selectedSubmission.dueDate}</p>
-                    </div>
-                    {selectedSubmission.points != null && (
-                      <div>
-                        <p className="text-xs font-semibold text-muted-foreground mb-1">POINTS POSSIBLE</p>
-                        <p className="text-sm font-bold text-blue-600">{selectedSubmission.points} pts</p>
+                <div className="px-5 py-4 space-y-4">
+                  {/* Assignment meta — single compact row instead of stacked labels */}
+                  <div className="grid grid-cols-3 gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+                        <FileText className="h-3 w-3" /> Assignment
                       </div>
-                    )}
+                      <p className="text-xs font-semibold text-foreground truncate" title={selectedSubmission.assignment}>
+                        {selectedSubmission.assignment}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+                        <CalendarDays className="h-3 w-3" /> Due
+                      </div>
+                      <p className="text-xs text-foreground truncate" title={selectedSubmission.dueDate}>
+                        {selectedSubmission.dueDate}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+                        <Target className="h-3 w-3" /> Max
+                      </div>
+                      <p className="text-xs font-bold text-blue-600">
+                        {selectedSubmission.points != null ? `${selectedSubmission.points} pts` : '—'}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                {/* Submission content — type-aware */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-3">Student's Submission</h4>
-                  <Card className="border-0 shadow-sm bg-muted/50">
-                    <CardContent className="p-4">
-                      {quizResult ? (
-                        // Quiz score card
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-foreground">Score</span>
-                            <span className="text-lg font-bold text-blue-600">
-                              {quizResult.raw_score ?? quizResult.scaled_score ?? '—'} / {quizResult.max_question_score ?? quizResult.total_questions ?? '—'}
+                  {/* Submission content */}
+                  {quizResult ? (
+                    <div className="rounded-lg border bg-muted/40 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Auto-Graded Result
+                        </span>
+                        <span className="text-base font-bold text-blue-600">
+                          {autoScoreRaw ?? '—'} / {autoScoreMax ?? '—'}
+                          {autoScorePct != null && (
+                            <span className="text-xs font-medium text-muted-foreground ml-1.5">({autoScorePct}%)</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        {quizResult.answered_count != null && quizResult.total_questions != null && (
+                          <div className="flex items-center justify-between rounded bg-background px-2 py-1.5">
+                            <span className="text-muted-foreground">Answered</span>
+                            <span className="font-semibold">{quizResult.answered_count} / {quizResult.total_questions}</span>
+                          </div>
+                        )}
+                        {quizResult.violation_count != null && (
+                          <div className="flex items-center justify-between rounded bg-background px-2 py-1.5">
+                            <span className="text-muted-foreground">Violations</span>
+                            <span className={quizResult.violation_count > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                              {quizResult.violation_count}
                             </span>
                           </div>
-                          {quizResult.answered_count != null && quizResult.total_questions != null && (
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>Questions answered</span>
-                              <span>{quizResult.answered_count} / {quizResult.total_questions}</span>
-                            </div>
-                          )}
-                          {quizResult.violation_count != null && (
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>Violations detected</span>
-                              <span className={quizResult.violation_count > 0 ? 'text-red-600 font-semibold' : 'text-green-600'}>
-                                {quizResult.violation_count}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ) : selectedSubmission.submissionContent ? (
-                        // Plain text submission
-                        <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
-                          {selectedSubmission.submissionContent}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground italic">No text submission.</p>
-                      )}
-
-                      {/* File attachment — only if there's an actual file to open */}
-                      {selectedSubmission.submissionUrl && selectedSubmission.providerFileName && (
-                        <div className="mt-4 rounded-lg border border-border bg-background p-3 flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                              {selectedSubmission.providerLabel || 'Attached File'}
-                            </p>
-                            <a
-                              href={selectedSubmission.submissionUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-sm text-primary underline truncate block"
-                            >
-                              {selectedSubmission.providerFileName}
-                            </a>
-                            {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes) && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {[
-                                  selectedSubmission.providerMimeType || null,
-                                  formatProviderFileSize(selectedSubmission.providerSizeBytes),
-                                ].filter(Boolean).join(' • ')}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Grading section */}
-                <div className="space-y-4">
-                  {selectedSubmission.gradedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      Last graded: {new Date(selectedSubmission.gradedAt).toLocaleString()}
-                    </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : selectedSubmission.submissionContent ? (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                        Student's Submission
+                      </p>
+                      <Card className="border bg-muted/30 shadow-none">
+                        <CardContent className="p-3">
+                          <p className="text-xs text-foreground/80 whitespace-pre-wrap break-words">
+                            {selectedSubmission.submissionContent}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : !selectedSubmission.submissionUrl && (
+                    <p className="text-xs text-muted-foreground italic">No text submission.</p>
                   )}
-                  <div>
-                    <label className="text-sm font-semibold mb-2 block">Grade</label>
-                    <Input
-                      placeholder="e.g., 95/100 or 95"
-                      value={submissionGrade}
-                      onChange={(e) => setSubmissionGrade(e.target.value)}
-                      className="rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold mb-2 block">Feedback</label>
-                    <Textarea
-                      placeholder="Provide constructive feedback for the student..."
-                      value={submissionFeedback}
-                      onChange={(e) => setSubmissionFeedback(e.target.value)}
-                      className="min-h-24 rounded-lg resize-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-                    />
+
+                  {/* File attachment — compact inline pill */}
+                  {selectedSubmission.submissionUrl && selectedSubmission.providerFileName && (
+                    <a
+                      href={selectedSubmission.submissionUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 rounded-lg border bg-background p-2.5 hover:bg-muted/40 transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-primary truncate">
+                          {selectedSubmission.providerFileName}
+                        </p>
+                        {(selectedSubmission.providerMimeType || selectedSubmission.providerSizeBytes) && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {[
+                              selectedSubmission.providerLabel,
+                              selectedSubmission.providerMimeType || null,
+                              formatProviderFileSize(selectedSubmission.providerSizeBytes),
+                            ].filter(Boolean).join(' • ')}
+                          </p>
+                        )}
+                      </div>
+                    </a>
+                  )}
+
+                  {/* Grading — grade input and feedback */}
+                  <div className="rounded-lg border bg-card p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Teacher Grade
+                      </p>
+                      {selectedSubmission.gradedAt && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Last saved {new Date(selectedSubmission.gradedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={submissionGrade}
+                        onChange={(e) => setSubmissionGrade(e.target.value)}
+                        className="rounded-lg h-9 w-24 text-base font-semibold text-center"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        / {selectedSubmission.points ?? '—'} pts
+                      </span>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1.5">
+                        Feedback
+                      </label>
+                      <Textarea
+                        placeholder="Add feedback for the student (optional)…"
+                        value={submissionFeedback}
+                        onChange={(e) => setSubmissionFeedback(e.target.value)}
+                        className="min-h-16 rounded-lg resize-none text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Footer Actions */}
-                <div className="flex gap-2 justify-end pt-4 border-t border-muted">
+                {/* Sticky footer actions */}
+                <div className="sticky bottom-0 flex gap-2 justify-end px-5 py-3 border-t bg-background">
                   <Button
                     variant="outline"
+                    size="sm"
                     className="rounded-lg"
                     onClick={() => setShowSubmissionDetail(false)}
                   >
                     Cancel
                   </Button>
                   <Button
+                    size="sm"
                     className="rounded-lg"
                     onClick={handleSaveSubmissionGrade}
                     disabled={savingSubmissionGrade || !submissionGrade.trim()}
                   >
-                    {savingSubmissionGrade ? 'Saving...' : 'Save Grade & Feedback'}
+                    {savingSubmissionGrade ? 'Saving…' : 'Save Grade'}
                   </Button>
                 </div>
-              </div>
+              </>
             );
           })()}
         </DialogContent>
