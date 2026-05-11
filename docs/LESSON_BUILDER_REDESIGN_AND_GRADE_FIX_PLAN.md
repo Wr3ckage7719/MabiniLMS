@@ -380,114 +380,116 @@ Cross-browser: Chrome, Safari, Firefox latest stable.
 
 ---
 
-## 3. TASK C — New lesson-builder features (Phase 2+, opt-in)
+## 3. TASK C — Quick-win feature suggestions (Phase 2)
 
-These are **suggestions**. Do not implement until the user picks which ones to build. Each item lists its risk and what it needs.
+Every item below is **scoped to fit in ≤ 2 hours of focused work**, uses zero new top-level dependencies, and either avoids schema changes entirely or adds a single nullable column. Pick whichever the user wants — they're all independent.
 
-### 3.1 Pedagogy features (highest user value)
+Hard rules:
+- No new npm packages.
+- No new database table.
+- At most one additive nullable column per item.
+- Pure client-side wherever possible.
 
-#### C1. Learning objectives field
-- **What:** A bulleted list of "By the end of this lesson, students will be able to…" entries. Shown to students above the materials.
-- **Schema:** New column `lessons.learning_objectives JSONB` (array of strings) — migration with default `'[]'::jsonb`. Safe additive change.
-- **UI:** A `<TagInput>`-style component or a textarea with one-per-line parsing. Live preview in the student-view dialog.
-- **Why:** Mabini curriculum likely requires explicit objectives; teachers often write them in the description today.
+### C1. Lesson emoji icon — **~30 min, client-only**
+- **What:** A small emoji picker next to the title. Stored in `localStorage` keyed by `lesson.id` for Phase 2; we can promote to a real column later if users like it.
+- **Files:** `LessonEditorPage.tsx` only.
+- **Effort:** A `<select>` with ~20 hand-picked emojis (📚 📐 ⚗️ 💻 🎨 …) is enough — no real picker library.
+- **Win:** Lessons list page becomes scannable at a glance.
 
-#### C2. Estimated duration
-- **What:** "Estimated time: 45 min" auto-computed from materials (PDF page count × time-per-page heuristic, video length, etc.) with a manual override.
-- **Schema:** New column `lessons.estimated_minutes INTEGER NULLABLE`.
-- **UI:** A small auto-fill button next to the input.
-- **Why:** Students plan study sessions; teachers don't always estimate well.
+### C2. Lesson templates picker — **~45 min, client-only**
+- **What:** When the teacher creates a new lesson, offer 4 hard-coded templates that pre-fill draft fields: *Reading + Quiz*, *Lecture*, *Lab Activity*, *Exam Review*. Each is just a constant object: `{ title, description, topicsRaw, ruleType, ... }`.
+- **Files:** `LessonEditorPage.tsx` + a new `templates.ts` constants file.
+- **Effort:** A modal with 4 cards. On click, calls `setDraft(...)`. Existing save flow handles the rest.
+- **Win:** Onboarding accelerator, no blank-page paralysis. **No schema change.**
 
-#### C3. Lesson templates
-- **What:** "Create from template" choices on lesson creation: *Reading + Quiz*, *Lecture + Discussion*, *Activity Workshop*, *Exam Review*.
-- **Schema:** No schema change — templates are client-side defaults.
-- **UI:** A modal on the "New lesson" flow with a 2×2 grid of template cards.
-- **Why:** Onboarding accelerator; reduces blank-page paralysis.
+### C3. Inline lesson stats badge — **~30 min, client-only**
+- **What:** `lesson.stats` already exists in the teacher view (see `client/src/lib/data.ts:178-203`). Surface it: a small badge next to the Draft/Published pill showing "12 students · 78% avg · 9 done".
+- **Files:** `LessonEditorPage.tsx` footer area only.
+- **Effort:** Read `lesson.stats`, render a few badges. Hide if `lesson.stats` is null.
+- **Win:** Teachers see engagement without leaving the editor.
 
-#### C4. Rich-text description (Markdown)
-- **What:** Replace the plain `<Textarea>` description with a Markdown editor (e.g. `@uiw/react-md-editor` or TipTap). Render as Markdown on the student side.
-- **Schema:** No change (`description` is already TEXT).
-- **UI:** Markdown toolbar above the textarea: bold, italic, link, list, code, embedded image.
-- **Why:** Lets teachers embed links to external readings, highlight key terms, structure long lesson notes.
-- **Caveat:** Verify the student lesson view sanitizes/renders Markdown — otherwise it'll show as raw text.
+### C4. Topic tag autocomplete from recent lessons — **~45 min, client-only**
+- **What:** Below the topics input, show the 5 most-recently-used topics across the teacher's other lessons as clickable chips. Click → append to topics.
+- **Files:** `LessonEditorPage.tsx`. Pulls from `lessonsQuery.data` which is already loaded.
+- **Effort:** A `useMemo` that flattens `allLessons.map(l => l.topics)`, dedupes, counts frequency, takes top 5.
+- **Win:** Teachers stop re-typing the same tags inconsistently ("Hardware" vs "hardware").
 
-#### C5. Learning-outcome alignment
-- **What:** Tag each assessment with which learning objective(s) it tests. Show coverage warnings ("Objective 3 has no assessment").
-- **Schema:** New `assignment_outcomes` join table.
-- **Why:** Aligns assessment with stated outcomes — pedagogically rigorous.
-- **Risk:** MEDIUM. Multiple new tables. Phase 3.
+### C5. Description word/character counter — **~15 min, client-only**
+- **What:** Below the description textarea, show "143 characters · ~24 words · suggested 100–500". Turns amber under 100, green between 100–500, gray above.
+- **Files:** `LessonEditorPage.tsx` description block.
+- **Effort:** Trivial. A `<p>` reading `draft.description.length`.
+- **Win:** Nudges teachers to write descriptions that are actually useful.
 
-### 3.2 Authoring efficiency
+### C6. Confirm-before-leave guard — **~30 min, client-only**
+- **What:** If `draft` differs from the saved `lesson` and the teacher navigates away (browser back, route change), show a "You have unsaved changes" confirmation.
+- **Files:** `LessonEditorPage.tsx`. Use `useBeforeUnload` from `react-router-dom` (already a dep) and `window.addEventListener('beforeunload', …)` for the tab-close case.
+- **Effort:** One `useEffect` and a `isDirty` memo.
+- **Win:** Stops accidental data loss. Pairs well with the Phase-1 autosave indicator.
 
-#### C6. Duplicate lesson
-- **What:** Copy title + description + topics + completion rule + chain into a new draft. Materials and assessments are NOT copied (they belong to the original).
-- **Backend:** New endpoint `POST /api/lessons/:id/duplicate`.
-- **UI:** Overflow-menu item in the header.
-- **Why:** Many lessons in a series share structure.
+### C7. Copy student link — **~10 min, client-only**
+- **What:** A small "Copy link" button in the header that copies the student-facing URL of the lesson (`/class/{classId}/lessons/{lessonId}` or whatever the student route is — confirm in `client/src/App.tsx` routes).
+- **Files:** `LessonEditorPage.tsx` header.
+- **Effort:** One `navigator.clipboard.writeText(...)` + toast.
+- **Win:** Easy share-out to chat/email.
 
-#### C7. Inline drag-and-drop material upload
-- See §2.2.6. Phase 2 task because it requires factoring the upload page.
+### C8. Print / Export-to-PDF view — **~30 min, client-only**
+- **What:** A "Print" button that opens a print-friendly view (clean H1, description, materials list with links, assessments list). Uses `window.print()` and a `@media print` Tailwind stylesheet.
+- **Files:** `LessonEditorPage.tsx` + a small `@media print` block in `client/src/index.css` (or wherever global styles live).
+- **Effort:** Hide chrome (`.print:hidden`), keep content (`.print:block`). Browser's print-to-PDF handles the rest.
+- **Win:** Teachers can hand out lesson outlines on paper or PDF.
 
-#### C8. Drag-to-reorder materials and assessments
-- See §2.2.5. Backend support for `ordering` column on `lesson_materials` and `lesson_assessments` join tables required.
+### C9. Duplicate lesson (client-only version) — **~45 min, client-only**
+- **What:** "Duplicate" in the overflow menu. On click, creates a new draft lesson via the existing `createDraft` mutation (POST `/api/lessons/courses/{classId}`), then immediately PATCHes it with this lesson's title (+" copy"), description, topics, completion rule, and chain. Materials and assessments are NOT copied.
+- **Files:** `LessonEditorPage.tsx`, plus a helper in `useLessons.ts` if cleanest.
+- **Effort:** Sequential mutation: `createDraft → update`. No new endpoint needed.
+- **Win:** Cuts re-creation time for similar lessons.
+- **Note:** Pure client-orchestrated — no backend change required because both endpoints already exist.
 
-#### C9. AI-suggested topic tags / description
-- **What:** "Suggest topic tags" and "Draft description" buttons that call a server endpoint, which calls Anthropic's API with the lesson's materials as context.
-- **Backend:** New endpoint `POST /api/lessons/:id/ai-suggest`.
-- **Caveat:** Requires server-side Anthropic key. Costs money per call. Build with prompt caching to minimize spend (see Anthropic prompt caching docs).
-- **Risk:** MEDIUM-HIGH. Defer until users ask.
+### C10. "Mark as required" toggle on materials/assessments (UI hint only) — **~20 min, client-only**
+- **What:** A visual "Required" / "Optional" pill on each MaterialChip and AssessmentChip. Already partially implemented for assessments (`assessment.is_optional`). Just surface it more clearly. For materials, *don't* add a new field — instead derive: a material is "required" if the lesson's `completionRule.type === 'view_all_files'`. Otherwise it's "optional reading".
+- **Files:** `LessonEditorPage.tsx` chip components.
+- **Effort:** A `<Badge>` per chip.
+- **Win:** Clarifies what students must do vs. can skim.
 
-#### C10. Keyboard-driven section navigation
-- `[`/`]` to jump between sections. Already proposed in Phase 1 §2.2.10 with Cmd+S / Cmd+Enter.
+---
 
-### 3.3 Scheduling & visibility
+### 3.x Recommended Phase 2 bundle
 
-#### C11. Scheduled publish
-- **What:** Set a future `publish_at` timestamp; lesson stays Draft until then.
-- **Schema:** New column `lessons.publish_at TIMESTAMPTZ NULLABLE`. A scheduled job (or check-on-read) flips `is_published` when due.
-- **UI:** A date+time picker in a new "Schedule" section.
-- **Risk:** MEDIUM — requires a cron/job runner or read-time check.
+If the user says "do them all," ship in this order (cheapest first, each is an independent commit):
 
-#### C12. Conditional release
-- **What:** Hide the lesson from students whose previous-lesson score is below threshold OR show different next-lessons based on score (branching).
-- **Schema:** Extend `LessonChain` with optional alternative branches.
-- **Risk:** HIGH. This is curriculum-design territory. Defer.
+1. **C5** description counter (15 min)
+2. **C7** copy student link (10 min)
+3. **C10** required/optional pills (20 min)
+4. **C3** inline stats badge (30 min)
+5. **C6** unsaved-changes guard (30 min)
+6. **C1** lesson emoji (30 min)
+7. **C8** print view (30 min)
+8. **C4** topic tag autocomplete (45 min)
+9. **C2** lesson templates (45 min)
+10. **C9** duplicate lesson (45 min)
 
-### 3.4 Quality-of-life
+Total estimated effort: **~5 hours** for all ten. Each is a clean revert point if something breaks.
 
-#### C13. Section anchor links
-- Sidebar checklist items become anchors that scroll the right pane. Already in Phase 1.
+### 3.x Deferred (NOT in this plan — require real engineering)
 
-#### C14. Lesson stats inline
-- The teacher view already has `lesson.stats`. Show a small inline "12 students completed, avg score 78%" badge per section. Pure UI.
+Listed here only so the user knows they were considered and intentionally skipped:
 
-#### C15. Version history / undo
-- **What:** Keep a snapshot on each publish; let teachers revert.
-- **Schema:** `lesson_revisions` table.
-- **Risk:** MEDIUM. Storage growth concern. Defer.
+| Feature | Why deferred |
+|---|---|
+| Learning objectives field | Needs schema migration + student-side rendering. |
+| Estimated duration auto-compute | Needs schema column + heuristic + student-side display. |
+| Markdown rich-text description | Needs editor library + sanitizer + student-side renderer. |
+| Drag-to-reorder materials/assessments | Needs `ordering` column on join tables + new dep (`dnd-kit`). |
+| AI-suggested content | Needs server-side Anthropic key, prompt caching, cost monitoring. |
+| Scheduled publish | Needs cron/job runner or read-time check. |
+| Conditional / branching release | Curriculum-design complexity. |
+| Version history / revert | New table + storage growth concern. |
+| Bulk actions on materials | Multi-select state + new endpoints. |
+| Inline drag-and-drop upload | Refactor of `MaterialUploadPage`. |
+| Per-lesson discussion threads | New table or scoping change to existing discussions. |
+| Cover image upload | Storage bucket + new column. |
 
-#### C16. Bulk actions on materials
-- Select multiple materials → delete or move to another lesson.
-- Phase 2.
-
-#### C17. Cover image / hero
-- Optional banner image per lesson, shown on the lessons list.
-- **Schema:** `lessons.cover_image_url TEXT`. Additive.
-
-#### C18. Discussion thread per lesson
-- A per-lesson comments section visible to students.
-- Likely a duplicate of class-level discussions scoped down — check `apiDiscussionPosts` in `teacher-class-stream`.
-
-### 3.5 Recommended Phase 2 scope
-
-If the user asks "what should we build next?", suggest this bundle (all additive, low-risk):
-
-1. **C1** Learning objectives (high value, simple schema add)
-2. **C3** Lesson templates (no schema change, high authoring impact)
-3. **C6** Duplicate lesson (small backend, big workflow win)
-4. **C17** Cover image (simple, visual polish on lessons list)
-
-Hold C4 (Markdown), C8 (reorder), C9 (AI), C11 (schedule) for separate explicit asks.
+Pull any of these into a separate plan when the user asks for them by name.
 
 ---
 
