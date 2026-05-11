@@ -23,6 +23,9 @@ import {
   AlertCircle,
   Printer,
   LayoutTemplate,
+  Eye,
+  Clock,
+  BookMarked,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -210,6 +213,43 @@ const LESSON_TEMPLATES: LessonTemplate[] = [
       description: 'Review the materials below to prepare for the upcoming exam. Focus on key concepts and practice exercises.',
       topicsRaw: 'Review',
       ruleType: 'mark_as_done',
+    },
+  },
+  {
+    id: 'discussion-reflection',
+    icon: '💬',
+    name: 'Discussion / Reflection',
+    description: 'Prompt students to reflect, discuss, or journal after reading.',
+    defaults: {
+      title: '',
+      description: 'Read or watch the provided material, then write a short reflection. Consider:\n- What was the most important idea?\n- How does this connect to what you already know?\n- What questions do you still have?',
+      topicsRaw: '',
+      ruleType: 'mark_as_done',
+    },
+  },
+  {
+    id: 'video-walkthrough',
+    icon: '🎥',
+    name: 'Video Walkthrough',
+    description: 'Guide students through a video or screencast with notes.',
+    defaults: {
+      title: '',
+      description: 'Watch the video from start to finish. Pause and take notes on key steps. You must reach the end before marking this lesson as done.',
+      topicsRaw: '',
+      ruleType: 'view_all_files',
+    },
+  },
+  {
+    id: 'practice-set',
+    icon: '✏️',
+    name: 'Practice Set',
+    description: 'Focused practice exercises — spend at least 15 minutes working through them.',
+    defaults: {
+      title: '',
+      description: 'Work through all practice problems below. Show your reasoning and check your answers. Spend a minimum of 15 minutes on this material.',
+      topicsRaw: '',
+      ruleType: 'time_on_material',
+      ruleMinutes: 15,
     },
   },
 ];
@@ -470,6 +510,15 @@ export default function LessonEditorPage() {
     return { chars, words };
   }, [draft?.description]);
 
+  const estimatedMinutes = useMemo(() => {
+    if (!lesson) return null;
+    const materialMins = lesson.materials.length * 8;
+    const assessmentMins = lesson.assessments.length * 10;
+    const total = materialMins + assessmentMins;
+    if (total === 0) return null;
+    return Math.max(5, Math.round(total / 5) * 5);
+  }, [lesson?.materials.length, lesson?.assessments.length]);
+
   // ─── Autosave ─────────────────────────────────────────────────────────────
 
   const refreshLesson = useCallback(async () => {
@@ -689,6 +738,11 @@ export default function LessonEditorPage() {
     window.print();
   };
 
+  const handlePreviewAsStudent = () => {
+    const url = `${window.location.origin}/class/${classId}/lessons/${lesson?.id}`;
+    window.open(url, '_blank', 'noopener');
+  };
+
   const handleApplyTemplate = (template: LessonTemplate) => {
     setDraft((current) => current ? { ...current, ...template.defaults } : current);
     setTemplateDialogOpen(false);
@@ -801,6 +855,9 @@ export default function LessonEditorPage() {
                   <DropdownMenuItem onClick={handleCopyStudentLink}>
                     <Link2 className="h-4 w-4 mr-2" /> Copy student link
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handlePreviewAsStudent}>
+                    <Eye className="h-4 w-4 mr-2" /> Preview as student
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" /> Print lesson
                   </DropdownMenuItem>
@@ -881,6 +938,35 @@ export default function LessonEditorPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Lesson at a glance */}
+                <div className="rounded-lg border p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    At a glance
+                  </p>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <BookOpen className="h-3.5 w-3.5" />
+                    <span>{lesson.materials.length} material{lesson.materials.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    <span>{lesson.assessments.length} assessment{lesson.assessments.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  {estimatedMinutes !== null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5" />
+                      <span>~{estimatedMinutes} min estimated</span>
+                    </div>
+                  )}
+                  {draft.chainNextId !== '__none__' && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <BookMarked className="h-3.5 w-3.5" />
+                      <span className="truncate">
+                        Leads to: {otherLessons.find((l) => l.id === draft.chainNextId)?.title ?? 'next lesson'}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Keyboard hints */}
                 <div className="rounded-lg border border-dashed p-3 space-y-1">
@@ -975,6 +1061,25 @@ export default function LessonEditorPage() {
                       {descStats.chars} characters · {descStats.words} words
                       {descStats.chars === 0 && ' · aim for 50–600 characters'}
                     </p>
+                    {descStats.chars === 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        <span className="text-xs text-muted-foreground self-center">Quick start:</span>
+                        {[
+                          { label: '📚 Learning goals', text: 'By the end of this lesson, students will be able to:\n- \n- \n- ' },
+                          { label: '📋 Step-by-step', text: 'What to do:\n1. \n2. \n3. ' },
+                          { label: '🎯 Key concepts', text: 'Focus on the following key concepts:\n- \n- \n- ' },
+                        ].map(({ label, text }) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => update({ description: text })}
+                            className="text-xs px-2 py-0.5 rounded-full border bg-secondary/50 hover:bg-secondary transition-colors"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1031,11 +1136,19 @@ export default function LessonEditorPage() {
               {/* ── COMPLETION RULE ────────────────────────────────────── */}
               <Card id="section-completion" className="border shadow-sm">
                 <CardContent className="p-5 md:p-6 space-y-4">
-                  <div>
-                    <h2 className="text-base font-semibold">Completion rule</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      What lets the student press <em>Mark as done</em>.
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-base font-semibold">Completion rule</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        What lets the student press <em>Mark as done</em>.
+                      </p>
+                    </div>
+                    {estimatedMinutes !== null && (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/50 px-2.5 py-1 rounded-full whitespace-nowrap">
+                        <Clock className="h-3 w-3" />
+                        ~{estimatedMinutes} min est.
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1210,6 +1323,28 @@ export default function LessonEditorPage() {
                         <span className="text-xs text-muted-foreground">% across assessments</span>
                       </div>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+              {/* ── DANGER ZONE ────────────────────────────────────────── */}
+              <Card id="section-danger" className="border border-destructive/30 shadow-sm">
+                <CardContent className="p-5 md:p-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-semibold text-destructive">Danger zone</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Deleting this lesson removes its materials, assessments, and student progress for everyone in this class. This cannot be undone.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:border-destructive shrink-0"
+                      onClick={() => setDeleteDialogOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete lesson
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

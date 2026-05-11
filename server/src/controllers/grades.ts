@@ -299,7 +299,7 @@ export const deleteGrade = async (
 
 /**
  * @swagger
- * /api/submissions/{submissionId}/grade:
+ * /api/grades/submission/{submissionId}:
  *   get:
  *     summary: Get grade for a submission
  *     tags: [Grades]

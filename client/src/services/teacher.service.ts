@@ -257,7 +257,7 @@ export const teacherService = {
     // Check whether a grade already exists for this submission.
     let existingGradeId: string | null = null;
     try {
-      const res = await apiClient.get(`/submissions/${submissionId}/grade`);
+      const res = await apiClient.get(`/grades/submission/${submissionId}`);
       existingGradeId = (res as any)?.data?.id ?? null;
     } catch {
       existingGradeId = null;
@@ -279,7 +279,7 @@ export const teacherService = {
       });
     } catch (error: any) {
       if (error?.response?.status === 409) {
-        const retry = await apiClient.get(`/submissions/${submissionId}/grade`);
+        const retry = await apiClient.get(`/grades/submission/${submissionId}`);
         const retryId = (retry as any)?.data?.id;
         if (retryId) {
           return apiClient.put(`/grades/${retryId}`, {
