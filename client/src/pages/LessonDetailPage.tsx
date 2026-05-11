@@ -103,6 +103,33 @@ function AssessmentRow({ assessment, isLessonDone, onOpen }: AssessmentRowProps)
         ? 'Submitted'
         : 'Take assessment';
 
+  let statusBadge: React.ReactNode = null;
+  if (locked) {
+    statusBadge = (
+      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] flex-shrink-0 gap-1">
+        <Lock className="h-3 w-3" /> Locked
+      </Badge>
+    );
+  } else if (graded) {
+    statusBadge = (
+      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0 gap-1">
+        <CheckCircle2 className="h-3 w-3" /> {assessment.score_percent ?? 0}%
+      </Badge>
+    );
+  } else if (submitted) {
+    statusBadge = (
+      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0 gap-1">
+        <CheckCircle2 className="h-3 w-3" /> Submitted
+      </Badge>
+    );
+  } else {
+    statusBadge = (
+      <Badge className="bg-primary text-primary-foreground border-primary border flex-shrink-0">
+        Start
+      </Badge>
+    );
+  }
+
   return (
     <Card
       className={`border ${locked ? 'opacity-70' : 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all'}`}
@@ -110,7 +137,7 @@ function AssessmentRow({ assessment, isLessonDone, onOpen }: AssessmentRowProps)
         if (!locked) onOpen(assessment.assignment_id);
       }}
     >
-      <CardContent className="p-4 flex items-center gap-3">
+      <CardContent className="p-3 md:p-4 flex items-center gap-3 min-h-14">
         <div className="flex-shrink-0">
           {locked ? (
             <Lock className="h-5 w-5 text-muted-foreground" />
@@ -132,22 +159,20 @@ function AssessmentRow({ assessment, isLessonDone, onOpen }: AssessmentRowProps)
               </Badge>
             )}
           </div>
-          <p className="text-sm md:text-base font-medium mt-1 truncate">{assessment.title}</p>
-          {locked ? (
+          <p className="text-sm md:text-base font-medium mt-1 line-clamp-2 md:truncate break-words">{assessment.title}</p>
+          {locked && (
             <p className="text-xs text-muted-foreground mt-1">
               Mark this lesson as done to unlock.
             </p>
-          ) : (
-            <p className="text-xs text-muted-foreground mt-1">{stateLabel}</p>
+          )}
+          {!locked && (graded || submitted) && (
+            <p className="text-xs text-muted-foreground mt-1 md:hidden">{stateLabel}</p>
           )}
         </div>
-        {submitted ? (
-          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
-            <CheckCircle2 className="h-3 w-3 mr-1" /> Completed
-          </Badge>
-        ) : !locked ? (
-          <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-        ) : null}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {statusBadge}
+          {!locked && <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 hidden md:block" />}
+        </div>
       </CardContent>
     </Card>
   );
@@ -193,6 +218,20 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
     window.setTimeout(() => setDownloading(false), 2000);
   };
 
+  const statusBadge = viewed ? (
+    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
+      <CheckCircle2 className="h-3 w-3 mr-1" /> Read
+    </Badge>
+  ) : locked ? (
+    <Badge variant="outline" className="text-[10px] flex-shrink-0">
+      Locked
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="text-[10px] flex-shrink-0">
+      Tap to open
+    </Badge>
+  );
+
   return (
     <Card
       className={`border ${locked ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all'}`}
@@ -207,7 +246,62 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
         onOpen(material);
       }}
     >
-      <CardContent className="p-4 flex items-center gap-3">
+      {/* Mobile layout: two rows for better readability */}
+      <CardContent className="p-3 md:hidden">
+        <div className="flex items-start gap-3">
+          <div className={`flex-shrink-0 p-2 rounded-lg ${locked ? 'bg-muted' : 'bg-primary/10'}`}>
+            {locked ? (
+              <Lock className="h-5 w-5 text-muted-foreground" />
+            ) : (
+              <FileText className="h-5 w-5 text-primary" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium leading-snug break-words line-clamp-2">{material.title}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              <span className="uppercase">{fileIconLabel(material.file_type)}</span>
+              {' · '}
+              {material.file_size}
+              {typeof material.page_count === 'number' && material.page_count > 0
+                ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
+                : ''}
+            </p>
+            {locked && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Finish the previous file first.
+              </p>
+            )}
+          </div>
+          {statusBadge}
+        </div>
+        <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-border/40">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-lg h-9 px-3 text-xs gap-1.5"
+            onClick={handleDownload}
+            disabled={locked || downloading || !material.url || material.url === '#'}
+            aria-label={`Download ${material.title}`}
+            title="Download file"
+          >
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            <span>Download</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-lg h-9 px-3 text-xs gap-1 pointer-events-none"
+            tabIndex={-1}
+            aria-hidden
+          >
+            <span>Open</span>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+
+      {/* Desktop layout: original single-row layout */}
+      <CardContent className="p-4 hidden md:flex items-center gap-3">
         <div className={`flex-shrink-0 p-2 rounded-lg ${locked ? 'bg-muted' : 'bg-primary/10'}`}>
           {locked ? (
             <Lock className="h-5 w-5 text-muted-foreground" />
@@ -231,19 +325,7 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
             </p>
           )}
         </div>
-        {viewed ? (
-          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border flex-shrink-0">
-            <CheckCircle2 className="h-3 w-3 mr-1" /> Read
-          </Badge>
-        ) : locked ? (
-          <Badge variant="outline" className="text-[10px] flex-shrink-0">
-            Locked
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px] flex-shrink-0">
-            Tap to open
-          </Badge>
-        )}
+        {statusBadge}
         <Button
           variant="ghost"
           size="icon"
@@ -387,31 +469,38 @@ export default function LessonDetailPage() {
 
   const isDone = lesson.status === 'done';
   const isLocked = lesson.status === 'locked';
+  const viewedMaterialCount = lesson.materials.filter((m) => m.viewed).length;
+  const totalMaterialCount = lesson.materials.length;
+  const canGoToNext = isDone && nextLesson && nextLesson.status !== 'locked';
 
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-3xl mx-auto px-3 md:px-6 py-2 md:py-3 flex items-center justify-between gap-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={handleBack}
-            className="rounded-xl gap-1.5"
+            className="rounded-xl gap-1.5 min-h-11 md:min-h-9 px-3 md:px-3"
           >
-            <ArrowLeft className="h-4 w-4" /> Back to lessons
+            <ArrowLeft className="h-5 w-5 md:h-4 md:w-4" />
+            <span className="md:inline">
+              <span className="md:hidden">Back</span>
+              <span className="hidden md:inline">Back to lessons</span>
+            </span>
           </Button>
           <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground">
             <span>{classQuery.data?.name}</span>
           </div>
-          <div className="text-xs text-muted-foreground font-mono">
+          <div className="text-sm md:text-xs text-muted-foreground font-mono">
             Lesson {lesson.ordering.toString().padStart(2, '0')}
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 md:px-6 py-4 md:py-8 pb-24 md:pb-8 space-y-5 md:space-y-6">
         <section>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
             {isDone ? (
               <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 border">
                 <CheckCircle2 className="h-3 w-3 mr-1" /> Done
@@ -436,7 +525,7 @@ export default function LessonDetailPage() {
             ))}
           </div>
 
-          <h1 className="mt-2 text-2xl md:text-3xl font-bold leading-tight">
+          <h1 className="mt-2 text-xl md:text-3xl font-bold leading-tight break-words">
             {lesson.title}
           </h1>
           {lesson.description && (
@@ -450,7 +539,8 @@ export default function LessonDetailPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="text-base md:text-sm font-semibold text-foreground md:text-muted-foreground md:uppercase md:tracking-wide flex items-center gap-2">
+            <span className="block h-4 w-1 rounded-full bg-primary md:hidden" aria-hidden />
             Materials
           </h2>
           {lesson.materials.length === 0 ? (
@@ -472,7 +562,7 @@ export default function LessonDetailPage() {
           )}
         </section>
 
-        <section className="sticky bottom-4 z-20">
+        <section className="hidden md:block sticky bottom-4 z-20">
           <Card className={`border-2 ${isDone ? 'border-emerald-400 bg-emerald-50' : 'border-primary/30 bg-card'}`}>
             <CardContent className="p-4 md:p-5 flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -508,8 +598,9 @@ export default function LessonDetailPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Assessments {isDone ? '' : '(unlock after marking as done)'}
+          <h2 className="text-base md:text-sm font-semibold text-foreground md:text-muted-foreground md:uppercase md:tracking-wide flex items-center gap-2">
+            <span className="block h-4 w-1 rounded-full bg-primary md:hidden" aria-hidden />
+            Assessments {isDone ? '' : <span className="font-normal text-muted-foreground text-xs md:text-sm">(unlock after marking as done)</span>}
           </h2>
           {lesson.assessments.length === 0 ? (
             <Card className="border-dashed">
@@ -533,7 +624,8 @@ export default function LessonDetailPage() {
 
         {nextLesson && (
           <section>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            <h2 className="text-base md:text-sm font-semibold text-foreground md:text-muted-foreground md:uppercase md:tracking-wide mb-2 flex items-center gap-2">
+              <span className="block h-4 w-1 rounded-full bg-primary md:hidden" aria-hidden />
               Next up
             </h2>
             <Card
@@ -559,6 +651,60 @@ export default function LessonDetailPage() {
           </section>
         )}
       </main>
+
+      {/* Mobile-only fixed bottom action bar for primary CTA */}
+      <div
+        className={`md:hidden fixed bottom-0 left-0 right-0 z-30 border-t backdrop-blur supports-[backdrop-filter]:bg-background/80 bg-background/95 pb-[env(safe-area-inset-bottom)] ${
+          isDone ? 'border-emerald-300/70' : 'border-border'
+        }`}
+      >
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold leading-tight">
+              {isDone
+                ? 'Lesson completed'
+                : totalMaterialCount > 0
+                  ? `${viewedMaterialCount} of ${totalMaterialCount} ${totalMaterialCount === 1 ? 'material' : 'materials'} viewed`
+                  : 'Ready to continue?'}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug line-clamp-1">
+              {isDone
+                ? canGoToNext
+                  ? 'Continue to the next lesson.'
+                  : 'Your assessments are unlocked.'
+                : eligibility.reason ?? 'Mark as done to unlock assessments.'}
+            </p>
+          </div>
+          {isDone && canGoToNext ? (
+            <Button
+              size="sm"
+              className="rounded-xl flex-shrink-0 min-h-11 px-4"
+              onClick={() => navigate(`/class/${classId}/lessons/${nextLesson!.id}`)}
+            >
+              Next lesson <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={!eligibility.canMark || pendingDone || isDone}
+              onClick={handleMarkDone}
+              className="rounded-xl flex-shrink-0 min-h-11 px-4"
+            >
+              {isDone ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-1" /> Done
+                </>
+              ) : pendingDone ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving…
+                </>
+              ) : (
+                'Mark as done'
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
 
       <AssignmentDetailDialog
         assignment={assignmentQuery.data ?? null}
