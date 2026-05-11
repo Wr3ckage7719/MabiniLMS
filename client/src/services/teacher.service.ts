@@ -264,13 +264,13 @@ export const teacherService = {
     }
 
     if (existingGradeId) {
-      return apiClient.put(`/grades/${existingGradeId}`, {
+      return apiClient.patch(`/grades/${existingGradeId}`, {
         points_earned: data.points_earned,
         feedback: data.feedback,
       });
     }
 
-    // No existing grade — create. Fall back to PUT if a race with the
+    // No existing grade — create. Fall back to PATCH if a race with the
     // auto-grader produces a 409 between our GET and this POST.
     try {
       return await apiClient.post(`/grades`, {
@@ -282,7 +282,7 @@ export const teacherService = {
         const retry = await apiClient.get(`/grades/submission/${submissionId}`);
         const retryId = (retry as any)?.data?.id;
         if (retryId) {
-          return apiClient.put(`/grades/${retryId}`, {
+          return apiClient.patch(`/grades/${retryId}`, {
             points_earned: data.points_earned,
             feedback: data.feedback,
           });
