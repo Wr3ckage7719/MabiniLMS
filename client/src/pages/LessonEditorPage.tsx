@@ -32,6 +32,8 @@ import {
   Mic,
   FolderOpen,
   ShieldCheck,
+  Globe,
+  Timer,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -100,6 +102,7 @@ import type {
 } from '@/lib/data';
 
 type CompletionRuleType = LessonCompletionRule['type'];
+type LinkDialogState = { open: false } | { open: true; title: string; url: string };
 type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface DraftState {
@@ -113,6 +116,7 @@ interface DraftState {
   unlockOnSubmit: boolean;
   unlockOnPass: boolean;
   passThreshold: number;
+  unlockDelayHours: number;
 }
 
 const buildDraftFromLesson = (lesson: Lesson): DraftState => ({
@@ -129,6 +133,7 @@ const buildDraftFromLesson = (lesson: Lesson): DraftState => ({
   unlockOnSubmit: lesson.chain.unlock_on_submit,
   unlockOnPass: lesson.chain.unlock_on_pass,
   passThreshold: lesson.chain.pass_threshold_percent ?? 75,
+  unlockDelayHours: lesson.chain.unlock_delay_hours ?? 0,
 });
 
 const parseTopics = (raw: string): string[] => {
@@ -152,6 +157,9 @@ const completionRuleFromDraft = (draft: DraftState): LessonCompletionRule => {
   if (draft.ruleType === 'view_all_files') {
     return { type: 'view_all_files' };
   }
+  if (draft.ruleType === 'view_all_and_submit') {
+    return { type: 'view_all_and_submit' };
+  }
   return { type: 'mark_as_done' };
 };
 
@@ -160,6 +168,7 @@ const chainFromDraft = (draft: DraftState): LessonChain => ({
   unlock_on_submit: draft.unlockOnSubmit,
   unlock_on_pass: draft.unlockOnPass,
   pass_threshold_percent: draft.unlockOnPass ? draft.passThreshold : null,
+  unlock_delay_hours: draft.unlockDelayHours > 0 ? draft.unlockDelayHours : null,
 });
 
 // ─── Lesson templates ────────────────────────────────────────────────────────
@@ -267,32 +276,59 @@ interface MaterialChipProps {
   isRequired: boolean;
   onPreview: () => void;
   onRemove: () => void;
+  onToggleOptional: () => void;
   removing: boolean;
+  toggling: boolean;
 }
 
-function MaterialChip({ material, isRequired, onPreview, onRemove, removing }: MaterialChipProps) {
+function MaterialChip({ material, isRequired, onPreview, onRemove, onToggleOptional, removing, toggling }: MaterialChipProps) {
+  const isLink = material.file_type === 'link';
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-secondary/40">
       <button
         type="button"
-        onClick={onPreview}
+        onClick={isLink && material.url ? () => window.open(material.url, '_blank', 'noopener') : onPreview}
         className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
-        aria-label={`Preview ${material.title}`}
+        aria-label={isLink ? `Open ${material.title}` : `Preview ${material.title}`}
       >
-        <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+        {isLink
+          ? <Globe className="h-4 w-4 text-primary flex-shrink-0" />
+          : <FileText className="h-4 w-4 text-primary flex-shrink-0" />}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate">{material.title}</p>
           <p className="text-xs text-muted-foreground">
-            <span className="uppercase">{material.file_type}</span> · {material.file_size}
-            {typeof material.page_count === 'number' && material.page_count > 0
-              ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
-              : ''}
+            {isLink ? <span className="text-primary/70 truncate block">{material.url}</span> : (
+              <>
+                <span className="uppercase">{material.file_type}</span> · {material.file_size}
+                {typeof material.page_count === 'number' && material.page_count > 0
+                  ? ` · ${material.page_count} ${material.page_count === 1 ? 'page' : 'pages'}`
+                  : ''}
+              </>
+            )}
           </p>
         </div>
       </button>
-      <Badge variant="outline" className={`text-xs hidden sm:inline-flex ${isRequired ? 'border-primary/40 text-primary' : 'text-muted-foreground'}`}>
-        {isRequired ? 'Required' : 'Optional'}
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={onToggleOptional}
+            disabled={toggling}
+            className={`text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors ${
+              material.is_optional
+                ? 'border-muted-foreground/30 text-muted-foreground hover:border-primary/40 hover:text-primary'
+                : isRequired
+                  ? 'border-primary/40 text-primary hover:border-muted-foreground/30 hover:text-muted-foreground'
+                  : 'border-muted-foreground/30 text-muted-foreground'
+            }`}
+          >
+            {toggling ? '…' : (material.is_optional ? 'Optional' : 'Required')}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p>{material.is_optional ? 'Click to make required' : 'Click to make optional'}</p>
+        </TooltipContent>
+      </Tooltip>
       <Button
         variant="ghost"
         size="icon"
@@ -350,6 +386,14 @@ function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps)
               <span>·</span>
               <span className="flex items-center gap-1">
                 <CalendarDays className="h-3 w-3" /> Due {dueDateLabel}
+              </span>
+            </>
+          )}
+          {assessment.is_proctored && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1 text-amber-600">
+                <ShieldCheck className="h-3 w-3" /> Proctored
               </span>
             </>
           )}
@@ -423,6 +467,9 @@ export default function LessonEditorPage() {
   const [previewMaterial, setPreviewMaterial] = useState<LessonMaterialRef | null>(null);
   const [removingMaterialId, setRemovingMaterialId] = useState<string | null>(null);
   const [removingAssessmentId, setRemovingAssessmentId] = useState<string | null>(null);
+  const [togglingMaterialId, setTogglingMaterialId] = useState<string | null>(null);
+  const [linkDialog, setLinkDialog] = useState<LinkDialogState>({ open: false });
+  const [addingLink, setAddingLink] = useState(false);
   const [publishAttempted, setPublishAttempted] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('idle');
   const [autosaveDoneAt, setAutosaveDoneAt] = useState<number | null>(null);
@@ -755,6 +802,42 @@ export default function LessonEditorPage() {
     void navigator.clipboard.writeText(url).then(() => {
       toast({ title: 'Link copied', description: 'Student lesson link copied to clipboard.' });
     });
+  };
+
+  const handleToggleMaterialOptional = async (materialId: string, currentIsOptional: boolean) => {
+    if (togglingMaterialId) return;
+    setTogglingMaterialId(materialId);
+    try {
+      await lessonsService.toggleMaterialOptional(classId, lesson!.id, materialId, !currentIsOptional);
+      await refreshLesson();
+    } catch (error) {
+      toast({
+        title: 'Could not update material',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingMaterialId(null);
+    }
+  };
+
+  const handleAddLink = async () => {
+    if (!linkDialog.open) return;
+    setAddingLink(true);
+    try {
+      await lessonsService.createLinkMaterial(classId, lesson!.id, linkDialog.title, linkDialog.url);
+      await refreshLesson();
+      setLinkDialog({ open: false });
+      toast({ title: 'Link added' });
+    } catch (error) {
+      toast({
+        title: 'Could not add link',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAddingLink(false);
+    }
   };
 
   const handlePrint = () => {
@@ -1117,21 +1200,32 @@ export default function LessonEditorPage() {
                         PDF, DOCX, PPTX, images, or video. Students view in-app with progress tracked.
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-xl gap-1.5"
-                      disabled={updateLesson.isPending}
-                      onClick={async () => {
-                        const ok = await silentlyPersistDraft();
-                        if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`);
-                      }}
-                    >
-                      {updateLesson.isPending
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <BookOpen className="h-3.5 w-3.5" />}
-                      Add reading material
-                    </Button>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5"
+                        disabled={updateLesson.isPending}
+                        onClick={async () => {
+                          const ok = await silentlyPersistDraft();
+                          if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`);
+                        }}
+                      >
+                        {updateLesson.isPending
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <BookOpen className="h-3.5 w-3.5" />}
+                        Add reading material
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5"
+                        onClick={() => setLinkDialog({ open: true, title: '', url: '' })}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        Add external link
+                      </Button>
+                    </div>
                   </div>
 
                   {lesson.materials.length === 0 ? (
@@ -1148,7 +1242,9 @@ export default function LessonEditorPage() {
                           isRequired={isMaterialRequired}
                           onPreview={() => setPreviewMaterial(material)}
                           onRemove={() => void handleRemoveMaterial(material.material_id, material.title)}
+                          onToggleOptional={() => void handleToggleMaterialOptional(material.material_id, material.is_optional ?? false)}
                           removing={removingMaterialId === material.material_id}
+                          toggling={togglingMaterialId === material.material_id}
                         />
                       ))}
                       {lesson.materials.length > 1 && (
@@ -1193,7 +1289,12 @@ export default function LessonEditorPage() {
                         {
                           id: 'view_all_files',
                           label: 'Reach end of all materials',
-                          hint: 'Student must scroll or page through every uploaded file to the end before the button appears. Files are locked sequentially.',
+                          hint: 'Student must scroll or page through every required file to the end before the button appears. Files are locked sequentially.',
+                        },
+                        {
+                          id: 'view_all_and_submit',
+                          label: 'View all materials + submit all assessments',
+                          hint: 'Student must both reach the end of every required file AND submit every required assessment. Assessments are unlocked while the lesson is active so students can complete them before marking done.',
                         },
                         {
                           id: 'time_on_material',
@@ -1412,6 +1513,38 @@ export default function LessonEditorPage() {
                     </Select>
                   </div>
 
+                  <div className="space-y-1.5">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <Timer className="h-3.5 w-3.5" /> Unlock delay after completion
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={String(draft.unlockDelayHours)}
+                        onValueChange={(v) => update({ unlockDelayHours: Number(v) })}
+                      >
+                        <SelectTrigger className="h-9 w-44">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">Immediate (no delay)</SelectItem>
+                          <SelectItem value="1">1 hour</SelectItem>
+                          <SelectItem value="2">2 hours</SelectItem>
+                          <SelectItem value="6">6 hours</SelectItem>
+                          <SelectItem value="12">12 hours</SelectItem>
+                          <SelectItem value="24">1 day</SelectItem>
+                          <SelectItem value="48">2 days</SelectItem>
+                          <SelectItem value="72">3 days</SelectItem>
+                          <SelectItem value="168">1 week</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {draft.unlockDelayHours > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Next lesson unlocks {draft.unlockDelayHours}h after this one is marked done.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="flex items-center gap-3 text-sm">
                       <Switch
@@ -1586,6 +1719,60 @@ export default function LessonEditorPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Add external link dialog */}
+        <Dialog
+          open={linkDialog.open}
+          onOpenChange={(next) => { if (!next && !addingLink) setLinkDialog({ open: false }); }}
+        >
+          <DialogContent className="rounded-xl max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add external link</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground -mt-2">
+              Students will see a card that opens the URL in a new tab. Useful for YouTube videos, articles, or Google Slides.
+            </p>
+            <div className="space-y-3 pt-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="link-title">Link title</Label>
+                <Input
+                  id="link-title"
+                  placeholder="e.g. Watch: Introduction to Variables"
+                  value={linkDialog.open ? linkDialog.title : ''}
+                  onChange={(e) => linkDialog.open && setLinkDialog({ ...linkDialog, title: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="link-url">URL</Label>
+                <Input
+                  id="link-url"
+                  type="url"
+                  placeholder="https://youtube.com/watch?v=..."
+                  value={linkDialog.open ? linkDialog.url : ''}
+                  onChange={(e) => linkDialog.open && setLinkDialog({ ...linkDialog, url: e.target.value })}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={addingLink}
+                  onClick={() => setLinkDialog({ open: false })}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="rounded-xl gap-1.5"
+                  disabled={addingLink || !linkDialog.open || !linkDialog.title.trim() || !linkDialog.url.trim()}
+                  onClick={() => void handleAddLink()}
+                >
+                  {addingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                  Add link
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Template picker */}
         <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
