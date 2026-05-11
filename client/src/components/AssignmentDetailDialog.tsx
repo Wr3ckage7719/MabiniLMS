@@ -558,9 +558,51 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     onStartExam(assignment);
   };
 
+  const hasFinalState = !!submission || !!terminalAttempt;
+  let primaryAction: {
+    label: string;
+    onClick: () => void;
+    disabled: boolean;
+    icon: 'lock' | 'send';
+  } | null = null;
+
+  if (!loadingSubmission && !hasFinalState) {
+    if (isQuizAssignment) {
+      primaryAction = {
+        label: lockedByGate ? 'Locked' : 'Start Quiz',
+        onClick: () => handleStartExam(),
+        disabled: lockedByGate,
+        icon: lockedByGate ? 'lock' : 'send',
+      };
+    } else if (isExamAssignment) {
+      primaryAction = {
+        label: lockedByGate ? 'Locked' : 'Start Proctored Exam',
+        onClick: () => handleStartExam(),
+        disabled: lockedByGate,
+        icon: lockedByGate ? 'lock' : 'send',
+      };
+    } else if (isActivityAssignment) {
+      primaryAction = {
+        label: lockedByGate
+          ? 'Locked'
+          : submissionsClosed
+            ? 'Closed'
+            : 'Submit',
+        onClick: () => {
+          void handleSubmit();
+        },
+        disabled: submissionsClosed || !selectedDriveFile || submitting || lockedByGate,
+        icon: lockedByGate ? 'lock' : 'send',
+      };
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl p-3 sm:p-6">
+        <div aria-hidden className="md:hidden flex justify-center -mt-1 mb-1">
+          <span className="block h-1 w-10 rounded-full bg-muted-foreground/30" />
+        </div>
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
@@ -591,7 +633,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
           </Badge>
           {countdown && assignment.status !== 'submitted' && assignment.status !== 'graded' && (
             <Badge
-              className={`rounded-lg text-xs sm:text-sm whitespace-nowrap ${
+              className={`rounded-lg text-sm sm:text-sm font-semibold whitespace-nowrap ${
                 countdown.tone === 'overdue'
                   ? 'bg-destructive text-destructive-foreground hover:bg-destructive'
                   : countdown.tone === 'soon'
@@ -599,13 +641,21 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   : 'bg-primary/10 text-primary hover:bg-primary/10'
               }`}
             >
-              <Clock className="h-3 w-3 mr-1" />
+              <Clock className="h-3.5 w-3.5 sm:h-3 sm:w-3 mr-1" />
               {countdown.label}
             </Badge>
           )}
-          <Badge variant={assignment.status === 'late' ? 'destructive' : 'secondary'} className="rounded-lg capitalize text-xs sm:text-sm">
+          <Badge
+            variant={assignment.status === 'late' ? 'destructive' : 'outline'}
+            className="rounded-lg capitalize text-xs sm:text-sm"
+          >
             {assignment.status}
           </Badge>
+          {(assignment.status === 'submitted' || assignment.status === 'graded') && (
+            <Badge className="rounded-lg text-xs sm:text-sm bg-emerald-100 text-emerald-700 border-emerald-200 border whitespace-nowrap">
+              <CheckCircle2 className="h-3 w-3 mr-1" /> Submitted
+            </Badge>
+          )}
           {assignment.attachments && (
             <Badge variant="secondary" className="rounded-lg text-xs sm:text-sm whitespace-nowrap">
               <Paperclip className="h-3 w-3 mr-1" /> {assignment.attachments}
@@ -614,13 +664,26 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
         </div>
 
         <Tabs defaultValue="details" className="mt-4">
-          <TabsList className="bg-secondary/50 p-1 rounded-xl w-full overflow-x-auto flex">
-            <TabsTrigger value="details" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm">Details</TabsTrigger>
-            <TabsTrigger value="comments" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm">
-              <span className="hidden sm:inline">Comments</span><span className="sm:hidden">Cmnts</span> ({comments.length})
+          <TabsList className="bg-secondary/50 p-1 rounded-xl w-full overflow-x-auto flex h-auto min-h-10 sm:min-h-9">
+            <TabsTrigger value="details" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm min-h-9">
+              Details
             </TabsTrigger>
-            <TabsTrigger value="submissions" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm">
-              <span className="hidden sm:inline">My Submissions</span><span className="sm:hidden">Submit</span> ({submissions.length})
+            <TabsTrigger value="comments" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm min-h-9 gap-1.5">
+              <span>Comments</span>
+              {comments.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                  {comments.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="submissions" className="rounded-lg flex-1 text-xs sm:text-sm data-[state=active]:shadow-sm min-h-9 gap-1.5">
+              <span className="hidden sm:inline">My Submissions</span>
+              <span className="sm:hidden">Submissions</span>
+              {submissions.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                  {submissions.length}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -744,7 +807,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   </ul>
                   <Button
                     size="sm"
-                    className="rounded-xl text-xs sm:text-sm"
+                    className="hidden md:inline-flex rounded-xl text-xs sm:text-sm"
                     onClick={handleStartExam}
                     disabled={lockedByGate}
                   >
@@ -770,7 +833,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                   </ul>
                   <Button
                     size="sm"
-                    className="rounded-xl text-xs sm:text-sm"
+                    className="hidden md:inline-flex rounded-xl text-xs sm:text-sm"
                     onClick={handleStartExam}
                     disabled={lockedByGate}
                   >
@@ -881,7 +944,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                       <p className="text-[11px] text-muted-foreground">
                         Submissions require a Google Drive file so teachers can review and grade directly.
                       </p>
-                      <div className="flex justify-end mt-3">
+                      <div className="hidden md:flex justify-end mt-3">
                         <Button
                           size="sm"
                           className="rounded-xl text-xs sm:text-sm"
@@ -912,6 +975,29 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </>
               )}
             </div>
+
+            {/* Mobile-only sticky CTA strip — primary action always visible */}
+            {primaryAction && (
+              <>
+                <div aria-hidden className="md:hidden h-16" />
+                <div className="md:hidden sticky bottom-0 -mx-3 sm:-mx-6 px-3 sm:px-6 py-3 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
+                  <Button
+                    size="lg"
+                    className="w-full rounded-xl text-sm font-semibold min-h-11"
+                    onClick={primaryAction.onClick}
+                    disabled={primaryAction.disabled}
+                    variant={primaryAction.icon === 'lock' ? 'secondary' : 'default'}
+                  >
+                    {primaryAction.icon === 'lock' ? (
+                      <Lock className="h-4 w-4 mr-1.5" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-1.5" />
+                    )}
+                    {primaryAction.label}
+                  </Button>
+                </div>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="comments" className="space-y-3 mt-4">
