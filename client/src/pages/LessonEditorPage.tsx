@@ -26,6 +26,12 @@ import {
   Eye,
   Clock,
   BookMarked,
+  CalendarDays,
+  ArrowRight,
+  Info,
+  Mic,
+  FolderOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -316,12 +322,15 @@ interface AssessmentChipProps {
 
 function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps) {
   const Icon = assessmentTypeIcon(assessment.raw_type);
+  const dueDateLabel = assessment.due_date
+    ? new Date(assessment.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-secondary/40">
       <Icon className="h-4 w-4 text-primary flex-shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate">{assessment.title}</p>
-        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted-foreground">
           <span className="uppercase">{assessment.raw_type}</span>
           <span>·</span>
           <span>{assessment.points} pts</span>
@@ -334,6 +343,14 @@ function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps)
             <>
               <span>·</span>
               <Badge variant="outline" className="text-xs h-4 px-1 border-primary/40 text-primary">Required</Badge>
+            </>
+          )}
+          {dueDateLabel && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                <CalendarDays className="h-3 w-3" /> Due {dueDateLabel}
+              </span>
             </>
           )}
         </div>
@@ -518,6 +535,12 @@ export default function LessonEditorPage() {
     if (total === 0) return null;
     return Math.max(5, Math.round(total / 5) * 5);
   }, [lesson?.materials.length, lesson?.assessments.length]);
+
+  // Lessons in this class that chain INTO the current lesson
+  const incomingLessons = useMemo(() => {
+    if (!lesson) return [];
+    return allLessons.filter((l) => l.chain.next_lesson_id === lesson.id);
+  }, [allLessons, lesson?.id]);
 
   // ─── Autosave ─────────────────────────────────────────────────────────────
 
@@ -1128,6 +1151,14 @@ export default function LessonEditorPage() {
                           removing={removingMaterialId === material.material_id}
                         />
                       ))}
+                      {lesson.materials.length > 1 && (
+                        <p className="text-xs text-muted-foreground flex items-start gap-1.5 pt-1">
+                          <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                          {draft.ruleType === 'view_all_files'
+                            ? 'Sequential mode is on — students must reach the end of each file before the next one unlocks.'
+                            : 'Files are shown in order. To enforce sequential reading, set the completion rule to "Reach end of all materials".'}
+                        </p>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1154,14 +1185,26 @@ export default function LessonEditorPage() {
                   <div className="space-y-2">
                     {(
                       [
-                        { id: 'mark_as_done', label: 'Student presses Mark as done' },
-                        { id: 'view_all_files', label: 'Reach end of all materials' },
-                        { id: 'time_on_material', label: 'Time on material ≥ N minutes' },
-                      ] as { id: CompletionRuleType; label: string }[]
+                        {
+                          id: 'mark_as_done',
+                          label: 'Student presses Mark as done',
+                          hint: 'The button is always available. Student decides when they are finished — no tracking enforced.',
+                        },
+                        {
+                          id: 'view_all_files',
+                          label: 'Reach end of all materials',
+                          hint: 'Student must scroll or page through every uploaded file to the end before the button appears. Files are locked sequentially.',
+                        },
+                        {
+                          id: 'time_on_material',
+                          label: 'Time on material ≥ N minutes',
+                          hint: 'Tracks active time the student has the lesson open. Timer pauses when the tab is hidden or the window loses focus.',
+                        },
+                      ] as { id: CompletionRuleType; label: string; hint: string }[]
                     ).map((option) => (
                       <label
                         key={option.id}
-                        className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
                           draft.ruleType === option.id ? 'border-primary bg-primary/5' : 'hover:bg-secondary/30'
                         }`}
                       >
@@ -1171,9 +1214,12 @@ export default function LessonEditorPage() {
                           value={option.id}
                           checked={draft.ruleType === option.id}
                           onChange={() => update({ ruleType: option.id })}
-                          className="h-4 w-4"
+                          className="h-4 w-4 mt-0.5"
                         />
-                        <span className="text-sm">{option.label}</span>
+                        <div>
+                          <span className="text-sm font-medium">{option.label}</span>
+                          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{option.hint}</p>
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -1196,6 +1242,23 @@ export default function LessonEditorPage() {
                       />
                     </div>
                   )}
+
+                  {incomingLessons.length > 0 && (
+                    <div className="rounded-lg bg-secondary/40 px-3 py-2.5 space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Unlocked by completing:</p>
+                      <div className="space-y-1">
+                        {incomingLessons.map((l) => (
+                          <div key={l.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                            <span>Lesson {l.ordering.toString().padStart(2, '0')} · {l.title}</span>
+                            {l.chain.unlock_on_pass && (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1 ml-auto">Pass required</Badge>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1209,31 +1272,39 @@ export default function LessonEditorPage() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {(
-                      [
-                        { type: 'activity', label: 'Add activity', icon: Activity },
-                        { type: 'quiz', label: 'Add quiz', icon: FileText },
-                        { type: 'exam', label: 'Add exam', icon: ClipboardCheck },
-                      ] as { type: string; label: string; icon: React.ElementType }[]
-                    ).map(({ type, label, icon: Icon }) => (
-                      <Button
-                        key={type}
-                        variant="outline"
-                        size="sm"
-                        className="rounded-xl gap-1.5"
-                        disabled={updateLesson.isPending}
-                        onClick={async () => {
-                          const ok = await silentlyPersistDraft();
-                          if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/${type}`);
-                        }}
-                      >
-                        {updateLesson.isPending
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Icon className="h-3.5 w-3.5" />}
-                        {label}
-                      </Button>
-                    ))}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          { type: 'activity', label: 'Add activity', icon: Activity },
+                          { type: 'quiz', label: 'Add quiz', icon: FileText },
+                          { type: 'exam', label: 'Add exam', icon: ClipboardCheck },
+                          { type: 'recitation', label: 'Add recitation', icon: Mic },
+                          { type: 'project', label: 'Add project', icon: FolderOpen },
+                        ] as { type: string; label: string; icon: React.ElementType }[]
+                      ).map(({ type, label, icon: Icon }) => (
+                        <Button
+                          key={type}
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl gap-1.5"
+                          disabled={updateLesson.isPending}
+                          onClick={async () => {
+                            const ok = await silentlyPersistDraft();
+                            if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/${type}`);
+                          }}
+                        >
+                          {updateLesson.isPending
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Icon className="h-3.5 w-3.5" />}
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                      Assessments unlock after the student marks this lesson as done. Exams with proctoring enabled will track tab-switching violations.
+                    </p>
                   </div>
 
                   {lesson.assessments.length === 0 ? (
@@ -1266,6 +1337,59 @@ export default function LessonEditorPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       What the student unlocks after finishing this lesson and its assessments.
                     </p>
+                  </div>
+
+                  {/* Mini-flow diagram */}
+                  <div className="flex items-center gap-2 rounded-lg bg-secondary/40 px-3 py-2.5 text-xs overflow-x-auto">
+                    {incomingLessons.length > 0 && (
+                      <>
+                        <div className="flex flex-col gap-0.5 shrink-0">
+                          {incomingLessons.slice(0, 2).map((l) => (
+                            <span key={l.id} className="font-mono text-muted-foreground whitespace-nowrap">
+                              Lesson {l.ordering.toString().padStart(2, '0')}
+                            </span>
+                          ))}
+                          {incomingLessons.length > 2 && (
+                            <span className="text-muted-foreground">+{incomingLessons.length - 2} more</span>
+                          )}
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                      </>
+                    )}
+                    <div className="flex flex-col items-center gap-0.5 px-2 py-1 rounded border border-primary/40 bg-primary/5 shrink-0">
+                      <span className="font-mono font-semibold text-primary whitespace-nowrap">
+                        Lesson {lesson.ordering.toString().padStart(2, '0')}
+                      </span>
+                      <span className="text-muted-foreground truncate max-w-[120px]">{draft.title || 'Untitled'}</span>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex flex-col items-center gap-0.5 shrink-0">
+                      {draft.chainNextId === '__none__' ? (
+                        <span className="text-muted-foreground italic">No next lesson</span>
+                      ) : (
+                        <>
+                          {(() => {
+                            const next = otherLessons.find((l) => l.id === draft.chainNextId);
+                            return next ? (
+                              <>
+                                <span className="font-mono font-medium whitespace-nowrap">
+                                  Lesson {next.ordering.toString().padStart(2, '0')}
+                                </span>
+                                <span className="text-muted-foreground truncate max-w-[120px]">{next.title}</span>
+                              </>
+                            ) : null;
+                          })()}
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {draft.unlockOnSubmit && (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1">Submit required</Badge>
+                            )}
+                            {draft.unlockOnPass && (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1">Pass {draft.passThreshold}%</Badge>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
