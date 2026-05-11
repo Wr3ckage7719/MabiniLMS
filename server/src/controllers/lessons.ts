@@ -13,6 +13,7 @@ import logger from '../utils/logger.js';
 const completionRuleSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mark_as_done') }),
   z.object({ type: z.literal('view_all_files') }),
+  z.object({ type: z.literal('view_all_and_submit') }),
   z.object({ type: z.literal('time_on_material'), min_minutes: z.number().int().min(1).max(240) }),
 ]);
 
@@ -21,6 +22,16 @@ const chainSchema = z.object({
   unlock_on_submit: z.boolean(),
   unlock_on_pass: z.boolean(),
   pass_threshold_percent: z.number().min(0).max(100).nullable(),
+  unlock_delay_hours: z.number().int().min(0).max(168).nullable().optional().default(null),
+});
+
+const toggleMaterialOptionalSchema = z.object({
+  is_optional: z.boolean(),
+});
+
+const createLinkMaterialSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  url: z.string().url(),
 });
 
 const upsertLessonSchema = z.object({
@@ -260,6 +271,39 @@ export const getStudentProgressSummary = async (
   try {
     const summary = await lessonsService.loadStudentProgressSummary(req.user!.id);
     res.json({ success: true, data: summary });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const toggleMaterialOptional = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId, lessonId, materialId } = req.params;
+    await lessonsService.assertCourseAccess(courseId, req.user!.id, 'teacher');
+    const { is_optional } = toggleMaterialOptionalSchema.parse(req.body);
+    await lessonsService.toggleMaterialOptional(courseId, lessonId, materialId, is_optional);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createLinkMaterial = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId, lessonId } = req.params;
+    await lessonsService.assertCourseAccess(courseId, req.user!.id, 'teacher');
+    const input = createLinkMaterialSchema.parse(req.body);
+    const lesson = await lessonsService.createLinkMaterial(courseId, lessonId, input);
+    if (!lesson) throw new ApiError(ErrorCode.NOT_FOUND, 'Lesson not found', 404);
+    res.json({ success: true, data: lesson });
   } catch (error) {
     next(error);
   }

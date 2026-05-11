@@ -105,4 +105,22 @@ router.get(
   lessonsController.getStudentProgressSummary
 );
 
+// PATCH /api/lessons/courses/:courseId/lessons/:lessonId/materials/:materialId/optional
+// Toggle is_optional on a lesson material (teacher/admin only).
+router.patch(
+  '/courses/:courseId/lessons/:lessonId/materials/:materialId/optional',
+  authenticate,
+  authorize(UserRole.TEACHER, UserRole.ADMIN),
+  lessonsController.toggleMaterialOptional
+);
+
+// POST /api/lessons/courses/:courseId/lessons/:lessonId/link-material
+// Create a URL/external link material and attach it to the lesson (teacher/admin only).
+router.post(
+  '/courses/:courseId/lessons/:lessonId/link-material',
+  authenticate,
+  authorize(UserRole.TEACHER, UserRole.ADMIN),
+  lessonsController.createLinkMaterial
+);
+
 export default router;

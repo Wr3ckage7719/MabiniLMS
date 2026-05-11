@@ -12,13 +12,15 @@ export type LessonStatus = 'locked' | 'active' | 'done' | 'draft';
 export type LessonCompletionRule =
   | { type: 'view_all_files' }
   | { type: 'mark_as_done' }
-  | { type: 'time_on_material'; min_minutes: number };
+  | { type: 'time_on_material'; min_minutes: number }
+  | { type: 'view_all_and_submit' };
 
 export interface LessonChain {
   next_lesson_id: string | null;
   unlock_on_submit: boolean;
   unlock_on_pass: boolean;
   pass_threshold_percent: number | null;
+  unlock_delay_hours: number | null;
 }
 
 export interface LessonRow {
@@ -30,12 +32,13 @@ export interface LessonRow {
   sort_order: number;
   is_published: boolean;
   is_general: boolean;
-  completion_rule_type: 'mark_as_done' | 'view_all_files' | 'time_on_material';
+  completion_rule_type: 'mark_as_done' | 'view_all_files' | 'time_on_material' | 'view_all_and_submit';
   completion_rule_min_minutes: number | null;
   next_lesson_id: string | null;
   unlock_on_submit: boolean;
   unlock_on_pass: boolean;
   pass_threshold_percent: number | null;
+  unlock_delay_hours: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +53,7 @@ export interface LessonMaterialRef {
   view_seconds: number;
   page_count: number | null;
   locked: boolean;
+  is_optional: boolean;
 }
 
 export interface LessonAssessmentRef {
@@ -58,6 +62,7 @@ export interface LessonAssessmentRef {
   raw_type: string;
   points: number;
   is_optional: boolean;
+  is_proctored: boolean;
   submitted: boolean;
   graded: boolean;
   score_percent: number | null;
@@ -67,7 +72,7 @@ export interface LessonAssessmentRef {
 export interface LessonUnlockBlocker {
   lesson_id: string;
   lesson_title: string;
-  reason: 'predecessor_not_done' | 'predecessor_assessment_pending' | 'predecessor_assessment_failed';
+  reason: 'predecessor_not_done' | 'predecessor_assessment_pending' | 'predecessor_assessment_failed' | 'unlock_delay_pending';
 }
 
 export interface LessonView {
@@ -97,6 +102,11 @@ export interface UpsertLessonInput {
   isPublished: boolean;
   completionRule: LessonCompletionRule;
   chain: LessonChain;
+}
+
+export interface CreateLinkMaterialInput {
+  title: string;
+  url: string;
 }
 
 // ============================================
@@ -243,6 +253,7 @@ interface LessonMaterialJoinRowItem {
 interface LessonMaterialJoinRow {
   material_id: string;
   sort_order: number;
+  is_optional: boolean;
   course_materials: LessonMaterialJoinRowItem | LessonMaterialJoinRowItem[] | null;
 }
 
@@ -270,6 +281,7 @@ const loadMaterialsByLesson = async (
       lesson_id,
       material_id,
       sort_order,
+      is_optional,
       course_materials:course_materials!inner(id, title, type, file_url, file_size, page_count)
     `)
     .in('lesson_id', lessonIds)
@@ -283,6 +295,7 @@ const loadMaterialsByLesson = async (
         lesson_id,
         material_id,
         sort_order,
+        is_optional,
         course_materials:course_materials!inner(id, title, type, file_url, file_size)
       `)
       .in('lesson_id', lessonIds)
@@ -315,7 +328,8 @@ interface LessonAssessmentJoinRow {
     assignment_type: string | null;
     max_points: number | null;
     due_date: string | null;
-  } | { id: string; title: string; assignment_type: string | null; max_points: number | null; due_date: string | null }[] | null;
+    is_proctored: boolean | null;
+  } | { id: string; title: string; assignment_type: string | null; max_points: number | null; due_date: string | null; is_proctored: boolean | null }[] | null;
 }
 
 const loadAssessmentsByLesson = async (
@@ -329,7 +343,7 @@ const loadAssessmentsByLesson = async (
       assignment_id,
       is_optional,
       sort_order,
-      assignments:assignments!inner(id, title, assignment_type, max_points, due_date)
+      assignments:assignments!inner(id, title, assignment_type, max_points, due_date, is_proctored)
     `)
     .in('lesson_id', lessonIds)
     .order('sort_order', { ascending: true })
@@ -502,6 +516,8 @@ const buildCompletionRule = (row: LessonRow): LessonCompletionRule => {
         type: 'time_on_material',
         min_minutes: row.completion_rule_min_minutes ?? 10,
       };
+    case 'view_all_and_submit':
+      return { type: 'view_all_and_submit' };
     case 'mark_as_done':
     default:
       return { type: 'mark_as_done' };
@@ -515,6 +531,7 @@ const buildChain = (row: LessonRow): LessonChain => ({
   pass_threshold_percent: row.pass_threshold_percent !== null
     ? Number(row.pass_threshold_percent)
     : null,
+  unlock_delay_hours: row.unlock_delay_hours ?? null,
 });
 
 interface ChainEvaluationContext {
@@ -531,6 +548,18 @@ const isLessonChainSatisfied = (
   // The predecessor must itself be marked as done first.
   if (!ctx.doneByLesson.has(predecessor.id) && !predecessor.is_general) {
     return { satisfied: false, reason: 'predecessor_not_done' };
+  }
+
+  // If an unlock delay is set, the next lesson stays locked until the delay
+  // expires relative to when the predecessor was marked done.
+  if (predecessor.unlock_delay_hours && predecessor.unlock_delay_hours > 0) {
+    const doneAtStr = ctx.doneByLesson.get(predecessor.id);
+    if (doneAtStr) {
+      const unlockAt = new Date(new Date(doneAtStr).getTime() + predecessor.unlock_delay_hours * 3_600_000);
+      if (new Date() < unlockAt) {
+        return { satisfied: false, reason: 'unlock_delay_pending' };
+      }
+    }
   }
 
   if (!predecessor.unlock_on_submit && !predecessor.unlock_on_pass) {
@@ -644,6 +673,7 @@ const toMaterialRefs = (
       view_seconds: 0,
       page_count: cm?.page_count ?? null,
       locked,
+      is_optional: row.is_optional ?? false,
     };
   });
 };
@@ -668,6 +698,7 @@ const toAssessmentRefs = (
       raw_type: a?.assignment_type ?? 'activity',
       points: Number(a?.max_points ?? 0),
       is_optional: row.is_optional,
+      is_proctored: Boolean(a?.is_proctored),
       submitted,
       graded,
       score_percent: scorePercent,
@@ -894,6 +925,7 @@ export const updateLesson = async (
       pass_threshold_percent: input.chain.unlock_on_pass
         ? input.chain.pass_threshold_percent ?? 75
         : null,
+      unlock_delay_hours: input.chain.unlock_delay_hours ?? null,
     })
     .eq('id', lessonId);
   if (error) {
@@ -1133,11 +1165,31 @@ export const markLessonAsDone = async (
   }
 
   if (view.completionRule.type === 'view_all_files' && view.materials.length > 0) {
-    const allViewed = view.materials.every((m) => m.viewed);
+    const requiredMaterials = view.materials.filter((m) => !m.is_optional);
+    const allViewed = requiredMaterials.every((m) => m.viewed);
     if (!allViewed) {
       throw new ApiError(
         ErrorCode.FORBIDDEN,
-        'Open every file at least once before marking the lesson as done',
+        'Open every required file at least once before marking the lesson as done',
+        403
+      );
+    }
+  }
+
+  if (view.completionRule.type === 'view_all_and_submit') {
+    const requiredMaterials = view.materials.filter((m) => !m.is_optional);
+    if (requiredMaterials.length > 0 && !requiredMaterials.every((m) => m.viewed)) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'View all required materials before marking the lesson as done',
+        403
+      );
+    }
+    const requiredAssessments = view.assessments.filter((a) => !a.is_optional);
+    if (requiredAssessments.length > 0 && !requiredAssessments.every((a) => a.submitted)) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'Submit all required assessments before marking the lesson as done',
         403
       );
     }
@@ -1192,6 +1244,13 @@ export const isStudentAllowedToSubmit = async (
   const lesson = await loadSingleLessonRow(lessonId);
   if (!lesson) return { allowed: false, lesson: null };
   if (lesson.is_general) return { allowed: true, lesson };
+  // For view_all_and_submit the student must submit assessments BEFORE marking
+  // the lesson done (it's part of the completion criteria). Allow submissions
+  // as long as the lesson is published and the student has the lesson active
+  // (not locked by a predecessor).
+  if (lesson.completion_rule_type === 'view_all_and_submit' && lesson.is_published) {
+    return { allowed: true, lesson };
+  }
   const { data, error } = await supabaseAdmin
     .from('lesson_progress')
     .select('id')
@@ -1445,4 +1504,83 @@ export const loadLessonEngagement = async (
   }
 
   return { lessons, students, cells };
+};
+
+// ============================================
+// Lesson material helpers
+// ============================================
+
+export const toggleMaterialOptional = async (
+  courseId: string,
+  lessonId: string,
+  materialId: string,
+  isOptional: boolean
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from('lesson_materials')
+    .update({ is_optional: isOptional })
+    .eq('lesson_id', lessonId)
+    .eq('material_id', materialId);
+  if (error) {
+    logger.error('Failed to toggle material optional flag', { lessonId, materialId, error: error.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to update material', 500);
+  }
+  // Verify lesson belongs to course
+  const lesson = await loadSingleLessonRow(lessonId);
+  if (!lesson || lesson.course_id !== courseId) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Lesson not found', 404);
+  }
+};
+
+export const createLinkMaterial = async (
+  courseId: string,
+  lessonId: string,
+  input: CreateLinkMaterialInput
+): Promise<LessonView | null> => {
+  // Verify lesson belongs to course
+  const lesson = await loadSingleLessonRow(lessonId);
+  if (!lesson || lesson.course_id !== courseId) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Lesson not found', 404);
+  }
+
+  // Insert the link as a course_material with type = 'link'
+  const { data: material, error: matErr } = await supabaseAdmin
+    .from('course_materials')
+    .insert({
+      course_id: courseId,
+      title: input.title,
+      type: 'link',
+      file_url: input.url,
+      file_size: 0,
+    })
+    .select('id')
+    .single();
+
+  if (matErr || !material) {
+    logger.error('Failed to create link material', { courseId, error: matErr?.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to create link material', 500);
+  }
+
+  const materialId = (material as { id: string }).id;
+
+  // Get next sort order
+  const { data: existing } = await supabaseAdmin
+    .from('lesson_materials')
+    .select('sort_order')
+    .eq('lesson_id', lessonId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextSort = ((existing as { sort_order?: number } | null)?.sort_order ?? 0) + 1;
+
+  const { error: linkErr } = await supabaseAdmin
+    .from('lesson_materials')
+    .insert({ lesson_id: lessonId, material_id: materialId, sort_order: nextSort });
+
+  if (linkErr) {
+    logger.error('Failed to link material to lesson', { lessonId, materialId, error: linkErr.message });
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to attach link to lesson', 500);
+  }
+
+  return getForTeacher(courseId, lessonId);
 };

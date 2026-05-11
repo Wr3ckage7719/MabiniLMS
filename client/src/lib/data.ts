@@ -134,7 +134,8 @@ export type LessonStatus = 'locked' | 'active' | 'done' | 'draft';
 export type LessonCompletionRule =
   | { type: 'view_all_files' }
   | { type: 'mark_as_done' }
-  | { type: 'time_on_material'; min_minutes: number };
+  | { type: 'time_on_material'; min_minutes: number }
+  | { type: 'view_all_and_submit' };
 
 export interface LessonAssessmentRef {
   assignment_id: string;
@@ -142,6 +143,7 @@ export interface LessonAssessmentRef {
   raw_type: 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project';
   points: number;
   is_optional?: boolean;
+  is_proctored?: boolean;
   submitted?: boolean;
   graded?: boolean;
   score_percent?: number | null;
@@ -151,12 +153,13 @@ export interface LessonAssessmentRef {
 export interface LessonMaterialRef {
   material_id: string;
   title: string;
-  file_type: 'pdf' | 'doc' | 'docx' | 'ppt' | 'pptx' | 'image' | 'video' | 'archive' | 'other';
+  file_type: 'pdf' | 'doc' | 'docx' | 'ppt' | 'pptx' | 'image' | 'video' | 'archive' | 'other' | 'link';
   file_size: string;
   url?: string;
   viewed?: boolean;
   view_seconds?: number;
   page_count?: number | null;
+  is_optional?: boolean;
   // True when a prior material in this lesson hasn't been read end-to-end yet.
   // Surfaced so the student UI can lock follow-up files behind the first one.
   locked?: boolean;
@@ -167,12 +170,13 @@ export interface LessonChain {
   unlock_on_submit: boolean;
   unlock_on_pass: boolean;
   pass_threshold_percent?: number | null;
+  unlock_delay_hours?: number | null;
 }
 
 export interface LessonUnlockBlocker {
   lesson_id: string;
   lesson_title: string;
-  reason: 'predecessor_not_done' | 'predecessor_assessment_pending' | 'predecessor_assessment_failed';
+  reason: 'predecessor_not_done' | 'predecessor_assessment_pending' | 'predecessor_assessment_failed' | 'unlock_delay_pending';
 }
 
 export interface Lesson {

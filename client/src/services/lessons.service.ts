@@ -148,6 +148,31 @@ export const lessonsService = {
     await apiClient.delete(`/lessons/courses/${classId}/lessons/${lessonId}`);
   },
 
+  async toggleMaterialOptional(
+    classId: string,
+    lessonId: string,
+    materialId: string,
+    isOptional: boolean
+  ): Promise<void> {
+    await apiClient.patch(
+      `/lessons/courses/${classId}/lessons/${lessonId}/materials/${materialId}/optional`,
+      { is_optional: isOptional }
+    );
+  },
+
+  async createLinkMaterial(
+    classId: string,
+    lessonId: string,
+    title: string,
+    url: string
+  ): Promise<import('@/lib/data').Lesson | null> {
+    const response = await apiClient.post(
+      `/lessons/courses/${classId}/lessons/${lessonId}/link-material`,
+      { title, url }
+    );
+    return unwrap<import('@/lib/data').Lesson>(response);
+  },
+
   // -------- engagement tracking --------
   // Idempotent: the server upserts (insert + bump view_count). Safe to call
   // every time the student lands on the lesson detail page.
