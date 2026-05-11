@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useBeforeUnload } from 'react-router-dom';
 import { getClassHomePath } from '@/lib/navigation';
 import {
   ArrowLeft,
@@ -14,6 +14,15 @@ import {
   BookOpen,
   Activity,
   ClipboardCheck,
+  MoreVertical,
+  Copy,
+  Link2,
+  Users,
+  CheckCheck,
+  Circle,
+  AlertCircle,
+  Printer,
+  LayoutTemplate,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -41,6 +50,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import {
   useTeacherLesson,
@@ -52,6 +80,7 @@ import { useClass } from '@/hooks-api/useClasses';
 import { MaterialPreviewDialog } from '@/components/MaterialPreviewDialog';
 import { materialsService } from '@/services/materials.service';
 import { assignmentsService } from '@/services/assignments.service';
+import { lessonsService } from '@/services/lessons.service';
 import type {
   LearningMaterial,
   Lesson,
@@ -62,6 +91,7 @@ import type {
 } from '@/lib/data';
 
 type CompletionRuleType = LessonCompletionRule['type'];
+type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface DraftState {
   title: string;
@@ -123,14 +153,78 @@ const chainFromDraft = (draft: DraftState): LessonChain => ({
   pass_threshold_percent: draft.unlockOnPass ? draft.passThreshold : null,
 });
 
+// ─── Lesson templates ────────────────────────────────────────────────────────
+
+interface LessonTemplate {
+  id: string;
+  icon: string;
+  name: string;
+  description: string;
+  defaults: Partial<DraftState>;
+}
+
+const LESSON_TEMPLATES: LessonTemplate[] = [
+  {
+    id: 'reading-quiz',
+    icon: '📖',
+    name: 'Reading + Quiz',
+    description: 'Upload a reading material and attach a short quiz.',
+    defaults: {
+      title: '',
+      description: 'Read through the material carefully, then complete the quiz to check your understanding.',
+      topicsRaw: '',
+      ruleType: 'view_all_files',
+    },
+  },
+  {
+    id: 'lecture',
+    icon: '🎓',
+    name: 'Lecture',
+    description: 'Share a lecture file or video — students mark done when finished.',
+    defaults: {
+      title: '',
+      description: 'Watch or read the lecture material and take notes. Mark the lesson as done when you are ready to move on.',
+      topicsRaw: '',
+      ruleType: 'mark_as_done',
+    },
+  },
+  {
+    id: 'lab-activity',
+    icon: '🔬',
+    name: 'Lab Activity',
+    description: 'Hands-on activity or worksheet with a submission.',
+    defaults: {
+      title: '',
+      description: 'Complete the activity and submit your work before the due date.',
+      topicsRaw: '',
+      ruleType: 'mark_as_done',
+    },
+  },
+  {
+    id: 'exam-review',
+    icon: '📝',
+    name: 'Exam Review',
+    description: 'Preparatory materials before a major exam.',
+    defaults: {
+      title: 'Exam Review',
+      description: 'Review the materials below to prepare for the upcoming exam. Focus on key concepts and practice exercises.',
+      topicsRaw: 'Review',
+      ruleType: 'mark_as_done',
+    },
+  },
+];
+
+// ─── Chip components ─────────────────────────────────────────────────────────
+
 interface MaterialChipProps {
   material: LessonMaterialRef;
+  isRequired: boolean;
   onPreview: () => void;
   onRemove: () => void;
   removing: boolean;
 }
 
-function MaterialChip({ material, onPreview, onRemove, removing }: MaterialChipProps) {
+function MaterialChip({ material, isRequired, onPreview, onRemove, removing }: MaterialChipProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-secondary/40">
       <button
@@ -150,6 +244,9 @@ function MaterialChip({ material, onPreview, onRemove, removing }: MaterialChipP
           </p>
         </div>
       </button>
+      <Badge variant="outline" className={`text-xs hidden sm:inline-flex ${isRequired ? 'border-primary/40 text-primary' : 'text-muted-foreground'}`}>
+        {isRequired ? 'Required' : 'Optional'}
+      </Badge>
       <Button
         variant="ghost"
         size="icon"
@@ -193,7 +290,12 @@ function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps)
               <span>·</span>
               <span className="italic">optional</span>
             </>
-          ) : null}
+          ) : (
+            <>
+              <span>·</span>
+              <Badge variant="outline" className="text-xs h-4 px-1 border-primary/40 text-primary">Required</Badge>
+            </>
+          )}
         </div>
       </div>
       <Button
@@ -238,6 +340,8 @@ const toPreviewMaterial = (
   url: material.url,
 });
 
+// ─── Main component ──────────────────────────────────────────────────────────
+
 export default function LessonEditorPage() {
   const { id, lessonId } = useParams();
   const classId = id ?? '';
@@ -256,10 +360,21 @@ export default function LessonEditorPage() {
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [previewMaterial, setPreviewMaterial] = useState<LessonMaterialRef | null>(null);
   const [removingMaterialId, setRemovingMaterialId] = useState<string | null>(null);
   const [removingAssessmentId, setRemovingAssessmentId] = useState<string | null>(null);
+  const [publishAttempted, setPublishAttempted] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('idle');
+  const [autosaveDoneAt, setAutosaveDoneAt] = useState<number | null>(null);
+
+  // Refs for stable keyboard-shortcut handlers
+  const persistRef = useRef<(publish: boolean) => Promise<void>>(async () => {});
+  const validationErrorsRef = useRef<{ field: string; message: string }[]>([]);
+  const isFirstDraftRender = useRef(true);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (lesson && !draft) {
@@ -267,9 +382,7 @@ export default function LessonEditorPage() {
     }
   }, [lesson, draft]);
 
-  // Whenever this editor mounts (including when the teacher returns from the
-  // material upload or assessment builder pages), force a fresh fetch so the
-  // newly attached items appear immediately instead of after the staleTime.
+  // Force-refresh lesson data when returning from sub-pages
   useEffect(() => {
     if (!classId || !lessonId) return;
     void queryClient.refetchQueries({ queryKey: ['lessons', 'teacher', classId] });
@@ -281,17 +394,153 @@ export default function LessonEditorPage() {
     return allLessons.filter((other) => other.id !== lesson.id);
   }, [allLessons, lesson]);
 
-  const handleBack = () => navigate(getClassHomePath('teacher', classId));
+  // ─── Computed state ───────────────────────────────────────────────────────
 
-  const refreshLesson = async () => {
-    // Force a fresh fetch (not just an invalidation) so we don't render the
-    // 30s-stale cached lesson while waiting for the new data. This matters
-    // most when returning from the material upload page — without it, the
-    // newly attached material doesn't appear until the cache expires.
+  const validationErrors = useMemo(() => {
+    if (!draft) return [];
+    const errs: { field: string; message: string }[] = [];
+    if (draft.title.trim().length === 0) {
+      errs.push({ field: 'title', message: 'A lesson title is required to publish.' });
+    }
+    return errs;
+  }, [draft]);
+
+  // Keep ref in sync for keyboard handler
+  useEffect(() => { validationErrorsRef.current = validationErrors; }, [validationErrors]);
+
+  const isDirty = useMemo(() => {
+    if (!draft || !lesson) return false;
+    return (
+      (draft.title.trim() || 'Untitled lesson') !== lesson.title ||
+      (draft.description.trim() || null) !== lesson.description ||
+      draft.topicsRaw !== lesson.topics.join(', ') ||
+      draft.ruleType !== lesson.completionRule.type ||
+      draft.chainNextId !== (lesson.chain.next_lesson_id ?? '__none__') ||
+      draft.unlockOnSubmit !== lesson.chain.unlock_on_submit ||
+      draft.unlockOnPass !== lesson.chain.unlock_on_pass
+    );
+  }, [draft, lesson]);
+
+  // Suggest topic tags from other lessons in this class
+  const suggestedTopics = useMemo(() => {
+    const freq = new Map<string, number>();
+    for (const l of allLessons) {
+      if (l.id === lesson?.id) continue;
+      for (const t of l.topics) {
+        const key = t.toLowerCase();
+        freq.set(key, (freq.get(key) ?? 0) + 1);
+      }
+    }
+    // Return top 5 by frequency, excluding ones already in the current raw
+    const current = new Set(parseTopics(draft?.topicsRaw ?? '').map((t) => t.toLowerCase()));
+    return [...freq.entries()]
+      .filter(([key]) => !current.has(key))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([key]) => {
+        // Preserve original casing from the source lesson
+        for (const l of allLessons) {
+          const match = l.topics.find((t) => t.toLowerCase() === key);
+          if (match) return match;
+        }
+        return key;
+      });
+  }, [allLessons, lesson?.id, draft?.topicsRaw]);
+
+  const setupChecklist = useMemo(() => {
+    if (!draft || !lesson) return [];
+    return [
+      { id: 'title', label: 'Title', done: draft.title.trim().length > 0, required: true, href: '#section-basics' },
+      { id: 'description', label: 'Description', done: draft.description.trim().length > 0, required: false, href: '#section-basics' },
+      { id: 'materials', label: 'Materials', done: lesson.materials.length > 0, required: false, href: '#section-materials' },
+      { id: 'completion', label: 'Completion rule', done: true, required: false, href: '#section-completion' },
+      { id: 'assessments', label: 'Assessments', done: lesson.assessments.length > 0, required: false, href: '#section-assessments' },
+      { id: 'chain', label: 'Next lesson linked', done: draft.chainNextId !== '__none__', required: false, href: '#section-chain' },
+    ];
+  }, [draft, lesson]);
+
+  const checklistDoneCount = useMemo(
+    () => setupChecklist.filter((c) => c.done).length,
+    [setupChecklist]
+  );
+
+  const descStats = useMemo(() => {
+    const chars = (draft?.description ?? '').length;
+    const words = (draft?.description ?? '').trim().split(/\s+/).filter(Boolean).length;
+    return { chars, words };
+  }, [draft?.description]);
+
+  // ─── Autosave ─────────────────────────────────────────────────────────────
+
+  const refreshLesson = useCallback(async () => {
     await Promise.all([
       queryClient.refetchQueries({ queryKey: ['lessons', 'teacher', classId] }),
       queryClient.refetchQueries({ queryKey: ['lessons', 'student', classId] }),
     ]);
+  }, [classId, queryClient]);
+
+  const silentlyPersistDraft = useCallback(async (): Promise<boolean> => {
+    if (!draft || !lesson) return false;
+    try {
+      await updateLesson.mutateAsync({
+        lessonId: lesson.id,
+        payload: {
+          title: draft.title.trim() || 'Untitled lesson',
+          description: draft.description.trim() ? draft.description.trim() : null,
+          topics: parseTopics(draft.topicsRaw),
+          isPublished: lesson.isPublished,
+          completionRule: completionRuleFromDraft(draft),
+          chain: chainFromDraft(draft),
+        },
+      });
+      await queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] });
+      return true;
+    } catch (error) {
+      toast({
+        title: 'Could not save lesson before opening builder',
+        description: error instanceof Error ? error.message : 'Please save manually first.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  }, [draft, lesson, updateLesson, queryClient, classId, toast]);
+
+  useEffect(() => {
+    if (isFirstDraftRender.current) { isFirstDraftRender.current = false; return; }
+    if (!draft || !lesson?.id) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    setAutosaveStatus('idle');
+    autosaveTimerRef.current = setTimeout(async () => {
+      setAutosaveStatus('saving');
+      const ok = await silentlyPersistDraft();
+      if (ok) { setAutosaveStatus('saved'); setAutosaveDoneAt(Date.now()); }
+      else setAutosaveStatus('error');
+    }, 1500);
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
+  // Warn on tab close when there are unsaved changes
+  useBeforeUnload(
+    useCallback(
+      (e: BeforeUnloadEvent) => {
+        if (isDirty) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      },
+      [isDirty]
+    )
+  );
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleBack = () => {
+    if (isDirty) {
+      const ok = window.confirm('You have unsaved changes. Leave without saving?');
+      if (!ok) return;
+    }
+    navigate(getClassHomePath('teacher', classId));
   };
 
   const handleRemoveMaterial = async (materialId: string, materialTitle: string) => {
@@ -334,41 +583,18 @@ export default function LessonEditorPage() {
     }
   };
 
-  const silentlyPersistDraft = async (): Promise<boolean> => {
-    if (!draft || !lesson) return false;
-    try {
-      await updateLesson.mutateAsync({
-        lessonId: lesson.id,
-        payload: {
-          title: draft.title.trim() || 'Untitled lesson',
-          description: draft.description.trim() ? draft.description.trim() : null,
-          topics: parseTopics(draft.topicsRaw),
-          isPublished: lesson.isPublished,
-          completionRule: completionRuleFromDraft(draft),
-          chain: chainFromDraft(draft),
-        },
-      });
-      await queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] });
-      return true;
-    } catch (error) {
-      toast({
-        title: 'Could not save lesson before opening builder',
-        description: error instanceof Error ? error.message : 'Please save manually first.',
-        variant: 'destructive',
-      });
-      return false;
-    }
-  };
-
-  const persist = async (publish: boolean) => {
+  const persist = useCallback(async (publish: boolean) => {
     if (!draft || !lesson) return;
-    if (publish && draft.title.trim().length === 0) {
-      toast({
-        title: 'Title required',
-        description: 'Add a lesson title before publishing.',
-        variant: 'destructive',
-      });
-      return;
+    if (publish) {
+      setPublishAttempted(true);
+      if (validationErrorsRef.current.length > 0) {
+        toast({
+          title: 'Cannot publish',
+          description: validationErrorsRef.current[0].message,
+          variant: 'destructive',
+        });
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -383,13 +609,15 @@ export default function LessonEditorPage() {
           chain: chainFromDraft(draft),
         },
       });
+      setAutosaveStatus('saved');
+      setAutosaveDoneAt(Date.now());
       toast({
         title: publish ? 'Lesson published' : 'Draft saved',
         description: publish
           ? 'Students can now see this lesson.'
           : 'Your changes are saved. Publish when you are ready.',
       });
-      handleBack();
+      navigate(getClassHomePath('teacher', classId));
     } catch (error) {
       toast({
         title: 'Could not save lesson',
@@ -399,7 +627,10 @@ export default function LessonEditorPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [draft, lesson, updateLesson, classId, navigate, toast]);
+
+  // Keep ref in sync for keyboard handler
+  useEffect(() => { persistRef.current = persist; }, [persist]);
 
   const handleDelete = async () => {
     if (!lesson) return;
@@ -407,7 +638,7 @@ export default function LessonEditorPage() {
       await deleteLesson.mutateAsync(lesson.id);
       toast({ title: 'Lesson deleted' });
       setDeleteDialogOpen(false);
-      handleBack();
+      navigate(getClassHomePath('teacher', classId));
     } catch (error) {
       toast({
         title: 'Could not delete lesson',
@@ -417,11 +648,78 @@ export default function LessonEditorPage() {
     }
   };
 
+  const handleDuplicate = async () => {
+    if (!lesson || !draft || duplicating) return;
+    setDuplicating(true);
+    try {
+      const newLesson = await lessonsService.createDraft(classId);
+      await updateLesson.mutateAsync({
+        lessonId: newLesson.id,
+        payload: {
+          title: `${draft.title.trim() || lesson.title} (copy)`,
+          description: draft.description.trim() || null,
+          topics: parseTopics(draft.topicsRaw),
+          isPublished: false,
+          completionRule: completionRuleFromDraft(draft),
+          chain: { next_lesson_id: null, unlock_on_submit: false, unlock_on_pass: false, pass_threshold_percent: null },
+        },
+      });
+      await queryClient.refetchQueries({ queryKey: ['lessons', 'teacher', classId] });
+      toast({ title: 'Lesson duplicated', description: 'A copy has been added as a new draft.' });
+      navigate(getClassHomePath('teacher', classId));
+    } catch (error) {
+      toast({
+        title: 'Could not duplicate lesson',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
+  const handleCopyStudentLink = () => {
+    const url = `${window.location.origin}/class/${classId}/lessons/${lesson?.id}`;
+    void navigator.clipboard.writeText(url).then(() => {
+      toast({ title: 'Link copied', description: 'Student lesson link copied to clipboard.' });
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleApplyTemplate = (template: LessonTemplate) => {
+    setDraft((current) => current ? { ...current, ...template.defaults } : current);
+    setTemplateDialogOpen(false);
+    toast({ title: `Template applied: ${template.name}` });
+  };
+
+  // ─── Keyboard shortcuts ───────────────────────────────────────────────────
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && e.key === 's') {
+        e.preventDefault();
+        void persistRef.current(false);
+      }
+      if (ctrl && e.key === 'Enter') {
+        e.preventDefault();
+        if (validationErrorsRef.current.length === 0) void persistRef.current(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // ─── Loading / not-found states ───────────────────────────────────────────
+
   if (lessonQuery.isLoading || classQuery.isLoading || !draft) {
     return (
       <div className="min-h-screen bg-background">
         <div className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur">
-          <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
             <Skeleton className="h-8 w-24 rounded-xl" />
             <Skeleton className="h-8 w-48" />
             <div className="flex gap-2">
@@ -430,11 +728,18 @@ export default function LessonEditorPage() {
             </div>
           </div>
         </div>
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-4">
-          <Skeleton className="h-40 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+          <div className="hidden lg:block">
+            <div className="sticky top-20 pt-2 space-y-2">
+              {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-8 rounded-lg" />)}
+            </div>
+          </div>
+          <div className="space-y-4">
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+          </div>
         </div>
       </div>
     );
@@ -454,422 +759,602 @@ export default function LessonEditorPage() {
   const update = (patch: Partial<DraftState>) =>
     setDraft((current) => (current ? { ...current, ...patch } : current));
 
+  const isMaterialRequired = lesson.completionRule.type === 'view_all_files';
+
+  // ─── JSX ──────────────────────────────────────────────────────────────────
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBack}
-            className="rounded-xl gap-1.5"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to lessons
-          </Button>
-          <div className="hidden md:block text-xs text-muted-foreground">
-            {classQuery.data?.name}
+    <TooltipProvider>
+      <div className="min-h-screen bg-background print:bg-white">
+
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
+        <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70 print:hidden">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBack}
+              className="rounded-xl gap-1.5"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to lessons
+            </Button>
+
+            <div className="hidden md:block text-xs text-muted-foreground truncate max-w-[180px]">
+              {classQuery.data?.name}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <div className="text-xs text-muted-foreground font-mono">
+                Lesson {lesson.ordering.toString().padStart(2, '0')}
+              </div>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More actions">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setTemplateDialogOpen(true)}>
+                    <LayoutTemplate className="h-4 w-4 mr-2" /> Apply template
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleCopyStudentLink}>
+                    <Link2 className="h-4 w-4 mr-2" /> Copy student link
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handlePrint}>
+                    <Printer className="h-4 w-4 mr-2" /> Print lesson
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void handleDuplicate()}
+                    disabled={duplicating}
+                  >
+                    {duplicating
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <Copy className="h-4 w-4 mr-2" />}
+                    Duplicate lesson
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setDeleteDialogOpen(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" /> Delete lesson
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground font-mono">
-            Lesson {lesson.ordering.toString().padStart(2, '0')}
+        </header>
+
+        {/* ── BODY ───────────────────────────────────────────────────────── */}
+        <div className="max-w-6xl mx-auto px-4 md:px-6 pb-44 md:pb-40">
+          <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8 lg:items-start">
+
+            {/* ── SIDEBAR ──────────────────────────────────────────────── */}
+            <aside className="hidden lg:block print:hidden">
+              <div className="sticky top-20 pt-8 space-y-5">
+
+                {/* Setup checklist */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-2">
+                    Setup · {checklistDoneCount}/{setupChecklist.length}
+                  </p>
+                  <div className="space-y-0.5">
+                    {setupChecklist.map((item) => (
+                      <a
+                        key={item.id}
+                        href={item.href}
+                        className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm hover:bg-secondary/50 transition-colors"
+                      >
+                        {item.done
+                          ? <CheckCheck className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                          : <Circle className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />}
+                        <span className={item.done ? 'text-foreground' : 'text-muted-foreground'}>
+                          {item.label}
+                        </span>
+                        {item.required && !item.done && (
+                          <span className="ml-auto text-[10px] font-medium text-destructive/70">req.</span>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Student activity stats */}
+                {lesson.stats && (lesson.stats.total_students ?? 0) > 0 && (
+                  <div className="rounded-lg border p-3 space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Activity
+                    </p>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      <span>{lesson.stats.total_students} enrolled</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <span>
+                        {lesson.stats.completed_students} completed
+                        {(lesson.stats.total_students ?? 0) > 0
+                          ? ` (${Math.round((lesson.stats.completed_students / lesson.stats.total_students) * 100)}%)`
+                          : ''}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Keyboard hints */}
+                <div className="rounded-lg border border-dashed p-3 space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                    Shortcuts
+                  </p>
+                  <p className="text-xs text-muted-foreground"><kbd className="font-mono bg-secondary px-1 rounded">⌘S</kbd> Save draft</p>
+                  <p className="text-xs text-muted-foreground"><kbd className="font-mono bg-secondary px-1 rounded">⌘↵</kbd> Publish</p>
+                </div>
+              </div>
+            </aside>
+
+            {/* ── MAIN CONTENT ─────────────────────────────────────────── */}
+            <main className="py-6 md:py-8 space-y-6 animate-in fade-in duration-300">
+              <section className="print:block">
+                <h1 className="text-2xl md:text-3xl font-bold leading-tight">
+                  {lesson.isPublished ? 'Edit lesson' : 'New lesson'}
+                </h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Add materials and assessments. Students can't see this until you publish.
+                </p>
+              </section>
+
+              {/* ── BASICS ─────────────────────────────────────────────── */}
+              <Card id="section-basics" className="border shadow-sm">
+                <CardContent className="p-5 md:p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lesson-title">Title</Label>
+                    <Input
+                      id="lesson-title"
+                      value={draft.title}
+                      onChange={(event) => update({ title: event.target.value })}
+                      placeholder="e.g. Power Supply Units"
+                      className={publishAttempted && draft.title.trim().length === 0 ? 'border-destructive focus-visible:ring-destructive' : ''}
+                    />
+                    {publishAttempted && draft.title.trim().length === 0 && (
+                      <p className="text-xs text-destructive flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" /> Title is required to publish.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lesson-topics">Topic tags</Label>
+                    <Input
+                      id="lesson-topics"
+                      value={draft.topicsRaw}
+                      onChange={(event) => update({ topicsRaw: event.target.value })}
+                      placeholder="Hardware, Foundations"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Comma-separated. Used by the topic filter on the student lesson list.
+                    </p>
+                    {suggestedTopics.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        <span className="text-xs text-muted-foreground self-center">Suggestions:</span>
+                        {suggestedTopics.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              const current = draft.topicsRaw.trim();
+                              update({ topicsRaw: current ? `${current}, ${tag}` : tag });
+                            }}
+                            className="text-xs px-2 py-0.5 rounded-full border bg-secondary/50 hover:bg-secondary transition-colors"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lesson-description">Description</Label>
+                    <Textarea
+                      id="lesson-description"
+                      value={draft.description}
+                      onChange={(event) => update({ description: event.target.value })}
+                      rows={3}
+                      placeholder="What will the student learn or do in this lesson?"
+                    />
+                    <p className={`text-xs transition-colors ${
+                      descStats.chars === 0
+                        ? 'text-muted-foreground/50'
+                        : descStats.chars < 50
+                          ? 'text-amber-500'
+                          : descStats.chars <= 600
+                            ? 'text-emerald-600'
+                            : 'text-muted-foreground'
+                    }`}>
+                      {descStats.chars} characters · {descStats.words} words
+                      {descStats.chars === 0 && ' · aim for 50–600 characters'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ── MATERIALS ──────────────────────────────────────────── */}
+              <Card id="section-materials" className="border shadow-sm">
+                <CardContent className="p-5 md:p-6 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-base font-semibold">Materials</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        PDF, DOCX, PPTX, images, or video. Students view in-app with progress tracked.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl gap-1.5"
+                      disabled={updateLesson.isPending}
+                      onClick={async () => {
+                        const ok = await silentlyPersistDraft();
+                        if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`);
+                      }}
+                    >
+                      {updateLesson.isPending
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <BookOpen className="h-3.5 w-3.5" />}
+                      Add reading material
+                    </Button>
+                  </div>
+
+                  {lesson.materials.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                      No materials yet. Click <em>Add reading material</em> to upload a file
+                      students can view with reading progress tracked.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {lesson.materials.map((material) => (
+                        <MaterialChip
+                          key={material.material_id}
+                          material={material}
+                          isRequired={isMaterialRequired}
+                          onPreview={() => setPreviewMaterial(material)}
+                          onRemove={() => void handleRemoveMaterial(material.material_id, material.title)}
+                          removing={removingMaterialId === material.material_id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── COMPLETION RULE ────────────────────────────────────── */}
+              <Card id="section-completion" className="border shadow-sm">
+                <CardContent className="p-5 md:p-6 space-y-4">
+                  <div>
+                    <h2 className="text-base font-semibold">Completion rule</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      What lets the student press <em>Mark as done</em>.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(
+                      [
+                        { id: 'mark_as_done', label: 'Student presses Mark as done' },
+                        { id: 'view_all_files', label: 'Reach end of all materials' },
+                        { id: 'time_on_material', label: 'Time on material ≥ N minutes' },
+                      ] as { id: CompletionRuleType; label: string }[]
+                    ).map((option) => (
+                      <label
+                        key={option.id}
+                        className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                          draft.ruleType === option.id ? 'border-primary bg-primary/5' : 'hover:bg-secondary/30'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="completion-rule"
+                          value={option.id}
+                          checked={draft.ruleType === option.id}
+                          onChange={() => update({ ruleType: option.id })}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm">{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {draft.ruleType === 'time_on_material' && (
+                    <div className="flex items-center gap-3">
+                      <Label htmlFor="rule-minutes" className="text-xs">
+                        Minimum minutes
+                      </Label>
+                      <Input
+                        id="rule-minutes"
+                        type="number"
+                        min={1}
+                        max={240}
+                        value={draft.ruleMinutes}
+                        onChange={(event) =>
+                          update({ ruleMinutes: Number.parseInt(event.target.value || '1', 10) })
+                        }
+                        className="w-24"
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── ASSESSMENTS ────────────────────────────────────────── */}
+              <Card id="section-assessments" className="border shadow-sm">
+                <CardContent className="p-5 md:p-6 space-y-4">
+                  <div>
+                    <h2 className="text-base font-semibold">Assessments</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Unlock after the student marks this lesson as done.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        { type: 'activity', label: 'Add activity', icon: Activity },
+                        { type: 'quiz', label: 'Add quiz', icon: FileText },
+                        { type: 'exam', label: 'Add exam', icon: ClipboardCheck },
+                      ] as { type: string; label: string; icon: React.ElementType }[]
+                    ).map(({ type, label, icon: Icon }) => (
+                      <Button
+                        key={type}
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5"
+                        disabled={updateLesson.isPending}
+                        onClick={async () => {
+                          const ok = await silentlyPersistDraft();
+                          if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/${type}`);
+                        }}
+                      >
+                        {updateLesson.isPending
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Icon className="h-3.5 w-3.5" />}
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {lesson.assessments.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
+                      No assessments yet. Lessons without assessments unlock the next lesson
+                      as soon as they're marked done.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {lesson.assessments.map((assessment) => (
+                        <AssessmentChip
+                          key={assessment.assignment_id}
+                          assessment={assessment}
+                          onRemove={() => void handleRemoveAssessment(assessment.assignment_id, assessment.title)}
+                          removing={removingAssessmentId === assessment.assignment_id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── CHAIN ──────────────────────────────────────────────── */}
+              <Card id="section-chain" className="border shadow-sm">
+                <CardContent className="p-5 md:p-6 space-y-4">
+                  <div>
+                    <h2 className="text-base font-semibold flex items-center gap-2">
+                      <LinkIcon className="h-4 w-4" /> Chain
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      What the student unlocks after finishing this lesson and its assessments.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Unlock next lesson</Label>
+                    <Select
+                      value={draft.chainNextId}
+                      onValueChange={(value) => update({ chainNextId: value })}
+                    >
+                      <SelectTrigger className="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No next lesson</SelectItem>
+                        {otherLessons.map((other) => (
+                          <SelectItem key={other.id} value={other.id}>
+                            Lesson {other.ordering.toString().padStart(2, '0')} · {other.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-3 text-sm">
+                      <Switch
+                        checked={draft.unlockOnSubmit}
+                        onCheckedChange={(checked) => update({ unlockOnSubmit: checked })}
+                      />
+                      Require all assessments submitted
+                    </label>
+                    <label className="flex items-center gap-3 text-sm">
+                      <Switch
+                        checked={draft.unlockOnPass}
+                        onCheckedChange={(checked) => update({ unlockOnPass: checked })}
+                      />
+                      Require pass threshold
+                    </label>
+                    {draft.unlockOnPass && (
+                      <div className="ml-12 flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={draft.passThreshold}
+                          onChange={(event) =>
+                            update({
+                              passThreshold: Math.max(
+                                0,
+                                Math.min(100, Number.parseInt(event.target.value || '0', 10))
+                              ),
+                            })
+                          }
+                          className="w-24"
+                        />
+                        <span className="text-xs text-muted-foreground">% across assessments</span>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </main>
           </div>
         </div>
-      </header>
 
-      <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6 pb-44 md:pb-40 animate-in fade-in duration-300">
-        <section>
-          <h1 className="text-2xl md:text-3xl font-bold leading-tight">
-            {lesson.isPublished ? 'Edit lesson' : 'New lesson'}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Lessons are the core of the new flow. Files and assessments belong to a
-            lesson; the next lesson stays locked until this one is done.
-          </p>
-        </section>
-
-        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
-          <CardContent className="p-5 md:p-6 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="lesson-title">Title</Label>
-              <Input
-                id="lesson-title"
-                value={draft.title}
-                onChange={(event) => update({ title: event.target.value })}
-                placeholder="e.g. Power Supply Units"
-              />
+        {/* ── FOOTER ─────────────────────────────────────────────────────── */}
+        <footer className="fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur print:hidden">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Badge
+                variant="outline"
+                className={
+                  lesson.isPublished
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }
+              >
+                {lesson.isPublished ? 'Published' : 'Draft'}
+              </Badge>
+              {autosaveStatus === 'saving' && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Saving…
+                </span>
+              )}
+              {autosaveStatus === 'saved' && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500" /> Saved
+                </span>
+              )}
+              {autosaveStatus === 'error' && (
+                <span className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> Autosave failed
+                </span>
+              )}
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="lesson-topics">Topic tags</Label>
-              <Input
-                id="lesson-topics"
-                value={draft.topicsRaw}
-                onChange={(event) => update({ topicsRaw: event.target.value })}
-                placeholder="Hardware, Foundations"
-              />
-              <p className="text-xs text-muted-foreground">
-                Comma-separated. Used by the topic filter on the student lesson list.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="lesson-description">Description</Label>
-              <Textarea
-                id="lesson-description"
-                value={draft.description}
-                onChange={(event) => update({ description: event.target.value })}
-                rows={3}
-                placeholder="What will the student learn or do in this lesson?"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
-          <CardContent className="p-5 md:p-6 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold">Materials</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  PDF, DOCX, PPTX, images, or video. Students view in-app with reading
-                  progress tracked.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                size="sm"
                 className="rounded-xl gap-1.5"
-                disabled={updateLesson.isPending}
-                onClick={async () => {
-                  const ok = await silentlyPersistDraft();
-                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/reading-material`);
-                }}
+                disabled={saving}
+                onClick={() => void persist(false)}
               >
-                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookOpen className="h-3.5 w-3.5" />}
-                Add reading material
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save as draft
               </Button>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {/* span required: disabled button doesn't fire mouse events for tooltip */}
+                  <span tabIndex={validationErrors.length > 0 ? 0 : undefined}>
+                    <Button
+                      className="rounded-xl gap-1.5"
+                      disabled={saving || validationErrors.length > 0}
+                      onClick={() => void persist(true)}
+                    >
+                      {saving
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <CheckCircle2 className="h-4 w-4" />}
+                      Publish lesson
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {validationErrors.length > 0 && (
+                  <TooltipContent side="top">
+                    <p>{validationErrors[0].message}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
             </div>
+          </div>
+        </footer>
 
-            {lesson.materials.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No materials yet. Click <em>Add reading material</em> to upload a file
-                students can view, scroll, and have their progress tracked on.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {lesson.materials.map((material) => (
-                  <MaterialChip
-                    key={material.material_id}
-                    material={material}
-                    onPreview={() => setPreviewMaterial(material)}
-                    onRemove={() => void handleRemoveMaterial(material.material_id, material.title)}
-                    removing={removingMaterialId === material.material_id}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* ── DIALOGS ────────────────────────────────────────────────────── */}
 
-        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
-          <CardContent className="p-5 md:p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-semibold">Completion rule</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                What lets the student press <em>Mark as done</em>.
-              </p>
-            </div>
+        <MaterialPreviewDialog
+          open={previewMaterial !== null}
+          material={previewMaterial ? toPreviewMaterial(previewMaterial, classId) : null}
+          onOpenChange={(next) => { if (!next) setPreviewMaterial(null); }}
+          isTeacher
+          courseId={classId}
+        />
 
-            <div className="space-y-2">
-              {(
-                [
-                  { id: 'mark_as_done', label: 'Student presses Mark as done' },
-                  { id: 'view_all_files', label: 'Reach end of all materials' },
-                  { id: 'time_on_material', label: 'Time on material ≥ N minutes' },
-                ] as { id: CompletionRuleType; label: string }[]
-              ).map((option) => (
-                <label
-                  key={option.id}
-                  className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
-                    draft.ruleType === option.id ? 'border-primary bg-primary/5' : 'hover:bg-secondary/30'
-                  }`}
+        {/* Delete confirmation */}
+        <AlertDialog
+          open={deleteDialogOpen}
+          onOpenChange={(next) => { if (deleteLesson.isPending) return; setDeleteDialogOpen(next); }}
+        >
+          <AlertDialogContent className="rounded-xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this lesson?</AlertDialogTitle>
+              <AlertDialogDescription>
+                "{lesson.title || 'Untitled lesson'}" and everything attached to it —
+                materials, assessments, and student progress — will be removed for
+                everyone in this class. This can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteLesson.isPending} className="rounded-xl">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleteLesson.isPending}
+                onClick={(event) => { event.preventDefault(); void handleDelete(); }}
+                className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+              >
+                {deleteLesson.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>
+                ) : (
+                  <><Trash2 className="h-4 w-4" /> Delete lesson</>
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Template picker */}
+        <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+          <DialogContent className="rounded-xl max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Apply a template</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground -mt-2">
+              Pre-fills the description and completion rule. Your title and existing content are kept.
+            </p>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {LESSON_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => handleApplyTemplate(tpl)}
+                  className="flex flex-col gap-1.5 rounded-xl border p-4 text-left hover:border-primary hover:bg-primary/5 transition-colors"
                 >
-                  <input
-                    type="radio"
-                    name="completion-rule"
-                    value={option.id}
-                    checked={draft.ruleType === option.id}
-                    onChange={() => update({ ruleType: option.id })}
-                    className="h-4 w-4"
-                  />
-                  <span className="text-sm">{option.label}</span>
-                </label>
+                  <span className="text-2xl">{tpl.icon}</span>
+                  <span className="text-sm font-semibold">{tpl.name}</span>
+                  <span className="text-xs text-muted-foreground leading-snug">{tpl.description}</span>
+                </button>
               ))}
             </div>
+          </DialogContent>
+        </Dialog>
 
-            {draft.ruleType === 'time_on_material' && (
-              <div className="flex items-center gap-3">
-                <Label htmlFor="rule-minutes" className="text-xs">
-                  Minimum minutes
-                </Label>
-                <Input
-                  id="rule-minutes"
-                  type="number"
-                  min={1}
-                  max={240}
-                  value={draft.ruleMinutes}
-                  onChange={(event) =>
-                    update({ ruleMinutes: Number.parseInt(event.target.value || '1', 10) })
-                  }
-                  className="w-24"
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
-          <CardContent className="p-5 md:p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-semibold">Assessments</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Unlock after the student marks this lesson as done.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl gap-1.5"
-                disabled={updateLesson.isPending}
-                onClick={async () => {
-                  const ok = await silentlyPersistDraft();
-                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/activity`);
-                }}
-              >
-                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
-                Add activity
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl gap-1.5"
-                disabled={updateLesson.isPending}
-                onClick={async () => {
-                  const ok = await silentlyPersistDraft();
-                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/quiz`);
-                }}
-              >
-                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-                Add quiz
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl gap-1.5"
-                disabled={updateLesson.isPending}
-                onClick={async () => {
-                  const ok = await silentlyPersistDraft();
-                  if (ok) navigate(`/class/${classId}/lessons/${lesson.id}/new/exam`);
-                }}
-              >
-                {updateLesson.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                Add exam
-              </Button>
-            </div>
-
-            {lesson.assessments.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">
-                No assessments yet. Lessons without assessments unlock the next lesson
-                as soon as they're marked done.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {lesson.assessments.map((assessment) => (
-                  <AssessmentChip
-                    key={assessment.assignment_id}
-                    assessment={assessment}
-                    onRemove={() => void handleRemoveAssessment(assessment.assignment_id, assessment.title)}
-                    removing={removingAssessmentId === assessment.assignment_id}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-1">
-          <CardContent className="p-5 md:p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-semibold flex items-center gap-2">
-                <LinkIcon className="h-4 w-4" /> Chain
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                What the student unlocks after finishing this lesson and its assessments.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Unlock next lesson</Label>
-              <Select
-                value={draft.chainNextId}
-                onValueChange={(value) => update({ chainNextId: value })}
-              >
-                <SelectTrigger className="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No next lesson</SelectItem>
-                  {otherLessons.map((other) => (
-                    <SelectItem key={other.id} value={other.id}>
-                      Lesson {other.ordering.toString().padStart(2, '0')} · {other.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 text-sm">
-                <Switch
-                  checked={draft.unlockOnSubmit}
-                  onCheckedChange={(checked) => update({ unlockOnSubmit: checked })}
-                />
-                Require all assessments submitted
-              </label>
-              <label className="flex items-center gap-3 text-sm">
-                <Switch
-                  checked={draft.unlockOnPass}
-                  onCheckedChange={(checked) => update({ unlockOnPass: checked })}
-                />
-                Require pass threshold
-              </label>
-              {draft.unlockOnPass && (
-                <div className="ml-12 flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={draft.passThreshold}
-                    onChange={(event) =>
-                      update({
-                        passThreshold: Math.max(
-                          0,
-                          Math.min(100, Number.parseInt(event.target.value || '0', 10))
-                        ),
-                      })
-                    }
-                    className="w-24"
-                  />
-                  <span className="text-xs text-muted-foreground">% across assessments</span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-destructive/30 bg-destructive/5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <CardContent className="p-5 md:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
-              <p className="text-xs text-destructive/80 mt-0.5">
-                Deleting a lesson removes its files and assessments for everyone.
-              </p>
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="rounded-xl gap-1.5 flex-shrink-0 self-start sm:self-auto"
-              onClick={() => setDeleteDialogOpen(true)}
-              disabled={deleteLesson.isPending}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete lesson
-            </Button>
-          </CardContent>
-        </Card>
-      </main>
-
-      <footer className="fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-          <div className="text-xs text-muted-foreground">
-            <Badge variant="outline" className={lesson.isPublished ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
-              {lesson.isPublished ? 'Published' : 'Draft'}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="rounded-xl gap-1.5"
-              disabled={saving}
-              onClick={() => void persist(false)}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save as draft
-            </Button>
-            <Button
-              className="rounded-xl gap-1.5"
-              disabled={saving}
-              onClick={() => void persist(true)}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Publish lesson
-            </Button>
-          </div>
-        </div>
-      </footer>
-
-      <MaterialPreviewDialog
-        open={previewMaterial !== null}
-        material={previewMaterial ? toPreviewMaterial(previewMaterial, classId) : null}
-        onOpenChange={(next) => {
-          if (!next) setPreviewMaterial(null);
-        }}
-        isTeacher
-        courseId={classId}
-      />
-
-      <AlertDialog
-        open={deleteDialogOpen}
-        onOpenChange={(next) => {
-          if (deleteLesson.isPending) return;
-          setDeleteDialogOpen(next);
-        }}
-      >
-        <AlertDialogContent className="rounded-xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this lesson?</AlertDialogTitle>
-            <AlertDialogDescription>
-              "{lesson.title || 'Untitled lesson'}" and everything attached to it —
-              materials, assessments, and student progress — will be removed for
-              everyone in this class. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteLesson.isPending} className="rounded-xl">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={deleteLesson.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDelete();
-              }}
-              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
-            >
-              {deleteLesson.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Deleting…
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-4 w-4" /> Delete lesson
-                </>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

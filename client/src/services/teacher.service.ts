@@ -247,16 +247,49 @@ export const teacherService = {
   },
 
   /**
-   * Grade a submission
+   * Grade a submission — upserts: creates if no grade exists, updates if one does.
+   * Matches the same check-then-create/update pattern used server-side in bulkGrade.
    */
   async gradeSubmission(submissionId: string, data: {
     points_earned: number;
     feedback?: string;
   }): Promise<{ data: any }> {
-    return apiClient.post(`/grades`, {
-      submission_id: submissionId,
-      ...data,
-    });
+    // Check whether a grade already exists for this submission.
+    let existingGradeId: string | null = null;
+    try {
+      const res = await apiClient.get(`/submissions/${submissionId}/grade`);
+      existingGradeId = (res as any)?.data?.id ?? null;
+    } catch {
+      existingGradeId = null;
+    }
+
+    if (existingGradeId) {
+      return apiClient.put(`/grades/${existingGradeId}`, {
+        points_earned: data.points_earned,
+        feedback: data.feedback,
+      });
+    }
+
+    // No existing grade — create. Fall back to PUT if a race with the
+    // auto-grader produces a 409 between our GET and this POST.
+    try {
+      return await apiClient.post(`/grades`, {
+        submission_id: submissionId,
+        ...data,
+      });
+    } catch (error: any) {
+      if (error?.response?.status === 409) {
+        const retry = await apiClient.get(`/submissions/${submissionId}/grade`);
+        const retryId = (retry as any)?.data?.id;
+        if (retryId) {
+          return apiClient.put(`/grades/${retryId}`, {
+            points_earned: data.points_earned,
+            feedback: data.feedback,
+          });
+        }
+      }
+      throw error;
+    }
   },
 
   /**
