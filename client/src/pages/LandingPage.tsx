@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import useEmblaCarousel from "embla-carousel-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,11 +19,15 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  Calendar,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Download,
   GraduationCap,
+  Laptop,
   Layers,
   LogIn,
   Loader2,
@@ -31,6 +36,7 @@ import {
   ShieldCheck,
   Smartphone,
   Sparkles,
+  Tablet,
   UserRound,
   Users,
   Wifi,
@@ -184,10 +190,23 @@ export default function LandingPage() {
     return "Install the App";
   }, [isInstallable, isInstalled, platform]);
 
-  const handleInstallClick = () => {
-    if (isInstalled) return;
+  const openApp = useCallback(() => {
+    navigate("/login");
+  }, [navigate]);
+
+  const handleInstallClick = useCallback(async () => {
+    if (isInstalled) {
+      openApp();
+      return;
+    }
     if (isInstallable) {
-      void install();
+      const accepted = await install();
+      if (accepted) {
+        toast({
+          title: "Mabini Classroom installed",
+          description: "You can now open it from your home screen anytime.",
+        });
+      }
       return;
     }
     if (platform === "ios") {
@@ -199,7 +218,7 @@ export default function LandingPage() {
       description:
         "Open this page in Chrome or Edge, tap the menu, and choose Install Mabini Classroom.",
     });
-  };
+  }, [install, isInstallable, isInstalled, openApp, platform, toast]);
 
   const scrollToFeatures = () => {
     const target = document.getElementById("features");
@@ -288,8 +307,6 @@ export default function LandingPage() {
     }
   };
 
-  const installDisabled = isInstalled;
-
   return (
     <div className="relative w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.04] text-foreground">
       {/* Decorative background */}
@@ -324,15 +341,22 @@ export default function LandingPage() {
               <LogIn className="h-4 w-4 mr-1.5" />
               Sign In
             </Button>
-            <Button
-              size="sm"
-              onClick={handleInstallClick}
-              disabled={installDisabled}
-              className="bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 h-9 px-3 sm:px-4"
-            >
-              <Download className="h-4 w-4 sm:mr-1.5" />
-              <span className="hidden sm:inline">{isInstalled ? "Installed" : "Install"}</span>
-            </Button>
+            {isInstalled ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 h-9 text-xs sm:text-sm font-semibold text-emerald-600 dark:text-emerald-300">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="hidden sm:inline">App Installed</span>
+                <span className="sm:hidden">Installed</span>
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleInstallClick}
+                className="bg-gradient-to-r from-primary to-accent hover:opacity-90 h-9 px-3 sm:px-4"
+              >
+                <Download className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">Install</span>
+              </Button>
+            )}
           </div>
         </div>
       </nav>
@@ -361,24 +385,42 @@ export default function LandingPage() {
 
             {/* Primary CTAs — mobile prioritizes Install at top */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-              <Button
-                size="lg"
-                onClick={handleInstallClick}
-                disabled={installDisabled}
-                className="h-14 sm:h-12 text-base font-semibold gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 shadow-lg shadow-primary/25 w-full sm:w-auto"
-              >
-                <Download className="h-5 w-5" />
-                {installLabel}
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => navigate("/login")}
-                className="h-12 text-base gap-2 w-full sm:w-auto"
-              >
-                <LogIn className="h-4 w-4" />
-                Sign In
-              </Button>
+              {isInstalled ? (
+                <>
+                  <div className="inline-flex items-center justify-center gap-2 h-14 sm:h-12 px-5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-base font-semibold w-full sm:w-auto">
+                    <CheckCircle2 className="h-5 w-5" />
+                    App Installed
+                  </div>
+                  <Button
+                    size="lg"
+                    onClick={openApp}
+                    className="h-14 sm:h-12 text-base font-semibold gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/25 w-full sm:w-auto"
+                  >
+                    Open the App
+                    <ArrowRight className="h-5 w-5" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="lg"
+                    onClick={() => void handleInstallClick()}
+                    className="h-14 sm:h-12 text-base font-semibold gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/25 w-full sm:w-auto"
+                  >
+                    <Download className="h-5 w-5" />
+                    {installLabel}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={() => navigate("/login")}
+                    className="h-12 text-base gap-2 w-full sm:w-auto"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Sign In
+                  </Button>
+                </>
+              )}
             </div>
 
             {/* Reassurance line */}
@@ -406,9 +448,9 @@ export default function LandingPage() {
             )}
           </div>
 
-          {/* Right column — phone mockup. Sits ABOVE the text on mobile so the install button is just under the device. */}
+          {/* Right column — device gallery. Sits ABOVE the text on mobile so the install button is just under it. */}
           <div className="order-1 lg:order-2 relative flex justify-center lg:justify-end">
-            <PhoneMockup />
+            <DeviceGallery />
           </div>
         </div>
 
@@ -540,24 +582,42 @@ export default function LandingPage() {
                   behaves just like a native app.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                  <Button
-                    size="lg"
-                    onClick={handleInstallClick}
-                    disabled={installDisabled}
-                    className="h-12 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 shadow-lg shadow-primary/25"
-                  >
-                    <Download className="h-5 w-5" />
-                    {installLabel}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={() => navigate("/login")}
-                    className="h-12 gap-2"
-                  >
-                    Or continue in browser
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
+                  {isInstalled ? (
+                    <>
+                      <span className="inline-flex items-center justify-center gap-2 h-12 px-5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold">
+                        <CheckCircle2 className="h-5 w-5" />
+                        Already installed
+                      </span>
+                      <Button
+                        size="lg"
+                        onClick={openApp}
+                        className="h-12 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/25"
+                      >
+                        Open the App
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="lg"
+                        onClick={() => void handleInstallClick()}
+                        className="h-12 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg shadow-primary/25"
+                      >
+                        <Download className="h-5 w-5" />
+                        {installLabel}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={() => navigate("/login")}
+                        className="h-12 gap-2"
+                      >
+                        Or continue in browser
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -669,18 +729,27 @@ export default function LandingPage() {
       </footer>
 
       {/* Sticky mobile install bar — visible only on small screens so users always have the CTA */}
-      {!isInstalled && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 pt-2 bg-gradient-to-t from-background via-background/95 to-transparent">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 pt-2 bg-gradient-to-t from-background via-background/95 to-transparent">
+        {isInstalled ? (
           <Button
             size="lg"
-            onClick={handleInstallClick}
+            onClick={openApp}
+            className="w-full h-12 gap-2 text-base font-semibold bg-gradient-to-r from-emerald-500 to-emerald-600 hover:opacity-90 shadow-xl shadow-emerald-500/30"
+          >
+            <CheckCircle2 className="h-5 w-5" />
+            App Installed — Open
+          </Button>
+        ) : (
+          <Button
+            size="lg"
+            onClick={() => void handleInstallClick()}
             className="w-full h-12 gap-2 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-xl shadow-primary/30"
           >
             <Download className="h-5 w-5" />
             {installLabel}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* iOS install help */}
       <Dialog open={isIosHelpOpen} onOpenChange={setIsIosHelpOpen}>
@@ -896,22 +965,186 @@ function InstallStep({
   );
 }
 
-function PhoneMockup() {
+function DeviceGallery() {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center" });
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const slides = useMemo(
+    () => [
+      { id: "phone" as const, label: "Phone", icon: Smartphone, render: () => <PhoneMockup /> },
+      { id: "tablet" as const, label: "Tablet", icon: Tablet, render: () => <TabletMockup /> },
+      { id: "laptop" as const, label: "Laptop", icon: Laptop, render: () => <LaptopMockup /> },
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSelect);
+    onSelect();
+    return () => {
+      emblaApi.off("select", onSelect);
+    };
+  }, [emblaApi]);
+
+  // Auto-advance — pauses if user has interacted via touch/drag.
+  useEffect(() => {
+    if (!emblaApi) return;
+    let paused = false;
+    const handlePointerDown = () => {
+      paused = true;
+    };
+    emblaApi.on("pointerDown", handlePointerDown);
+    const interval = window.setInterval(() => {
+      if (!paused) emblaApi.scrollNext();
+    }, 5000);
+    return () => {
+      window.clearInterval(interval);
+      emblaApi.off("pointerDown", handlePointerDown);
+    };
+  }, [emblaApi]);
+
   return (
-    <div className="relative w-full max-w-[280px] sm:max-w-[320px] mx-auto">
-      {/* Glow */}
-      <div className="absolute inset-0 -z-10">
+    <div className="relative w-full max-w-[460px] mx-auto">
+      {/* Ambient glow shared by all devices */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-x-8 -top-10 h-24 bg-primary/30 blur-3xl" />
         <div className="absolute inset-x-0 -bottom-10 h-24 bg-accent/30 blur-3xl" />
       </div>
 
-      {/* Device frame */}
+      <div ref={emblaRef} className="overflow-hidden cursor-grab active:cursor-grabbing">
+        <div className="flex">
+          {slides.map((slide) => (
+            <div
+              key={slide.id}
+              className="flex-[0_0_100%] min-w-0 flex items-center justify-center px-2 min-h-[440px] sm:min-h-[540px]"
+            >
+              {slide.render()}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => emblaApi?.scrollPrev()}
+          aria-label="Previous device"
+          className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-border/50 bg-card/70 backdrop-blur text-foreground/80 hover:text-foreground hover:bg-card transition-colors"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-card/70 backdrop-blur px-2 py-1.5">
+          {slides.map((slide, index) => {
+            const SlideIcon = slide.icon;
+            const isActive = index === selectedIndex;
+            return (
+              <button
+                key={slide.id}
+                type="button"
+                aria-label={`Show ${slide.label} preview`}
+                aria-current={isActive ? "true" : undefined}
+                onClick={() => emblaApi?.scrollTo(index)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-all ${
+                  isActive
+                    ? "bg-gradient-to-r from-primary to-accent text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <SlideIcon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{slide.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => emblaApi?.scrollNext()}
+          aria-label="Next device"
+          className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-border/50 bg-card/70 backdrop-blur text-foreground/80 hover:text-foreground hover:bg-card transition-colors"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      <p className="mt-2 text-center text-[11px] text-muted-foreground">
+        Swipe to see Mabini Classroom on every device
+      </p>
+    </div>
+  );
+}
+
+function MockupHeader() {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-accent" />
+        <span className="text-sm font-bold text-foreground">Mabini</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <div className="h-7 w-7 rounded-full bg-foreground/10" />
+      </div>
+    </div>
+  );
+}
+
+function ClassRow({
+  icon: Icon,
+  iconBg,
+  iconColor,
+  title,
+  subtitle,
+  badge,
+  badgeClass,
+}: {
+  icon: typeof BookOpen;
+  iconBg: string;
+  iconColor: string;
+  title: string;
+  subtitle: string;
+  badge: string;
+  badgeClass: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${iconBg}`}>
+            <Icon className={`h-4 w-4 ${iconColor}`} />
+          </div>
+          <div className="space-y-0.5">
+            <p className="text-xs font-semibold text-foreground">{title}</p>
+            <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+          </div>
+        </div>
+        <div className={`text-[9px] font-semibold rounded-full px-2 py-0.5 ${badgeClass}`}>
+          {badge}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InstalledPill() {
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-[10px] font-semibold shadow-lg animate-float">
+      <CheckCircle2 className="h-3 w-3" />
+      Installed to home screen
+    </div>
+  );
+}
+
+function PhoneMockup() {
+  return (
+    <div className="relative w-full max-w-[280px] mx-auto">
       <div className="relative rounded-[2.4rem] border-[10px] border-slate-900/95 dark:border-slate-800 bg-slate-900 shadow-2xl shadow-primary/30 overflow-hidden">
-        {/* Notch */}
         <div className="absolute top-2 left-1/2 -translate-x-1/2 h-4 w-20 rounded-full bg-slate-950 z-10" />
 
-        <div className="relative h-[480px] sm:h-[540px] bg-gradient-to-br from-slate-50 via-white to-sky-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-          {/* Status bar */}
+        <div className="relative h-[480px] sm:h-[520px] bg-gradient-to-br from-slate-50 via-white to-sky-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
           <div className="flex items-center justify-between px-5 pt-4 pb-1.5 text-[10px] font-semibold text-foreground/80">
             <span>9:41</span>
             <div className="flex items-center gap-1">
@@ -920,82 +1153,49 @@ function PhoneMockup() {
             </div>
           </div>
 
-          {/* App header */}
-          <div className="px-4 pt-3 pb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-accent" />
-              <span className="text-sm font-bold">Mabini</span>
-            </div>
-            <div className="h-7 w-7 rounded-full bg-foreground/10" />
+          <div className="px-4 pt-3 pb-3">
+            <MockupHeader />
           </div>
 
-          {/* Greeting */}
           <div className="px-4 pb-3">
             <p className="text-[11px] text-muted-foreground">Good morning,</p>
-            <p className="text-base font-semibold">Welcome back</p>
+            <p className="text-base font-semibold text-foreground">Welcome back</p>
           </div>
 
-          {/* Class cards */}
           <div className="px-4 space-y-2.5">
-            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-lg bg-sky-500/15 flex items-center justify-center">
-                    <BookOpen className="h-4 w-4 text-sky-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-semibold">English 10</p>
-                    <p className="text-[10px] text-muted-foreground">Ms. Reyes</p>
-                  </div>
-                </div>
-                <div className="text-[9px] font-semibold rounded-full bg-emerald-500/15 text-emerald-600 px-2 py-0.5">
-                  3 new
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-lg bg-violet-500/15 flex items-center justify-center">
-                    <ClipboardCheck className="h-4 w-4 text-violet-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-semibold">Math 9 — Quiz</p>
-                    <p className="text-[10px] text-muted-foreground">Due tomorrow</p>
-                  </div>
-                </div>
-                <div className="text-[9px] font-semibold rounded-full bg-amber-500/15 text-amber-600 px-2 py-0.5">
-                  Pending
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-                    <BarChart3 className="h-4 w-4 text-emerald-500" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-semibold">Grades updated</p>
-                    <p className="text-[10px] text-muted-foreground">Science 8</p>
-                  </div>
-                </div>
-                <div className="text-[9px] font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5">
-                  View
-                </div>
-              </div>
-            </div>
+            <ClassRow
+              icon={BookOpen}
+              iconBg="bg-sky-500/15"
+              iconColor="text-sky-500"
+              title="English 10"
+              subtitle="Ms. Reyes"
+              badge="3 new"
+              badgeClass="bg-emerald-500/15 text-emerald-600"
+            />
+            <ClassRow
+              icon={ClipboardCheck}
+              iconBg="bg-violet-500/15"
+              iconColor="text-violet-500"
+              title="Math 9 — Quiz"
+              subtitle="Due tomorrow"
+              badge="Pending"
+              badgeClass="bg-amber-500/15 text-amber-600"
+            />
+            <ClassRow
+              icon={BarChart3}
+              iconBg="bg-emerald-500/15"
+              iconColor="text-emerald-500"
+              title="Grades updated"
+              subtitle="Science 8"
+              badge="View"
+              badgeClass="bg-primary/15 text-primary"
+            />
           </div>
 
-          {/* Floating install pill */}
-          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-[10px] font-semibold shadow-lg animate-float">
-            <Download className="h-3 w-3" />
-            Installed to home screen
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2">
+            <InstalledPill />
           </div>
 
-          {/* Bottom nav */}
           <div className="absolute bottom-2 left-3 right-3 flex items-center justify-around rounded-2xl border border-border/40 bg-card/90 backdrop-blur px-3 py-2 shadow-lg">
             <div className="h-1.5 w-6 rounded-full bg-primary" />
             <div className="h-1.5 w-4 rounded-full bg-foreground/20" />
@@ -1003,6 +1203,193 @@ function PhoneMockup() {
             <div className="h-1.5 w-4 rounded-full bg-foreground/20" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TabletMockup() {
+  return (
+    <div className="relative w-full max-w-[360px] mx-auto">
+      <div className="relative rounded-[1.8rem] border-[12px] border-slate-900/95 dark:border-slate-800 bg-slate-900 shadow-2xl shadow-primary/30 overflow-hidden">
+        {/* Camera dot */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-slate-700 z-10" />
+
+        <div className="relative h-[440px] sm:h-[480px] bg-gradient-to-br from-slate-50 via-white to-sky-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+          <div className="px-4 pt-4 pb-3">
+            <MockupHeader />
+          </div>
+
+          <div className="px-4 pb-3 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] text-muted-foreground">Today, May 12</p>
+              <p className="text-sm font-semibold text-foreground">Your Classes</p>
+            </div>
+            <div className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 text-emerald-600 px-2 py-0.5 text-[10px] font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live
+            </div>
+          </div>
+
+          <div className="px-4 grid grid-cols-2 gap-2.5">
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 space-y-2 shadow-sm">
+              <div className="h-8 w-8 rounded-lg bg-sky-500/15 flex items-center justify-center">
+                <BookOpen className="h-4 w-4 text-sky-500" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">English 10</p>
+                <p className="text-[10px] text-muted-foreground">3 new lessons</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 space-y-2 shadow-sm">
+              <div className="h-8 w-8 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                <ClipboardCheck className="h-4 w-4 text-violet-500" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">Math 9</p>
+                <p className="text-[10px] text-muted-foreground">Quiz due tomorrow</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 space-y-2 shadow-sm">
+              <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                <BarChart3 className="h-4 w-4 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">Science 8</p>
+                <p className="text-[10px] text-muted-foreground">Grades updated</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 space-y-2 shadow-sm">
+              <div className="h-8 w-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                <Bell className="h-4 w-4 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-foreground">Announcements</p>
+                <p className="text-[10px] text-muted-foreground">2 new today</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-4 pt-3">
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-primary" />
+                  <p className="text-xs font-semibold text-foreground">Upcoming this week</p>
+                </div>
+                <span className="text-[10px] text-muted-foreground">5 items</span>
+              </div>
+              <div className="mt-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  <div className="h-1.5 flex-1 rounded-full bg-foreground/10" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-accent" />
+                  <div className="h-1.5 w-3/4 rounded-full bg-foreground/10" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+            <InstalledPill />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LaptopMockup() {
+  return (
+    <div className="relative w-full max-w-[440px] mx-auto">
+      {/* Laptop screen */}
+      <div className="relative rounded-t-2xl border-[8px] border-b-0 border-slate-900/95 dark:border-slate-800 bg-slate-900 shadow-2xl shadow-primary/30 overflow-hidden">
+        <div className="relative h-[300px] sm:h-[330px] bg-gradient-to-br from-slate-50 via-white to-sky-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+          {/* Browser chrome */}
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/40 bg-card/60">
+            <div className="h-2 w-2 rounded-full bg-rose-400" />
+            <div className="h-2 w-2 rounded-full bg-amber-400" />
+            <div className="h-2 w-2 rounded-full bg-emerald-400" />
+            <div className="ml-2 flex-1 h-4 rounded-full bg-foreground/10 px-2 flex items-center">
+              <span className="text-[8px] text-muted-foreground">mabini-classroom.app</span>
+            </div>
+          </div>
+
+          {/* App body — sidebar + main */}
+          <div className="grid grid-cols-[80px_1fr] h-[calc(100%-32px)]">
+            <div className="border-r border-border/40 bg-card/60 p-2 space-y-2">
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-accent" />
+              <div className="space-y-1.5 pt-1">
+                <div className="h-1.5 w-12 rounded-full bg-primary" />
+                <div className="h-1.5 w-10 rounded-full bg-foreground/15" />
+                <div className="h-1.5 w-12 rounded-full bg-foreground/15" />
+                <div className="h-1.5 w-8 rounded-full bg-foreground/15" />
+                <div className="h-1.5 w-10 rounded-full bg-foreground/15" />
+              </div>
+            </div>
+
+            <div className="p-3 space-y-2.5 overflow-hidden">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Welcome back,</p>
+                  <p className="text-sm font-semibold text-foreground">Teacher Dashboard</p>
+                </div>
+                <div className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 text-emerald-600 px-2 py-0.5 text-[9px] font-semibold">
+                  <span className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-border/40 bg-card/80 p-2">
+                  <p className="text-[8px] text-muted-foreground">Classes</p>
+                  <p className="text-base font-bold text-foreground">8</p>
+                </div>
+                <div className="rounded-xl border border-border/40 bg-card/80 p-2">
+                  <p className="text-[8px] text-muted-foreground">Submissions</p>
+                  <p className="text-base font-bold text-foreground">42</p>
+                </div>
+                <div className="rounded-xl border border-border/40 bg-card/80 p-2">
+                  <p className="text-[8px] text-muted-foreground">To grade</p>
+                  <p className="text-base font-bold text-primary">12</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/40 bg-card/80 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold text-foreground">Recent activity</p>
+                  <span className="text-[9px] text-muted-foreground">Today</span>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                    <div className="h-1.5 flex-1 rounded-full bg-foreground/10" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                    <div className="h-1.5 w-4/5 rounded-full bg-foreground/10" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <div className="h-1.5 w-3/5 rounded-full bg-foreground/10" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+            <InstalledPill />
+          </div>
+        </div>
+      </div>
+
+      {/* Laptop base */}
+      <div className="relative h-3 -mt-[1px]">
+        <div className="absolute inset-x-[-6%] h-3 rounded-b-2xl bg-gradient-to-b from-slate-800 to-slate-950 dark:from-slate-700 dark:to-slate-900" />
+        <div className="absolute left-1/2 -translate-x-1/2 top-0 h-1.5 w-16 rounded-b-lg bg-slate-950/70 dark:bg-slate-800" />
       </div>
     </div>
   );
