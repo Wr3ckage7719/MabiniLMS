@@ -308,7 +308,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="relative w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.04] text-foreground">
+    <div className="relative w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.04] text-foreground pb-24 lg:pb-0">
       {/* Decorative background */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -left-20 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
@@ -342,11 +342,16 @@ export default function LandingPage() {
               Sign In
             </Button>
             {isInstalled ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 h-9 text-xs sm:text-sm font-semibold text-emerald-600 dark:text-emerald-300">
+              <button
+                type="button"
+                onClick={openApp}
+                aria-label="Open the installed app"
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 h-9 text-xs sm:text-sm font-semibold text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/15 transition-colors"
+              >
                 <CheckCircle2 className="h-4 w-4" />
                 <span className="hidden sm:inline">App Installed</span>
                 <span className="sm:hidden">Installed</span>
-              </span>
+              </button>
             ) : (
               <Button
                 size="sm"
@@ -365,7 +370,7 @@ export default function LandingPage() {
       <section className="relative pt-24 pb-12 px-4 sm:px-6 lg:px-8 sm:pt-32 sm:pb-20">
         <div className="relative max-w-6xl mx-auto grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-12 items-center">
           {/* Left column — primary content on desktop, second on mobile (visual is on top below) */}
-          <div className="order-2 lg:order-1 space-y-6 sm:space-y-7 animate-fade-in">
+          <div className="order-2 lg:order-1 space-y-6 sm:space-y-7 animate-fade-in text-center lg:text-left">
             <div className="space-y-3 sm:space-y-4">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs sm:text-sm font-semibold">
                 <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -377,14 +382,14 @@ export default function LandingPage() {
                   one tap away.
                 </span>
               </h1>
-              <p className="text-base sm:text-lg text-muted-foreground max-w-xl">
+              <p className="text-base sm:text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
                 Install Mabini Classroom on your phone or laptop and access lessons,
                 assignments, grades, and announcements — all in a fast, app-like experience.
               </p>
             </div>
 
             {/* Primary CTAs — mobile prioritizes Install at top */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center lg:justify-start sm:gap-3">
               {isInstalled ? (
                 <>
                   <div className="inline-flex items-center justify-center gap-2 h-14 sm:h-12 px-5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-base font-semibold w-full sm:w-auto">
@@ -424,7 +429,7 @@ export default function LandingPage() {
             </div>
 
             {/* Reassurance line */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-4 gap-y-2 text-xs sm:text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 Free to install
@@ -440,7 +445,7 @@ export default function LandingPage() {
             </div>
 
             {!isInstallable && !isInstalled && (
-              <p className="text-xs text-muted-foreground/90 max-w-md">
+              <p className="text-xs text-muted-foreground/90 max-w-md mx-auto lg:mx-0">
                 {platform === "ios"
                   ? "On iPhone or iPad: tap the Share icon, then choose Add to Home Screen."
                   : "Tip: open this page in Chrome or Edge, then choose Install from your browser menu."}
@@ -569,7 +574,7 @@ export default function LandingPage() {
             <div aria-hidden className="absolute -bottom-12 -left-12 h-48 w-48 rounded-full bg-accent/20 blur-3xl" />
 
             <div className="relative grid lg:grid-cols-[1fr_1.2fr] gap-8 items-center">
-              <div className="space-y-4">
+              <div className="space-y-4 text-center lg:text-left">
                 <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 text-primary px-3 py-1.5 text-xs sm:text-sm font-semibold">
                   <Smartphone className="h-4 w-4" />
                   Install in seconds
@@ -581,7 +586,7 @@ export default function LandingPage() {
                   No app store, no waiting. Install directly from your browser and Mabini Classroom
                   behaves just like a native app.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <div className="flex flex-col sm:flex-row gap-3 pt-1 sm:justify-center lg:justify-start">
                   {isInstalled ? (
                     <>
                       <span className="inline-flex items-center justify-center gap-2 h-12 px-5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold">
@@ -663,7 +668,7 @@ export default function LandingPage() {
         </div>
 
         <div className="relative max-w-6xl mx-auto">
-          <div className="mb-8 max-w-2xl space-y-4 rounded-xl border border-white/15 bg-black/25 px-5 py-4 text-sm text-slate-100/90 backdrop-blur-[2px]">
+          <div className="mb-8 max-w-2xl mx-auto lg:mx-0 space-y-4 rounded-xl border border-white/15 bg-black/25 px-5 py-4 text-sm text-slate-100/90 backdrop-blur-[2px] text-center lg:text-left">
             <h2 className="text-base font-semibold text-white">School Contact Information</h2>
 
             <div className="space-y-2">
@@ -710,7 +715,7 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="border-t border-white/20 pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-200/90">
+          <div className="border-t border-white/20 pt-6 flex flex-col lg:flex-row justify-between items-center gap-4 text-sm text-slate-200/90 text-center lg:text-left">
             <p>&copy; {new Date().getFullYear()} Mabini Classroom Learning Management System. All rights reserved.</p>
             <div className="flex flex-wrap items-center gap-4 sm:gap-6 justify-center">
               <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
