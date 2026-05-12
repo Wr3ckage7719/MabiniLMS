@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,20 +13,27 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Apple,
   ArrowRight,
   BarChart3,
   Bell,
   BookOpen,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   ClipboardCheck,
   Download,
   GraduationCap,
+  Layers,
+  LogIn,
   Loader2,
-  Monitor,
+  MonitorSmartphone,
+  Share,
+  ShieldCheck,
   Smartphone,
-  Tablet,
+  Sparkles,
+  UserRound,
+  Users,
+  Wifi,
   Zap,
 } from "lucide-react";
 import { AppLogo } from "@/components/AppLogo";
@@ -34,119 +41,108 @@ import { usePWAInstall } from "@/hooks/usePWAInstall";
 import { useToast } from "@/hooks/use-toast";
 import { bugReportsService } from "@/services/bug-reports.service";
 
-type DeviceShowcaseType = "phone" | "tablet" | "desktop";
+type Platform = "android" | "ios" | "desktop";
 
-const deviceShowcaseSlides: Array<{
-  id: DeviceShowcaseType;
-  label: string;
-  description: string;
-}> = [
+function detectPlatform(): Platform {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
+}
+
+const featureHighlights = [
   {
-    id: "phone",
-    label: "Phone View",
-    description: "View class schedules, school announcements, and assignment deadlines in a mobile-ready layout.",
+    icon: BookOpen,
+    title: "Lessons and Materials",
+    description:
+      "Organize subjects, sections, and learning resources so every student finds what they need quickly.",
   },
   {
-    id: "tablet",
-    label: "Tablet View",
-    description: "Review lesson materials while monitoring class progress in a balanced workspace.",
+    icon: ClipboardCheck,
+    title: "Assignments and Quizzes",
+    description:
+      "Create tasks, set deadlines, and track submissions in a clean, distraction-free workspace.",
   },
   {
-    id: "desktop",
-    label: "Desktop View",
-    description: "Use a complete dashboard for instruction management, grading, and administrative oversight.",
+    icon: BarChart3,
+    title: "Grades and Progress",
+    description:
+      "Monitor performance, give feedback, and keep guardians aligned through a transparent gradebook.",
+  },
+  {
+    icon: Bell,
+    title: "Announcements and Alerts",
+    description:
+      "Reach the entire class instantly with notices, reminders, and important school updates.",
+  },
+  {
+    icon: Users,
+    title: "Roles for Every User",
+    description:
+      "Tailored views for students, teachers, and administrators — each one focused on what matters.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Secure and Reliable",
+    description:
+      "Built for schools with secure authentication, audit logs, and dependable performance.",
   },
 ];
 
-const deviceIconMap = {
-  phone: Smartphone,
-  tablet: Tablet,
-  desktop: Monitor,
-} as const;
+const audienceCards = [
+  {
+    icon: UserRound,
+    title: "For Students",
+    points: [
+      "Open lessons and read materials anytime",
+      "Submit assignments and quizzes with ease",
+      "Track grades and upcoming deadlines",
+    ],
+    accent: "from-sky-500/15 to-blue-500/10 border-sky-400/30",
+    iconBg: "bg-sky-500/15 text-sky-500",
+  },
+  {
+    icon: GraduationCap,
+    title: "For Teachers",
+    points: [
+      "Build classes, lessons, and modules in minutes",
+      "Post assignments and auto-organize submissions",
+      "Track every learner with a clear gradebook",
+    ],
+    accent: "from-emerald-500/15 to-teal-500/10 border-emerald-400/30",
+    iconBg: "bg-emerald-500/15 text-emerald-500",
+  },
+  {
+    icon: ShieldCheck,
+    title: "For Administrators",
+    points: [
+      "Manage teachers, students, and accounts",
+      "Review audit logs and system activity",
+      "Configure settings for the whole school",
+    ],
+    accent: "from-violet-500/15 to-purple-500/10 border-violet-400/30",
+    iconBg: "bg-violet-500/15 text-violet-500",
+  },
+];
 
-const getSlideAccentClass = (device: DeviceShowcaseType): string => {
-  switch (device) {
-    case "phone":
-      return "from-sky-500/25 via-sky-400/10 to-transparent border-sky-400/30";
-    case "tablet":
-      return "from-indigo-500/25 via-blue-400/10 to-transparent border-indigo-400/30";
-    case "desktop":
-      return "from-emerald-500/25 via-teal-400/10 to-transparent border-emerald-400/30";
-    default:
-      return "from-primary/20 via-primary/5 to-transparent border-primary/30";
-  }
-};
-
-const renderDevicePreview = (device: DeviceShowcaseType) => {
-  if (device === "phone") {
-    return (
-      <div className="h-[196px] w-[108px] rounded-[1.4rem] border border-slate-600/70 bg-slate-900 p-2.5 shadow-lg shadow-black/30">
-        <div className="h-full rounded-[1rem] border border-slate-700/80 bg-slate-950/80 p-2.5 space-y-2.5">
-          <div className="h-2 w-12 rounded-full bg-sky-400/70"></div>
-          <div className="space-y-1.5">
-            <div className="h-1.5 rounded-full bg-slate-700"></div>
-            <div className="h-1.5 w-4/5 rounded-full bg-slate-700/80"></div>
-          </div>
-          <div className="space-y-2.5 pt-1">
-            <div className="rounded-lg border border-slate-700/80 bg-slate-800/80 p-2">
-              <div className="h-1.5 w-8 rounded-full bg-sky-300/80"></div>
-            </div>
-            <div className="rounded-lg border border-slate-700/80 bg-slate-800/80 p-2">
-              <div className="h-1.5 w-10 rounded-full bg-slate-500"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (device === "tablet") {
-    return (
-      <div className="h-[192px] w-[238px] rounded-[1.6rem] border border-slate-600/70 bg-slate-900 p-3 shadow-lg shadow-black/30">
-        <div className="h-full rounded-[1.2rem] border border-slate-700/80 bg-slate-950/80 p-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="h-2.5 w-16 rounded-full bg-indigo-400/70"></div>
-            <div className="h-2.5 w-8 rounded-full bg-slate-700"></div>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl border border-slate-700/80 bg-slate-800/70 p-2.5 space-y-1.5">
-              <div className="h-6 w-6 rounded-lg bg-indigo-400/70"></div>
-              <div className="h-1.5 rounded-full bg-slate-600"></div>
-            </div>
-            <div className="rounded-xl border border-slate-700/80 bg-slate-800/70 p-2.5 space-y-1.5">
-              <div className="h-6 w-6 rounded-lg bg-blue-300/70"></div>
-              <div className="h-1.5 rounded-full bg-slate-600"></div>
-            </div>
-          </div>
-          <div className="h-1.5 w-3/4 rounded-full bg-slate-700"></div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-[188px] w-[262px] rounded-[1.1rem] border border-slate-600/70 bg-slate-900 p-2.5 shadow-lg shadow-black/30">
-      <div className="h-full rounded-[0.8rem] border border-slate-700/80 bg-slate-950/80 overflow-hidden">
-        <div className="h-full grid grid-cols-[60px_1fr]">
-          <div className="border-r border-slate-700/70 bg-slate-900/80 p-2 space-y-2">
-            <div className="h-2 w-8 rounded-full bg-emerald-400/70"></div>
-            <div className="h-1.5 w-7 rounded-full bg-slate-600"></div>
-            <div className="h-1.5 w-9 rounded-full bg-slate-600"></div>
-            <div className="h-1.5 w-6 rounded-full bg-slate-600"></div>
-          </div>
-          <div className="p-3 space-y-2.5">
-            <div className="h-2.5 w-20 rounded-full bg-emerald-300/70"></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="h-16 rounded-lg border border-slate-700/70 bg-slate-800/80"></div>
-              <div className="h-16 rounded-lg border border-slate-700/70 bg-slate-800/80"></div>
-            </div>
-            <div className="h-2 w-4/5 rounded-full bg-slate-700"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+const pwaBenefits = [
+  {
+    icon: Zap,
+    title: "Fast and lightweight",
+    description: "Loads instantly from your home screen with no app-store wait.",
+  },
+  {
+    icon: Wifi,
+    title: "Works on weak networks",
+    description: "Cached lessons and a stable interface even when WiFi flickers.",
+  },
+  {
+    icon: MonitorSmartphone,
+    title: "Phone, tablet, or desktop",
+    description: "One install, one account, every device your school already uses.",
+  },
+];
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -155,8 +151,8 @@ export default function LandingPage() {
   const { toast } = useToast();
   const [isBugDialogOpen, setIsBugDialogOpen] = useState(false);
   const [isSubmittingBugReport, setIsSubmittingBugReport] = useState(false);
-  const [activeDeviceSlide, setActiveDeviceSlide] = useState(0);
-  const [isCarouselPaused, setIsCarouselPaused] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("desktop");
+  const [isIosHelpOpen, setIsIosHelpOpen] = useState(false);
   const [bugReportForm, setBugReportForm] = useState({
     reporter_name: "",
     reporter_email: "",
@@ -178,29 +174,38 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
-    if (isCarouselPaused) {
+    setPlatform(detectPlatform());
+  }, []);
+
+  const installLabel = useMemo(() => {
+    if (isInstalled) return "App Installed";
+    if (isInstallable) return "Install the App";
+    if (platform === "ios") return "Add to Home Screen";
+    return "Install the App";
+  }, [isInstallable, isInstalled, platform]);
+
+  const handleInstallClick = () => {
+    if (isInstalled) return;
+    if (isInstallable) {
+      void install();
       return;
     }
-
-    const rotateTimer = window.setInterval(() => {
-      setActiveDeviceSlide((previous) => (previous + 1) % deviceShowcaseSlides.length);
-    }, 3600);
-
-    return () => window.clearInterval(rotateTimer);
-  }, [isCarouselPaused]);
-
-  const goToSlide = (index: number) => {
-    setActiveDeviceSlide(index);
+    if (platform === "ios") {
+      setIsIosHelpOpen(true);
+      return;
+    }
+    toast({
+      title: "Install from your browser menu",
+      description:
+        "Open this page in Chrome or Edge, tap the menu, and choose Install Mabini Classroom.",
+    });
   };
 
-  const goToPreviousSlide = () => {
-    setActiveDeviceSlide((previous) =>
-      previous === 0 ? deviceShowcaseSlides.length - 1 : previous - 1
-    );
-  };
-
-  const goToNextSlide = () => {
-    setActiveDeviceSlide((previous) => (previous + 1) % deviceShowcaseSlides.length);
+  const scrollToFeatures = () => {
+    const target = document.getElementById("features");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
 
   const updateBugReportField = (field: keyof typeof bugReportForm, value: string) => {
@@ -265,11 +270,12 @@ export default function LandingPage() {
 
       resetBugReportForm();
       setIsBugDialogOpen(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
       const message =
-        error?.response?.data?.error?.message ||
-        error?.response?.data?.message ||
-        error?.message ||
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        err?.message ||
         "Failed to submit bug report. Please try again.";
 
       toast({
@@ -282,274 +288,302 @@ export default function LandingPage() {
     }
   };
 
+  const installDisabled = isInstalled;
+
   return (
-    <div className="w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.03] text-foreground dark:to-background">
+    <div className="relative w-full overflow-hidden bg-gradient-to-b from-background via-background to-primary/[0.04] text-foreground">
+      {/* Decorative background */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-20 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
+        <div className="absolute top-1/3 -right-20 h-80 w-80 rounded-full bg-accent/20 blur-3xl" />
+        <div className="absolute top-[120%] left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-sky-500/10 blur-3xl" />
+      </div>
+
       {/* Navigation */}
-      <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${isScrolled ? "bg-background/80 backdrop-blur-xl border-b border-border/40" : "bg-transparent"}`}>
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          isScrolled
+            ? "bg-background/85 backdrop-blur-xl border-b border-border/40 shadow-sm"
+            : "bg-transparent"
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-2 cursor-pointer">
             <AppLogo className="h-8 w-8" />
-            <span className="font-bold text-xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            <span className="font-bold text-lg sm:text-xl bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               Mabini Classroom
             </span>
           </button>
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={() => navigate("/login")}>Sign In</Button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/login")}
+              className="hidden sm:inline-flex"
+            >
+              <LogIn className="h-4 w-4 mr-1.5" />
+              Sign In
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleInstallClick}
+              disabled={installDisabled}
+              className="bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 h-9 px-3 sm:px-4"
+            >
+              <Download className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">{isInstalled ? "Installed" : "Install"}</span>
+            </Button>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-1/4 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
-          <div className="absolute bottom-0 right-1/4 w-72 h-72 bg-accent/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "1s" }}></div>
-        </div>
-
-        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left Content */}
-          <div className="space-y-8 animate-fade-in">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary rounded-full text-sm font-semibold">
-                <Zap className="w-4 h-4" />
-                Learning Management System (LMS)
+      {/* HERO — mobile-first: PWA install is the very first thing users see */}
+      <section className="relative pt-24 pb-12 px-4 sm:px-6 lg:px-8 sm:pt-32 sm:pb-20">
+        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-12 items-center">
+          {/* Left column — primary content on desktop, second on mobile (visual is on top below) */}
+          <div className="order-2 lg:order-1 space-y-6 sm:space-y-7 animate-fade-in">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs sm:text-sm font-semibold">
+                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                Mabini National High School LMS
               </div>
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight">
-                One Platform for
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight">
+                Your classroom,
                 <span className="block bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-                  Teaching and Learning
+                  one tap away.
                 </span>
               </h1>
-              <p className="text-lg text-muted-foreground max-w-xl">
-                Mabini Classroom is a complete LMS where teachers can create classes, share materials,
-                post assignments and quizzes, and track student progress, while students can access
-                lessons, submit work, and view grades in one place.
+              <p className="text-base sm:text-lg text-muted-foreground max-w-xl">
+                Install Mabini Classroom on your phone or laptop and access lessons,
+                assignments, grades, and announcements — all in a fast, app-like experience.
               </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-xl">
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-primary" />
-                  Class content and modules
-                </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
-                  <ClipboardCheck className="h-4 w-4 text-primary" />
-                  Assignments and quizzes
-                </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-primary" />
-                  Grade and performance tracking
-                </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground/85 dark:text-slate-100 flex items-center gap-2">
-                  <Bell className="h-4 w-4 text-primary" />
-                  Announcements and updates
-                </div>
-              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-4">
-              <Button onClick={() => navigate("/login")} size="lg" className="bg-gradient-to-r from-primary to-accent hover:opacity-90 h-12 text-base">
-                Start Here <ArrowRight className="w-5 h-5 ml-2" />
+            {/* Primary CTAs — mobile prioritizes Install at top */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+              <Button
+                size="lg"
+                onClick={handleInstallClick}
+                disabled={installDisabled}
+                className="h-14 sm:h-12 text-base font-semibold gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 shadow-lg shadow-primary/25 w-full sm:w-auto"
+              >
+                <Download className="h-5 w-5" />
+                {installLabel}
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => navigate("/login")}
+                className="h-12 text-base gap-2 w-full sm:w-auto"
+              >
+                <LogIn className="h-4 w-4" />
+                Sign In
               </Button>
             </div>
 
+            {/* Reassurance line */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                Free to install
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                Works offline
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                No app store needed
+              </span>
+            </div>
 
+            {!isInstallable && !isInstalled && (
+              <p className="text-xs text-muted-foreground/90 max-w-md">
+                {platform === "ios"
+                  ? "On iPhone or iPad: tap the Share icon, then choose Add to Home Screen."
+                  : "Tip: open this page in Chrome or Edge, then choose Install from your browser menu."}
+              </p>
+            )}
           </div>
 
-          {/* Right - Hero Visual */}
-          <div className="relative min-h-[340px] sm:min-h-[390px]">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 rounded-3xl blur-3xl transform -rotate-12"></div>
-            <div className="relative bg-gradient-to-br from-primary/5 to-accent/5 rounded-3xl border border-primary/20 p-5 sm:p-7 backdrop-blur-sm overflow-hidden group">
-              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-primary/10 to-transparent rounded-3xl animate-pulse"></div>
-              </div>
-              <div className="relative space-y-4">
-                <div className="flex items-center justify-between rounded-xl border border-border/40 bg-card/80 p-3.5">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground dark:text-white">Today in your LMS</p>
-                    <p className="text-xs text-muted-foreground dark:text-slate-300/90">Classes, tasks, grades, and updates in one dashboard</p>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[11px] text-emerald-700 dark:text-emerald-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-300 animate-pulse"></span>
-                    Live
-                  </div>
+          {/* Right column — phone mockup. Sits ABOVE the text on mobile so the install button is just under the device. */}
+          <div className="order-1 lg:order-2 relative flex justify-center lg:justify-end">
+            <PhoneMockup />
+          </div>
+        </div>
+
+        {/* Scroll cue */}
+        <button
+          type="button"
+          onClick={scrollToFeatures}
+          className="hidden lg:flex absolute left-1/2 -translate-x-1/2 bottom-2 items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Learn more
+          <ChevronDown className="h-4 w-4 animate-bounce" />
+        </button>
+      </section>
+
+      {/* PWA install benefits — quick scannable strip */}
+      <section className="relative px-4 sm:px-6 lg:px-8 pb-16">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          {pwaBenefits.map(({ icon: Icon, title, description }) => (
+            <div
+              key={title}
+              className="group rounded-2xl border border-border/50 bg-card/60 backdrop-blur p-4 sm:p-5 transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-primary/10 text-primary p-2.5 group-hover:bg-primary/15 transition-colors">
+                  <Icon className="h-5 w-5" />
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
-                      <GraduationCap className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Classes and Sections</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Organize subjects, sections, and schedules for every learner.</p>
-                  </div>
-
-                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
-                      <ClipboardCheck className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Assignments and Quizzes</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Create tasks, set deadlines, and monitor submissions easily.</p>
-                  </div>
-
-                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
-                      <BarChart3 className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Gradebook and Progress</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Track performance with clear grading and progress visibility.</p>
-                  </div>
-
-                  <div className="bg-card rounded-xl p-3.5 border border-border/40 space-y-2.5">
-                    <div className="flex items-center gap-2 text-foreground dark:text-slate-200">
-                      <Bell className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Announcements and Alerts</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground dark:text-slate-300/90 leading-relaxed">Keep classes aligned with instant notices and reminders.</p>
-                  </div>
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-sm sm:text-base text-foreground">{title}</h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">{description}</p>
                 </div>
               </div>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Features grid */}
+      <section id="features" className="relative px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-accent/10 text-accent px-3 py-1.5 text-xs sm:text-sm font-semibold">
+              <Layers className="h-4 w-4" />
+              Everything you need
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+              A complete LMS, designed for the way schools really work
+            </h2>
+            <p className="text-sm sm:text-base text-muted-foreground">
+              From posting lessons to tracking submissions and grades — Mabini Classroom keeps your
+              entire school aligned in one calm, organized place.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+            {featureHighlights.map(({ icon: Icon, title, description }) => (
+              <div
+                key={title}
+                className="group relative overflow-hidden rounded-2xl border border-border/50 bg-card/70 backdrop-blur p-5 sm:p-6 transition-all hover:border-primary/40 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5"
+              >
+                <div className="absolute -top-12 -right-12 h-24 w-24 rounded-full bg-primary/10 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative space-y-3">
+                  <div className="inline-flex rounded-xl bg-gradient-to-br from-primary/15 to-accent/15 text-primary p-2.5">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-semibold text-base sm:text-lg">{title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* PWA Download Section */}
-      <section className="relative px-4 sm:px-6 lg:px-8 pb-20">
-        <div className="absolute inset-x-0 -top-20 h-40 bg-gradient-to-b from-primary/10 to-transparent blur-2xl pointer-events-none"></div>
-
-        <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-10 items-center rounded-3xl border border-primary/20 bg-gradient-to-br from-sky-50 via-white to-blue-100 dark:from-slate-950/80 dark:via-slate-900/70 dark:to-sky-950/60 p-6 sm:p-8 lg:p-10 overflow-hidden">
-          <div className="absolute -right-16 -bottom-16 h-48 w-48 rounded-full bg-primary/20 blur-3xl pointer-events-none"></div>
-          <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-accent/20 blur-2xl pointer-events-none"></div>
-
-          <div className="relative space-y-5 order-2 lg:order-1">
-            <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 text-primary px-3 py-1.5 text-sm font-semibold">
-              <Smartphone className="h-4 w-4" />
-              Institutional Mobile Access
+      {/* Audience / role cards */}
+      <section className="relative px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-3 py-1.5 text-xs sm:text-sm font-semibold">
+              <Users className="h-4 w-4" />
+              Built for the whole school
             </div>
-
-            <h2 className="text-3xl sm:text-4xl font-bold leading-tight">
-              Access Mabini Classroom
-              <span className="block bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">on any school-approved device</span>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+              One platform, three focused experiences
             </h2>
-
-            <p className="text-sm sm:text-base text-muted-foreground dark:text-slate-200/85 max-w-xl">
-              Install the Mabini Classroom progressive web application (PWA) to access the LMS
-              from your home screen with reliable performance. Students can review lessons,
-              teachers can post coursework, and administrators can monitor activity in one secure platform.
-            </p>
-
-            <div className="space-y-2 text-sm text-foreground/85 dark:text-slate-200/90">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Open directly from your home screen with a reliable app-like experience.</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-400 shrink-0" />
-                <span>Optimized for classroom workflows so lessons, submissions, and grades remain easy to review.</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2">
-              <Button
-                size="lg"
-                onClick={() => {
-                  void install();
-                }}
-                disabled={!isInstallable || isInstalled}
-                className="h-11 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70"
-              >
-                <Download className="h-4 w-4" />
-                {isInstalled ? "Application Installed" : isInstallable ? "Install Mabini Classroom App" : "Install option unavailable"}
-              </Button>
-              <p className="text-xs text-muted-foreground dark:text-slate-300/90">
-                {!isInstallable && !isInstalled
-                  ? "Installation tip: open this page in Chrome or Edge, then select Install from your browser menu."
-                  : "Installation is completed in only a few seconds."}
-              </p>
-            </div>
           </div>
 
-          <div className="relative flex justify-center lg:justify-end order-1 lg:order-2">
-            <div
-              className="relative w-full max-w-[320px] sm:max-w-[360px]"
-              onMouseEnter={() => setIsCarouselPaused(true)}
-              onMouseLeave={() => setIsCarouselPaused(false)}
-              onFocusCapture={() => setIsCarouselPaused(true)}
-              onBlurCapture={() => setIsCarouselPaused(false)}
-            >
-              <div className="relative h-[340px] sm:h-[380px] overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-slate-200/80 bg-white/80 dark:border-white/20 dark:bg-slate-950/80 p-2.5 sm:p-3 shadow-2xl shadow-primary/20">
-                <div className="absolute inset-x-8 top-0 h-20 bg-primary/20 blur-2xl pointer-events-none"></div>
-
-                {deviceShowcaseSlides.map((slide, index) => {
-                  const isActive = index === activeDeviceSlide;
-                  const DeviceIcon = deviceIconMap[slide.id];
-
-                  return (
-                    <article
-                      key={slide.id}
-                      aria-hidden={!isActive}
-                      className={`absolute inset-2.5 sm:inset-3 rounded-[1.2rem] sm:rounded-[1.5rem] border bg-gradient-to-br p-3 sm:p-4 transition-all duration-700 ease-out ${getSlideAccentClass(slide.id)} ${
-                        isActive
-                          ? "opacity-100 translate-y-0 scale-100"
-                          : "pointer-events-none opacity-0 translate-y-4 scale-95"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-300/70 bg-white/70 dark:border-white/15 dark:bg-black/25 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-100">
-                          <DeviceIcon className="h-3.5 w-3.5" />
-                          {slide.label}
-                        </div>
-                        <span className="text-[11px] text-slate-600 dark:text-slate-200/85">{index + 1} / {deviceShowcaseSlides.length}</span>
-                      </div>
-
-                      <p className="mt-2.5 text-[11px] sm:text-xs text-slate-700 dark:text-slate-200/90 leading-relaxed">{slide.description}</p>
-
-                      <div className="mt-3 sm:mt-4 h-[205px] sm:h-[245px] rounded-2xl border border-slate-300/70 bg-slate-100/90 dark:border-white/15 dark:bg-slate-900/80 p-2.5 sm:p-4 flex items-center justify-center overflow-hidden">
-                        <div className="origin-center scale-[0.86] sm:scale-100 transition-transform duration-500">
-                          {renderDevicePreview(slide.id)}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-
-                <div className="absolute inset-x-3 sm:inset-x-4 bottom-3 sm:bottom-4 z-20 flex items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 dark:bg-black/35 px-2 py-1 backdrop-blur-sm">
-                    {deviceShowcaseSlides.map((slide, index) => (
-                      <button
-                        key={slide.id}
-                        type="button"
-                        aria-label={`Show ${slide.label}`}
-                        onClick={() => goToSlide(index)}
-                        className={`h-2.5 rounded-full transition-all duration-300 ${
-                          index === activeDeviceSlide
-                            ? "w-6 bg-slate-900 dark:bg-white"
-                            : "w-2.5 bg-slate-500/50 hover:bg-slate-700/70 dark:bg-white/40 dark:hover:bg-white/70"
-                        }`}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="inline-flex items-center gap-1 rounded-full bg-white/70 dark:bg-black/35 p-1 backdrop-blur-sm">
-                    <button
-                      type="button"
-                      onClick={goToPreviousSlide}
-                      aria-label="Previous device view"
-                      className="h-8 w-8 rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-200/60 dark:text-white/90 dark:hover:text-white dark:hover:bg-white/10 transition-colors"
-                    >
-                      <ChevronLeft className="h-4 w-4 mx-auto" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={goToNextSlide}
-                      aria-label="Next device view"
-                      className="h-8 w-8 rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-200/60 dark:text-white/90 dark:hover:text-white dark:hover:bg-white/10 transition-colors"
-                    >
-                      <ChevronRight className="h-4 w-4 mx-auto" />
-                    </button>
-                  </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {audienceCards.map(({ icon: Icon, title, points, accent, iconBg }) => (
+              <div
+                key={title}
+                className={`relative overflow-hidden rounded-2xl border bg-gradient-to-br ${accent} p-5 sm:p-6 backdrop-blur transition-all hover:-translate-y-0.5 hover:shadow-xl`}
+              >
+                <div className={`inline-flex rounded-xl p-2.5 ${iconBg}`}>
+                  <Icon className="h-5 w-5" />
                 </div>
+                <h3 className="mt-3 font-semibold text-lg">{title}</h3>
+                <ul className="mt-3 space-y-2">
+                  {points.map((point) => (
+                    <li key={point} className="flex items-start gap-2 text-sm text-foreground/85">
+                      <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-500 shrink-0" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How to install — clear steps */}
+      <section className="relative px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
+        <div className="max-w-6xl mx-auto">
+          <div className="rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-accent/5 to-transparent p-6 sm:p-10 overflow-hidden relative">
+            <div aria-hidden className="absolute -top-12 -right-12 h-48 w-48 rounded-full bg-primary/20 blur-3xl" />
+            <div aria-hidden className="absolute -bottom-12 -left-12 h-48 w-48 rounded-full bg-accent/20 blur-3xl" />
+
+            <div className="relative grid lg:grid-cols-[1fr_1.2fr] gap-8 items-center">
+              <div className="space-y-4">
+                <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 text-primary px-3 py-1.5 text-xs sm:text-sm font-semibold">
+                  <Smartphone className="h-4 w-4" />
+                  Install in seconds
+                </div>
+                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+                  Add Mabini Classroom to your home screen
+                </h2>
+                <p className="text-sm sm:text-base text-muted-foreground">
+                  No app store, no waiting. Install directly from your browser and Mabini Classroom
+                  behaves just like a native app.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <Button
+                    size="lg"
+                    onClick={handleInstallClick}
+                    disabled={installDisabled}
+                    className="h-12 gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-70 shadow-lg shadow-primary/25"
+                  >
+                    <Download className="h-5 w-5" />
+                    {installLabel}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={() => navigate("/login")}
+                    className="h-12 gap-2"
+                  >
+                    Or continue in browser
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                <InstallStep
+                  index={1}
+                  icon={Smartphone}
+                  title="Open in browser"
+                  description="Visit Mabini Classroom in Chrome, Edge, or Safari on any device."
+                />
+                <InstallStep
+                  index={2}
+                  icon={platform === "ios" ? Share : Download}
+                  title={platform === "ios" ? "Tap Share" : "Tap Install"}
+                  description={
+                    platform === "ios"
+                      ? "On iPhone, use Share → Add to Home Screen."
+                      : "Use the Install button above or your browser menu."
+                  }
+                />
+                <InstallStep
+                  index={3}
+                  icon={Apple}
+                  title="Done — sign in"
+                  description="Open Mabini from your home screen and sign in with your school account."
+                />
               </div>
             </div>
           </div>
@@ -564,12 +598,12 @@ export default function LandingPage() {
             alt=""
             className="h-full w-full object-cover object-center sm:object-[center_35%]"
           />
-          <div className="absolute inset-0 bg-slate-900/65 dark:bg-slate-950/72"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-900/75 via-slate-900/60 to-emerald-900/45 dark:from-slate-950/85 dark:via-slate-950/70 dark:to-emerald-950/60"></div>
+          <div className="absolute inset-0 bg-slate-900/70 dark:bg-slate-950/75"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900/80 via-slate-900/60 to-emerald-900/45 dark:from-slate-950/85 dark:via-slate-950/70 dark:to-emerald-950/60"></div>
         </div>
 
         <div className="relative max-w-6xl mx-auto">
-          <div className="mb-8 max-w-2xl space-y-4 rounded-xl border border-white/15 bg-black/20 px-5 py-4 text-sm text-slate-100/90 backdrop-blur-[2px]">
+          <div className="mb-8 max-w-2xl space-y-4 rounded-xl border border-white/15 bg-black/25 px-5 py-4 text-sm text-slate-100/90 backdrop-blur-[2px]">
             <h2 className="text-base font-semibold text-white">School Contact Information</h2>
 
             <div className="space-y-2">
@@ -617,8 +651,8 @@ export default function LandingPage() {
           </div>
 
           <div className="border-t border-white/20 pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-slate-200/90">
-          <p>&copy; {new Date().getFullYear()} Mabini Classroom Learning Management System. All rights reserved.</p>
-            <div className="flex gap-6">
+            <p>&copy; {new Date().getFullYear()} Mabini Classroom Learning Management System. All rights reserved.</p>
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 justify-center">
               <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
               <a href="#" className="hover:text-white transition-colors">Terms of Use</a>
               <a href="#" className="hover:text-white transition-colors">Cookie Policy</a>
@@ -633,6 +667,59 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Sticky mobile install bar — visible only on small screens so users always have the CTA */}
+      {!isInstalled && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 pt-2 bg-gradient-to-t from-background via-background/95 to-transparent">
+          <Button
+            size="lg"
+            onClick={handleInstallClick}
+            className="w-full h-12 gap-2 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-xl shadow-primary/30"
+          >
+            <Download className="h-5 w-5" />
+            {installLabel}
+          </Button>
+        </div>
+      )}
+
+      {/* iOS install help */}
+      <Dialog open={isIosHelpOpen} onOpenChange={setIsIosHelpOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Install on iPhone or iPad</DialogTitle>
+            <DialogDescription>
+              Safari supports installing Mabini Classroom directly to your home screen.
+            </DialogDescription>
+          </DialogHeader>
+
+          <ol className="space-y-3 text-sm">
+            <li className="flex items-start gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-semibold">1</span>
+              <span>
+                Open this page in <strong>Safari</strong> on your iPhone or iPad.
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-semibold">2</span>
+              <span>
+                Tap the <strong>Share</strong> icon (the square with the arrow pointing up) in the bottom toolbar.
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-semibold">3</span>
+              <span>
+                Scroll down and choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.
+              </span>
+            </li>
+          </ol>
+
+          <DialogFooter>
+            <Button onClick={() => setIsIosHelpOpen(false)} className="w-full sm:w-auto">
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isBugDialogOpen} onOpenChange={setIsBugDialogOpen}>
         <DialogContent className="sm:max-w-xl rounded-2xl">
@@ -784,9 +871,139 @@ export default function LandingPage() {
   );
 }
 
-const stats = [
-  { value: "50K+", label: "Active Teachers" },
-  { value: "500K+", label: "Learning Students" },
-  { value: "10M+", label: "Assignments Submitted" },
-  { value: "99.9%", label: "Uptime SLA" }
-];
+function InstallStep({
+  index,
+  icon: Icon,
+  title,
+  description,
+}: {
+  index: number;
+  icon: typeof Smartphone;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/50 bg-card/70 backdrop-blur p-4 sm:p-5 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="rounded-lg bg-primary/10 text-primary p-2">
+          <Icon className="h-4 w-4" />
+        </div>
+        <span className="text-xs font-semibold text-muted-foreground">Step {index}</span>
+      </div>
+      <h3 className="font-semibold text-sm">{title}</h3>
+      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+    </div>
+  );
+}
+
+function PhoneMockup() {
+  return (
+    <div className="relative w-full max-w-[280px] sm:max-w-[320px] mx-auto">
+      {/* Glow */}
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute inset-x-8 -top-10 h-24 bg-primary/30 blur-3xl" />
+        <div className="absolute inset-x-0 -bottom-10 h-24 bg-accent/30 blur-3xl" />
+      </div>
+
+      {/* Device frame */}
+      <div className="relative rounded-[2.4rem] border-[10px] border-slate-900/95 dark:border-slate-800 bg-slate-900 shadow-2xl shadow-primary/30 overflow-hidden">
+        {/* Notch */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 h-4 w-20 rounded-full bg-slate-950 z-10" />
+
+        <div className="relative h-[480px] sm:h-[540px] bg-gradient-to-br from-slate-50 via-white to-sky-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+          {/* Status bar */}
+          <div className="flex items-center justify-between px-5 pt-4 pb-1.5 text-[10px] font-semibold text-foreground/80">
+            <span>9:41</span>
+            <div className="flex items-center gap-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
+              <div className="h-1.5 w-3 rounded-sm bg-foreground/60" />
+            </div>
+          </div>
+
+          {/* App header */}
+          <div className="px-4 pt-3 pb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-accent" />
+              <span className="text-sm font-bold">Mabini</span>
+            </div>
+            <div className="h-7 w-7 rounded-full bg-foreground/10" />
+          </div>
+
+          {/* Greeting */}
+          <div className="px-4 pb-3">
+            <p className="text-[11px] text-muted-foreground">Good morning,</p>
+            <p className="text-base font-semibold">Welcome back</p>
+          </div>
+
+          {/* Class cards */}
+          <div className="px-4 space-y-2.5">
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-sky-500/15 flex items-center justify-center">
+                    <BookOpen className="h-4 w-4 text-sky-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold">English 10</p>
+                    <p className="text-[10px] text-muted-foreground">Ms. Reyes</p>
+                  </div>
+                </div>
+                <div className="text-[9px] font-semibold rounded-full bg-emerald-500/15 text-emerald-600 px-2 py-0.5">
+                  3 new
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                    <ClipboardCheck className="h-4 w-4 text-violet-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold">Math 9 — Quiz</p>
+                    <p className="text-[10px] text-muted-foreground">Due tomorrow</p>
+                  </div>
+                </div>
+                <div className="text-[9px] font-semibold rounded-full bg-amber-500/15 text-amber-600 px-2 py-0.5">
+                  Pending
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/40 bg-card/80 p-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                    <BarChart3 className="h-4 w-4 text-emerald-500" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold">Grades updated</p>
+                    <p className="text-[10px] text-muted-foreground">Science 8</p>
+                  </div>
+                </div>
+                <div className="text-[9px] font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5">
+                  View
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Floating install pill */}
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-[10px] font-semibold shadow-lg animate-float">
+            <Download className="h-3 w-3" />
+            Installed to home screen
+          </div>
+
+          {/* Bottom nav */}
+          <div className="absolute bottom-2 left-3 right-3 flex items-center justify-around rounded-2xl border border-border/40 bg-card/90 backdrop-blur px-3 py-2 shadow-lg">
+            <div className="h-1.5 w-6 rounded-full bg-primary" />
+            <div className="h-1.5 w-4 rounded-full bg-foreground/20" />
+            <div className="h-1.5 w-4 rounded-full bg-foreground/20" />
+            <div className="h-1.5 w-4 rounded-full bg-foreground/20" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
