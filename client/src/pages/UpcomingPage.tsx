@@ -22,23 +22,20 @@ export default function UpcomingPage() {
 
   const now = new Date();
 
-  const pendingAssignments = assignments.filter((assignment) => {
-    const dueDate = new Date(assignment.dueDate);
-    return assignment.status === 'assigned' && dueDate >= now;
-  });
+  const isPending = (status: typeof assignments[number]['status']) =>
+    status === 'pending' || status === 'assigned' || status === 'draft';
+  const isOverdue = (status: typeof assignments[number]['status']) =>
+    status === 'overdue' || status === 'missed' || status === 'late';
+  const isTurnedIn = (status: typeof assignments[number]['status']) =>
+    status === 'submitted' || status === 'graded' || status === 'under_review';
 
-  const overdueAssignments = assignments.filter((assignment) => {
-    const dueDate = new Date(assignment.dueDate);
-    return assignment.status === 'late' || (assignment.status === 'assigned' && dueDate < now);
-  });
-
-  const submittedAssignments = assignments.filter(
-    (assignment) => assignment.status === 'submitted' || assignment.status === 'graded'
-  );
+  const pendingAssignments = assignments.filter((assignment) => isPending(assignment.status));
+  const overdueAssignments = assignments.filter((assignment) => isOverdue(assignment.status));
+  const submittedAssignments = assignments.filter((assignment) => isTurnedIn(assignment.status));
 
   const upcomingAssignments = assignments
     .filter((assignment) => {
-      if (assignment.status === 'submitted' || assignment.status === 'graded') {
+      if (isTurnedIn(assignment.status)) {
         return false;
       }
 
@@ -167,7 +164,7 @@ export default function UpcomingPage() {
           <div className="space-y-2">
             {upcomingAssignments.slice(0, 6).map((assignment) => {
               const cls = classes.find((course) => course.id === assignment.classId);
-              const isLate = assignment.status === 'late';
+              const isLate = isOverdue(assignment.status);
 
               return (
                 <button

@@ -1,8 +1,9 @@
-import { ClassItem, Assignment, Student, LearningMaterial, Announcement } from '@/lib/data';
+import { ClassItem, Assignment, AssignmentStatus, Student, LearningMaterial, Announcement } from '@/lib/data';
 import {
   parseCourseMetadataFromDescription,
   parseCourseMetadataFromSyllabus,
 } from '@/services/course-metadata';
+import { computeDerivedStatus } from '@/lib/assignment-status';
 
 // Backend types (simplified - adjust based on actual backend responses)
 interface BackendCourse {
@@ -41,7 +42,17 @@ interface BackendAssignment {
   submission_open_at?: string | null;
   submission_close_at?: string | null;
   status?: string;
-  submission_status?: string;
+  submission_status?: string | null;
+  submitted_at?: string | null;
+  derived_status?:
+    | 'draft'
+    | 'submitted'
+    | 'late'
+    | 'under_review'
+    | 'graded'
+    | 'pending'
+    | 'overdue'
+    | 'missed';
   attachments_count?: number;
 }
 
@@ -204,13 +215,6 @@ export function transformCourseToClassItem(course: BackendCourse, index: number 
 }
 
 export function transformAssignment(assignment: BackendAssignment): Assignment {
-  const statusMap: Record<string, Assignment['status']> = {
-    'pending': 'assigned',
-    'submitted': 'submitted',
-    'graded': 'graded',
-    'late': 'late',
-  };
-
   const typeMap: Record<string, Assignment['type']> = {
     'exam': 'assignment',
     'activity': 'assignment',
@@ -231,6 +235,17 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
         .filter((entry) => entry.length > 0)
     : [];
 
+  // Prefer the backend-computed derived status. Fall back to deriving it
+  // ourselves from submission_status + due_date for payloads that don't
+  // carry it (e.g. cached responses from before this rollout).
+  const status: AssignmentStatus =
+    assignment.derived_status ??
+    computeDerivedStatus({
+      submissionStatus: assignment.submission_status,
+      dueDate: assignment.due_date,
+      submissionCloseAt: assignment.submission_close_at,
+    });
+
   return {
     id: assignment.id,
     classId: assignment.course_id,
@@ -238,7 +253,7 @@ export function transformAssignment(assignment: BackendAssignment): Assignment {
     description: assignment.description || '',
     dueDate: assignment.due_date,
     points: assignment.max_points,
-    status: statusMap[assignment.submission_status || 'pending'] || 'assigned',
+    status,
     type: typeMap[assignment.assignment_type || 'homework'] || 'assignment',
     rawType: assignment.assignment_type || 'activity',
     gradingPeriod: (assignment.grading_period as Assignment['gradingPeriod']) ?? null,

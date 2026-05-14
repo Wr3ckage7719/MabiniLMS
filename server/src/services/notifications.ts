@@ -18,6 +18,10 @@ import {
   NotificationCount,
   RegisterWebPushSubscriptionInput,
 } from '../types/notifications.js'
+import {
+  getNotificationSettings,
+  shouldSend,
+} from './notification-settings.js'
 import logger from '../utils/logger.js'
 
 type NotificationActor = {
@@ -335,10 +339,42 @@ const dispatchWebPushNotifications = async (
     return
   }
 
+  // Honor each recipient's push preferences. If the user has disabled push
+  // (either globally or for this notification type), drop their notifications
+  // from the dispatch list before we even query for subscriptions.
+  const settingsByUser = new Map<string, Awaited<ReturnType<typeof getNotificationSettings>>>()
+  await Promise.all(
+    userIds.map(async (userId) => {
+      try {
+        const settings = await getNotificationSettings(userId)
+        settingsByUser.set(userId, settings)
+      } catch (err) {
+        logger.warn('Failed to load notification settings; defaulting to push enabled', {
+          userId,
+          err: err instanceof Error ? err.message : String(err),
+        })
+      }
+    })
+  )
+
+  const allowedNotifications = notifications.filter((n) => {
+    const settings = settingsByUser.get(n.user_id)
+    if (!settings) return true // Default-permissive: never silently drop on load failure
+    return shouldSend(settings, 'push', n.type)
+  })
+
+  if (allowedNotifications.length === 0) {
+    return
+  }
+
+  const allowedUserIds = Array.from(
+    new Set(allowedNotifications.map((n) => n.user_id).filter(Boolean))
+  )
+
   const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
     .from('push_subscriptions')
     .select('id, user_id, endpoint, p256dh, auth')
-    .in('user_id', userIds)
+    .in('user_id', allowedUserIds)
     .eq('is_active', true)
 
   if (subscriptionsError) {
@@ -381,7 +417,7 @@ const dispatchWebPushNotifications = async (
 
   const staleSubscriptionIds = new Set<string>()
 
-  for (const notification of notifications) {
+  for (const notification of allowedNotifications) {
     const userSubscriptions = subscriptionsByUserId.get(notification.user_id) || []
     if (userSubscriptions.length === 0) {
       continue

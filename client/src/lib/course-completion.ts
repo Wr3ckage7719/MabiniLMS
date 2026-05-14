@@ -26,14 +26,16 @@ export function computeCourseCompletion(assignments: Assignment[]): CourseComple
   // the dashboard ring drift down whenever a student turned work in past the
   // due date. Mirror the same broadened set in the "next open item" filter so
   // we don't surface an already-submitted late item as the next thing to do.
-  const completed = assignments.filter(
-    (a) => a.status === 'submitted' || a.status === 'graded' || a.status === 'late'
-  ).length;
+  const isCompleted = (status: string): boolean =>
+    status === 'submitted' ||
+    status === 'graded' ||
+    status === 'late' ||
+    status === 'under_review';
+
+  const completed = assignments.filter((a) => isCompleted(a.status)).length;
 
   const open = assignments
-    .filter(
-      (a) => a.status !== 'submitted' && a.status !== 'graded' && a.status !== 'late'
-    )
+    .filter((a) => !isCompleted(a.status))
     .filter((a) => {
       const due = new Date(a.dueDate).getTime();
       return Number.isFinite(due);

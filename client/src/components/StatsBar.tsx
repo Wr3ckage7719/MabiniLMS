@@ -7,9 +7,15 @@ export function StatsBar() {
   const { data: assignments = [] } = useAssignments();
 
   const totalClasses = classes.length;
-  const pending = assignments.filter(a => a.status === 'assigned').length;
-  const submitted = assignments.filter(a => a.status === 'submitted' || a.status === 'graded').length;
-  const late = assignments.filter(a => a.status === 'late').length;
+  const pending = assignments.filter(
+    (a) => a.status === 'pending' || a.status === 'assigned' || a.status === 'draft',
+  ).length;
+  const submitted = assignments.filter(
+    (a) => a.status === 'submitted' || a.status === 'graded' || a.status === 'under_review',
+  ).length;
+  const late = assignments.filter(
+    (a) => a.status === 'late' || a.status === 'overdue' || a.status === 'missed',
+  ).length;
 
   const stats = [
     { label: 'Classes', value: totalClasses, icon: BookOpen, color: 'text-primary bg-primary/10' },

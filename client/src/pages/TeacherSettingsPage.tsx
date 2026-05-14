@@ -15,6 +15,7 @@ import {
   writePwaMobileZoomPolicyPreference,
 } from '@/lib/pwa-zoom-policy';
 import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
+import { notificationSettingsService } from '@/services/notification-settings.service';
 import axios from 'axios';
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from 'lucide-react';
 
@@ -83,25 +84,51 @@ export default function TeacherSettingsPage() {
       return;
     }
 
+    let active = true;
+
     try {
       const rawValue = localStorage.getItem(settingsStorageKey);
-      if (!rawValue) {
-        setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
-        setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
-        setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
-      } else {
+      if (rawValue) {
         const parsed = JSON.parse(rawValue) as Partial<LocalSettingsPreferences>;
         setEmailNotifications(parsed.emailNotifications ?? DEFAULT_LOCAL_SETTINGS.emailNotifications);
         setPushNotifications(parsed.pushNotifications ?? DEFAULT_LOCAL_SETTINGS.pushNotifications);
         setDueDateReminders(parsed.dueDateReminders ?? DEFAULT_LOCAL_SETTINGS.dueDateReminders);
       }
     } catch {
-      setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
-      setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
-      setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
-    } finally {
-      setPreferencesReady(true);
+      // ignore corrupt cache
     }
+
+    notificationSettingsService
+      .get()
+      .then((settings) => {
+        if (!active) return;
+        setEmailNotifications(settings.email_enabled);
+        setPushNotifications(settings.push_enabled);
+        setDueDateReminders(settings.due_date_reminders_enabled);
+        try {
+          localStorage.setItem(
+            settingsStorageKey,
+            JSON.stringify({
+              darkMode: isDarkModeEnabled(),
+              emailNotifications: settings.email_enabled,
+              pushNotifications: settings.push_enabled,
+              dueDateReminders: settings.due_date_reminders_enabled,
+            } satisfies LocalSettingsPreferences),
+          );
+        } catch {
+          // ignore quota errors
+        }
+      })
+      .catch(() => {
+        // Keep cache values on API failure
+      })
+      .finally(() => {
+        if (active) setPreferencesReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [settingsStorageKey]);
 
   useEffect(() => {
@@ -214,6 +241,7 @@ export default function TeacherSettingsPage() {
 
     setIsSavingProfile(true);
     let profileSaveError: string | null = null;
+    let notificationSaveError: string | null = null;
 
     try {
       await usersService.updateProfile({
@@ -225,6 +253,21 @@ export default function TeacherSettingsPage() {
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
+    }
+
+    try {
+      await notificationSettingsService.update({
+        email_enabled: emailNotifications,
+        push_enabled: pushNotifications,
+        due_date_reminders_enabled: dueDateReminders,
+      });
+    } catch (error) {
+      const responseMessage = axios.isAxiosError(error)
+        ? error.response?.data?.error?.message || error.response?.data?.message
+        : undefined;
+      notificationSaveError =
+        responseMessage ||
+        (error instanceof Error ? error.message : 'Unable to save notification preferences.');
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {
@@ -246,10 +289,11 @@ export default function TeacherSettingsPage() {
           : 'disabled'
     );
 
-    if (profileSaveError) {
+    if (profileSaveError || notificationSaveError) {
+      const message = [profileSaveError, notificationSaveError].filter(Boolean).join(' ');
       toast({
-        title: 'Profile save failed',
-        description: `${profileSaveError} Appearance and notification settings were saved locally.`,
+        title: 'Settings save failed',
+        description: message,
         variant: 'destructive',
       });
     } else {
