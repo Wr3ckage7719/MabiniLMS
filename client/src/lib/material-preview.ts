@@ -206,57 +206,117 @@ export const renderDocxToPages = async (url: string): Promise<string[]> => {
   }
 };
 
+// A4 portrait at 96dpi: 297mm × (96 / 25.4) ≈ 1122.52px. Used as the page
+// height fallback when neither inline nor computed styles expose a usable
+// value — without it, the paginator would treat the entire section as one
+// page (see comment below for why).
+const A4_HEIGHT_PX = 1122.52;
+
 // Splits a single rendered <section.docx> into one or more page-sized chunks
-// by walking its block-level children top-to-bottom and accumulating heights.
+// by walking its block-level content top-to-bottom and accumulating heights.
 // Returns serialized outerHTML strings — each is a clone of the section with
-// the same inline styles + class, holding only that page's children.
+// the same inline styles + class, holding only that page's blocks.
+//
+// IMPORTANT: docx-preview wraps the section's flow content in an <article>:
+//   <section class="docx" style="min-height: 29.7cm; ...">
+//     <article>
+//       <p>...</p> <p>...</p> ...
+//     </article>
+//   </section>
+// Iterating section.children directly therefore yields ONE element (the
+// article), whose offsetHeight is the entire document's rendered height. The
+// overflow check (bufferHeight + childHeight > contentAreaHeight) never
+// fires because bufferHeight starts at 0, so the whole document collapses to
+// a single "page" — exactly the bug we're paid to fix. We descend into the
+// article to reach the real paragraphs, headings, tables, etc.
 const paginateDocxSection = (section: HTMLElement): string[] => {
   const computed = window.getComputedStyle(section);
-  const minHeight = parseFloat(computed.minHeight) || section.offsetHeight;
+
+  // Page height detection: try inline first (docx-preview sets `min-height`
+  // there from <w:pgSz>), then computed, then A4. The previous code used
+  // `parseFloat(computed.minHeight) || section.offsetHeight` — but
+  // section.offsetHeight equals the FULL content height when content
+  // overflows the page-sized min-height, which made contentAreaHeight ≈
+  // total content height and produced one page. The A4 fallback removes
+  // that footgun.
+  const parsePx = (...values: string[]): number => {
+    for (const v of values) {
+      if (!v || v === 'auto') continue;
+      const n = parseFloat(v);
+      if (n > 100) return n;
+    }
+    return 0;
+  };
+
+  const pageHeight =
+    parsePx(section.style.minHeight, computed.minHeight) ||
+    parsePx(section.style.height, computed.height) ||
+    A4_HEIGHT_PX;
+
   const paddingTop = parseFloat(computed.paddingTop) || 0;
   const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-  const contentAreaHeight = Math.max(0, minHeight - paddingTop - paddingBottom);
+  const contentAreaHeight = Math.max(100, pageHeight - paddingTop - paddingBottom);
 
-  const children = Array.from(section.children) as HTMLElement[];
+  const directChildren = Array.from(section.children) as HTMLElement[];
+  const article = directChildren.find((c) => c.tagName === 'ARTICLE') ?? null;
+  const blocks = article
+    ? (Array.from(article.children) as HTMLElement[])
+    : directChildren;
 
-  // Degenerate cases: nothing to split, or page area is unmeasured. Either
-  // way the safest output is the section as-is so the reader still has
-  // something to render.
-  if (children.length === 0 || contentAreaHeight <= 0) {
+  if (blocks.length === 0) {
     return [section.outerHTML];
   }
 
-  const buffer: HTMLElement[] = [];
-  let bufferHeight = 0;
   const flushedPages: string[] = [];
+  let buffer: HTMLElement[] = [];
+  let bufferHeight = 0;
 
+  // When flushing, preserve the original order of direct children (e.g.
+  // <header>, <article>, <footer>). Non-article siblings appear on every
+  // page; only the article's children are partitioned.
   const flushBuffer = () => {
     if (buffer.length === 0) return;
-    const clone = section.cloneNode(false) as HTMLElement;
-    for (const child of buffer) {
-      clone.appendChild(child.cloneNode(true));
+    const sectionClone = section.cloneNode(false) as HTMLElement;
+
+    if (article) {
+      for (const child of directChildren) {
+        if (child === article) {
+          const articleClone = article.cloneNode(false) as HTMLElement;
+          for (const block of buffer) {
+            articleClone.appendChild(block.cloneNode(true));
+          }
+          sectionClone.appendChild(articleClone);
+        } else {
+          sectionClone.appendChild(child.cloneNode(true));
+        }
+      }
+    } else {
+      for (const block of buffer) {
+        sectionClone.appendChild(block.cloneNode(true));
+      }
     }
-    flushedPages.push(clone.outerHTML);
-    buffer.length = 0;
+
+    flushedPages.push(sectionClone.outerHTML);
+    buffer = [];
     bufferHeight = 0;
   };
 
-  for (const child of children) {
-    const childStyle = window.getComputedStyle(child);
-    const marginTop = parseFloat(childStyle.marginTop) || 0;
-    const marginBottom = parseFloat(childStyle.marginBottom) || 0;
-    const childHeight = child.offsetHeight + marginTop + marginBottom;
+  for (const block of blocks) {
+    const blockStyle = window.getComputedStyle(block);
+    const marginTop = parseFloat(blockStyle.marginTop) || 0;
+    const marginBottom = parseFloat(blockStyle.marginBottom) || 0;
+    const blockHeight = block.offsetHeight + marginTop + marginBottom;
 
-    // If adding this child would overflow and we've already buffered
-    // something, flush first so the child starts a fresh page. A child
-    // that's larger than a full page on its own still gets placed on
-    // its own page (don't infinite-loop trying to split it further).
-    if (bufferHeight > 0 && bufferHeight + childHeight > contentAreaHeight) {
+    // If this block would overflow the current page and we've already
+    // buffered something, flush first so the block starts a fresh page.
+    // A block taller than a full page still gets its own page (don't
+    // infinite-loop trying to split it further).
+    if (bufferHeight > 0 && bufferHeight + blockHeight > contentAreaHeight) {
       flushBuffer();
     }
 
-    buffer.push(child);
-    bufferHeight += childHeight;
+    buffer.push(block);
+    bufferHeight += blockHeight;
   }
 
   flushBuffer();
