@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import type { AssignmentStatus } from '@/lib/data';
 
 type CalendarAssignment = {
   id: string;
@@ -15,7 +16,7 @@ type CalendarAssignment = {
   description: string;
   dueDate: string;
   points: number;
-  status: 'assigned' | 'submitted' | 'graded' | 'late';
+  status: AssignmentStatus;
   type: 'assignment' | 'quiz' | 'project' | 'discussion';
   attachments?: number;
 };
@@ -307,7 +308,9 @@ export default function InteractiveCalendar() {
                   const isCurrentDay = isToday(day.date);
                   const isPastDay = isPast(day.date);
                   const hasAssignments = day.assignments.length > 0;
-                  const hasLateAssignments = day.assignments.some((a) => a.status === 'late');
+                  const hasLateAssignments = day.assignments.some(
+                    (a) => a.status === 'late' || a.status === 'overdue' || a.status === 'missed',
+                  );
 
                   return (
                     <button
@@ -434,7 +437,13 @@ export default function InteractiveCalendar() {
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       <Badge
-                        variant={assignment.status === 'late' ? 'destructive' : 'secondary'}
+                        variant={
+                          assignment.status === 'late' ||
+                          assignment.status === 'overdue' ||
+                          assignment.status === 'missed'
+                            ? 'destructive'
+                            : 'secondary'
+                        }
                         className="capitalize font-semibold text-xs"
                       >
                         {assignment.status}

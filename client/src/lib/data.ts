@@ -32,6 +32,20 @@ export interface ClassItem {
   enrolmentKey?: string | null;
 }
 
+// Canonical assignment status union — mirror of the derived status helper.
+// 'assigned' is kept as a backward-compatible alias of 'pending' for older
+// caches / payloads; new code should prefer 'pending'.
+export type AssignmentStatus =
+  | 'assigned'
+  | 'pending'
+  | 'draft'
+  | 'submitted'
+  | 'graded'
+  | 'late'
+  | 'under_review'
+  | 'overdue'
+  | 'missed';
+
 export interface Assignment {
   id: string;
   classId: string;
@@ -39,7 +53,7 @@ export interface Assignment {
   description: string;
   dueDate: string;
   points: number;
-  status: 'assigned' | 'submitted' | 'graded' | 'late';
+  status: AssignmentStatus;
   type: 'assignment' | 'quiz' | 'project' | 'discussion';
   rawType?: 'exam' | 'quiz' | 'activity' | 'recitation' | 'attendance' | 'project' | string;
   gradingPeriod?: 'pre_mid' | 'midterm' | 'pre_final' | 'final' | null;

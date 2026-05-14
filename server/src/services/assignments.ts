@@ -31,6 +31,7 @@ import logger from '../utils/logger.js';
 import { normalizeAssignmentType, supportsAssignmentTypeColumn } from '../utils/assignmentType.js';
 import { ACTIVE_ENROLLMENT_STATUSES } from '../utils/enrollmentStatus.js';
 import { assertAssessmentUnlocked } from './assessment-gating.js';
+import { computeDerivedStatus } from '../lib/assignment-status.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fixCommentAuthorJoin = (comment: any): AssignmentCommentWithAuthor => {
@@ -1200,7 +1201,7 @@ export const listAssignments = async (
   const fixedData: AssignmentWithCourse[] = (data || []).map((item: any) => {
     const course = Array.isArray(item.course) && item.course[0] ? item.course[0] : item.course;
     const teacher = course && Array.isArray(course.teacher) ? course.teacher[0] : course?.teacher;
-    
+
     return {
       ...normalizeAssignmentRecord(item),
       course: course ? {
@@ -1209,6 +1210,46 @@ export const listAssignments = async (
       } : course
     };
   });
+
+  // For students, attach each assignment's submission state in one batched
+  // lookup so the client can render Pending / Overdue / Missed / Submitted
+  // counts without re-deriving from dates alone.
+  if (userRole === UserRole.STUDENT && fixedData.length > 0) {
+    const assignmentIds = fixedData.map((a) => a.id);
+    const { data: submissionRows, error: submissionsError } = await supabaseAdmin
+      .from('submissions')
+      .select('assignment_id, status, submitted_at')
+      .eq('student_id', userId)
+      .in('assignment_id', assignmentIds);
+
+    if (submissionsError) {
+      logger.warn('Failed to attach submission status to assignment list', {
+        error: submissionsError.message,
+        userId,
+      });
+    }
+
+    const submissionMap = new Map<string, { status: string; submitted_at: string | null }>();
+    for (const row of submissionRows || []) {
+      submissionMap.set(row.assignment_id, {
+        status: row.status,
+        submitted_at: row.submitted_at,
+      });
+    }
+
+    const now = new Date();
+    for (const assignment of fixedData) {
+      const sub = submissionMap.get(assignment.id);
+      assignment.submission_status = (sub?.status as SubmissionStatus | undefined) ?? null;
+      assignment.submitted_at = sub?.submitted_at ?? null;
+      assignment.derived_status = computeDerivedStatus({
+        submissionStatus: sub?.status,
+        dueDate: assignment.due_date,
+        submissionCloseAt: assignment.submission_close_at,
+        now,
+      });
+    }
+  }
 
   return {
     assignments: fixedData,

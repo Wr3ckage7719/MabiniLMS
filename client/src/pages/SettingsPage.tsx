@@ -16,6 +16,7 @@ import {
   getPushEnableErrorMessage,
   pushNotificationsService,
 } from '@/services/push-notifications.service';
+import { notificationSettingsService } from '@/services/notification-settings.service';
 import {
   getRoleBasedDefaultZoomLock,
   readPwaMobileZoomPolicyPreference,
@@ -156,25 +157,53 @@ export default function SettingsPage() {
       return;
     }
 
+    let active = true;
+
+    // Instant hydrate from localStorage cache so the UI is never blank.
     try {
       const rawValue = localStorage.getItem(settingsStorageKey);
-      if (!rawValue) {
-        setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
-        setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
-        setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
-      } else {
+      if (rawValue) {
         const parsed = JSON.parse(rawValue) as Partial<LocalSettingsPreferences>;
         setEmailNotifications(parsed.emailNotifications ?? DEFAULT_LOCAL_SETTINGS.emailNotifications);
         setPushNotifications(parsed.pushNotifications ?? DEFAULT_LOCAL_SETTINGS.pushNotifications);
         setDueDateReminders(parsed.dueDateReminders ?? DEFAULT_LOCAL_SETTINGS.dueDateReminders);
       }
     } catch {
-      setEmailNotifications(DEFAULT_LOCAL_SETTINGS.emailNotifications);
-      setPushNotifications(DEFAULT_LOCAL_SETTINGS.pushNotifications);
-      setDueDateReminders(DEFAULT_LOCAL_SETTINGS.dueDateReminders);
-    } finally {
-      setPreferencesReady(true);
+      // ignore corrupt cache
     }
+
+    // Authoritative load from backend — overrides whatever the cache had.
+    notificationSettingsService
+      .get()
+      .then((settings) => {
+        if (!active) return;
+        setEmailNotifications(settings.email_enabled);
+        setPushNotifications(settings.push_enabled);
+        setDueDateReminders(settings.due_date_reminders_enabled);
+        try {
+          localStorage.setItem(
+            settingsStorageKey,
+            JSON.stringify({
+              darkMode: isDarkModeEnabled(),
+              emailNotifications: settings.email_enabled,
+              pushNotifications: settings.push_enabled,
+              dueDateReminders: settings.due_date_reminders_enabled,
+            } satisfies LocalSettingsPreferences),
+          );
+        } catch {
+          // ignore quota errors
+        }
+      })
+      .catch(() => {
+        // Offline / API down — keep whatever the cache provided.
+      })
+      .finally(() => {
+        if (active) setPreferencesReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [settingsStorageKey]);
 
   useEffect(() => {
@@ -342,6 +371,7 @@ export default function SettingsPage() {
 
     setIsSavingProfile(true);
     let profileSaveError: string | null = null;
+    let notificationSaveError: string | null = null;
 
     try {
       await usersService.updateProfile({
@@ -350,6 +380,19 @@ export default function SettingsPage() {
       });
     } catch (error) {
       profileSaveError = getFeedbackErrorMessage(error, 'Unable to update profile.');
+    }
+
+    try {
+      await notificationSettingsService.update({
+        email_enabled: emailNotifications,
+        push_enabled: pushNotifications,
+        due_date_reminders_enabled: dueDateReminders,
+      });
+    } catch (error) {
+      notificationSaveError = getFeedbackErrorMessage(
+        error,
+        'Unable to save notification preferences.',
+      );
     }
 
     if (settingsStorageKey && typeof window !== 'undefined') {
@@ -371,11 +414,23 @@ export default function SettingsPage() {
           : 'disabled'
     );
 
-    if (profileSaveError) {
+    if (profileSaveError && notificationSaveError) {
       notifyError(
         toast,
-        `${profileSaveError} Appearance and notification settings were saved locally.`,
-        'Profile save failed'
+        `${profileSaveError} ${notificationSaveError}`.trim(),
+        'Settings save failed',
+      );
+    } else if (profileSaveError) {
+      notifyError(
+        toast,
+        `${profileSaveError} Notification preferences were saved.`,
+        'Profile save failed',
+      );
+    } else if (notificationSaveError) {
+      notifyError(
+        toast,
+        `${notificationSaveError} Profile was saved.`,
+        'Notification preferences not saved',
       );
     } else {
       notifySuccess(toast, 'Your profile and preferences have been saved.', 'Settings saved');

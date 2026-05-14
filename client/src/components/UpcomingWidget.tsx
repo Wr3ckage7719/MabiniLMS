@@ -29,13 +29,18 @@ export function UpcomingWidget() {
     navigate(`/class/${classId}?assignmentId=${assignmentId}`);
   };
 
-  // Filter for upcoming and late assignments
+  // Filter for upcoming work that is still open: not yet turned in, regardless
+  // of whether the deadline has slipped. (Overdue items should still be shown.)
   const upcoming = assignments
     .filter((a) => {
-      const dueDate = new Date(a.dueDate);
-      const now = new Date();
-      // Include if not submitted and due date hasn't passed, or if late
-      return (a.status === 'assigned' || a.status === 'late') && dueDate >= now;
+      const status = a.status;
+      const isOpen =
+        status === 'pending' ||
+        status === 'assigned' ||
+        status === 'draft' ||
+        status === 'overdue' ||
+        status === 'late';
+      return isOpen;
     })
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
     .slice(0, 5);
@@ -61,7 +66,10 @@ export function UpcomingWidget() {
           upcoming.map((item) => {
             const cls = classes.find((c) => c.id === item.classId);
             const Icon = TYPE_ICONS[item.type] || FileText;
-            const isLate = item.status === 'late';
+            const isLate =
+              item.status === 'late' ||
+              item.status === 'overdue' ||
+              item.status === 'missed';
             const dueDate = new Date(item.dueDate);
             const today = new Date();
             const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));

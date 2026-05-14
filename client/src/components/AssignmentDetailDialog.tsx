@@ -223,6 +223,10 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const isExamAssignment = assignmentRawType === 'exam' || assignmentRawType === 'quiz';
   const isQuizAssignment = assignmentRawType === 'quiz';
   const isActivityAssignment = assignmentRawType === 'activity';
+  const isOverdueAssignment =
+    assignment?.status === 'late' ||
+    assignment?.status === 'overdue' ||
+    assignment?.status === 'missed';
   // Past-due is a soft client-side guard so the submit button reflects what
   // the server will accept. The server enforces the same cutoff in
   // assignments.submitAssignment / exams.startExamAttempt — touching nowTick
@@ -605,8 +609,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
         </div>
         <DialogHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${assignment.status === 'late' ? 'bg-destructive/10' : taskMeta.iconBg}`}>
-              <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${assignment.status === 'late' ? 'text-destructive' : taskMeta.iconText}`} />
+            <div className={`p-2.5 sm:p-3 rounded-xl flex-shrink-0 ${isOverdueAssignment ? 'bg-destructive/10' : taskMeta.iconBg}`}>
+              <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${isOverdueAssignment ? 'text-destructive' : taskMeta.iconText}`} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -646,7 +650,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             </Badge>
           )}
           <Badge
-            variant={assignment.status === 'late' ? 'destructive' : 'outline'}
+            variant={isOverdueAssignment ? 'destructive' : 'outline'}
             className="rounded-lg capitalize text-xs sm:text-sm"
           >
             {assignment.status}

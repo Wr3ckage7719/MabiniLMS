@@ -11,6 +11,7 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { apiLimiter, adminLimiter, batchLimiter, searchLimiter } from './middleware/rateLimiter.js';
 import logger from './utils/logger.js';
 import { initializeWebSocket } from './services/websocket.js';
+import { startReminderScheduler } from './services/reminder-scheduler.js';
 import {
   authRoutes, 
   userRoutes,
@@ -23,6 +24,7 @@ import {
   gradeRoutes,
   searchRoutes,
   notificationRoutes,
+  notificationSettingsRoutes,
   bugReportRoutes,
   analyticsRoutes,
   batchRoutes,
@@ -374,6 +376,7 @@ app.use('/api/assignments', largeJsonBody, assignmentRoutes);
 app.use('/api/grades', largeJsonBody, gradeRoutes);
 app.use('/api/search', searchLimiter, searchRoutes); // Search-specific rate limiting
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/notification-settings', notificationSettingsRoutes);
 app.use('/api/bug-reports', bugReportRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/batch', batchLimiter, largeJsonBody, batchRoutes); // Batch-specific rate limiting
@@ -428,6 +431,14 @@ const startServer = async (): Promise<void> => {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('Supabase admin capability check failed (server still listening)', { error: message });
       });
+  }
+
+  // Start the due-date reminder scheduler. ENABLE_REMINDER_SCHEDULER=false
+  // disables it (used by tests and one-off scripts).
+  const reminderSchedulerDisabled =
+    (process.env.ENABLE_REMINDER_SCHEDULER || '').trim().toLowerCase() === 'false';
+  if (process.env.NODE_ENV !== 'test' && !reminderSchedulerDisabled) {
+    startReminderScheduler();
   }
 };
 

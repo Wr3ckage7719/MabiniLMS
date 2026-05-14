@@ -188,6 +188,38 @@ export const notificationSettingsSchema = z.object({
 
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>
 
+// Per-channel preferences stored against a NotificationType key.
+export const notificationTypePreferenceSchema = z.object({
+  email: z.boolean().optional(),
+  push: z.boolean().optional(),
+  in_app: z.boolean().optional(),
+})
+
+export type NotificationTypePreference = z.infer<typeof notificationTypePreferenceSchema>
+
+// Body schema for PUT /api/notification-settings — all fields optional so the
+// frontend can patch individual toggles without resending the full record.
+export const notificationSettingsUpdateSchema = z.object({
+  email_enabled: z.boolean().optional(),
+  push_enabled: z.boolean().optional(),
+  due_date_reminders_enabled: z.boolean().optional(),
+  due_date_reminder_lead_hours: z.number().int().min(1).max(168).optional(),
+  type_preferences: z.record(z.string(), notificationTypePreferenceSchema).optional(),
+})
+
+export type NotificationSettingsUpdateInput = z.infer<typeof notificationSettingsUpdateSchema>
+
+// Wire representation of the row in the notification_settings table.
+export interface NotificationSettingsRecord {
+  user_id: string
+  email_enabled: boolean
+  push_enabled: boolean
+  due_date_reminders_enabled: boolean
+  due_date_reminder_lead_hours: number
+  type_preferences: Record<string, NotificationTypePreference>
+  updated_at: string
+}
+
 // ============================================
 // Notification Count Response
 // ============================================

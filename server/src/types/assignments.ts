@@ -321,6 +321,20 @@ export interface AssignmentWithCourse extends Assignment {
       last_name: string;
     };
   };
+  // Populated for student-scoped listings only. Lets the client tag each
+  // assignment with the requesting student's submission state without a
+  // second round-trip.
+  submission_status?: SubmissionStatus | null;
+  submitted_at?: string | null;
+  derived_status?:
+    | 'draft'
+    | 'submitted'
+    | 'late'
+    | 'under_review'
+    | 'graded'
+    | 'pending'
+    | 'overdue'
+    | 'missed';
 }
 
 export interface Submission {
