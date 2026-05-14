@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getClassHomePath } from '@/lib/navigation';
-import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Download } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -135,6 +135,31 @@ export default function MaterialReaderPage() {
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, [docxPages, pageIndex]);
+
+  // Manual zoom override. null = auto (DOCX uses fit-to-width; PDF/image
+  // use 1.0). Range 25%-200% in 10% steps. Resets when the material
+  // changes so each new file starts at its sensible default.
+  const ZOOM_MIN = 0.25;
+  const ZOOM_MAX = 2.0;
+  const ZOOM_STEP = 0.1;
+  const [manualZoom, setManualZoom] = useState<number | null>(null);
+  useEffect(() => {
+    setManualZoom(null);
+  }, [meta?.id]);
+
+  const supportsZoom = meta?.kind === 'pdf' || meta?.kind === 'docx' || meta?.kind === 'image';
+  const autoZoom = meta?.kind === 'docx' ? docxZoom : 1;
+  const effectiveZoom = manualZoom ?? autoZoom;
+
+  const zoomIn = useCallback(() => {
+    setManualZoom((z) => Math.min(ZOOM_MAX, Math.round(((z ?? autoZoom) + ZOOM_STEP) * 10) / 10));
+  }, [autoZoom]);
+  const zoomOut = useCallback(() => {
+    setManualZoom((z) => Math.max(ZOOM_MIN, Math.round(((z ?? autoZoom) - ZOOM_STEP) * 10) / 10));
+  }, [autoZoom]);
+  const resetZoom = useCallback(() => {
+    setManualZoom(null);
+  }, []);
 
   // Load material metadata
   useEffect(() => {
@@ -270,15 +295,17 @@ export default function MaterialReaderPage() {
     }
   }, [meta]);
 
-  // Render PDF page when index or handle changes. Render scale 2.0 produces
-  // sharp output that students can still pinch-zoom further if needed.
+  // Render PDF page when index, handle, or zoom changes. Base scale 2.0
+  // keeps text sharp; multiplying by effectiveZoom re-rasterises at the
+  // requested zoom so manual zoom-in stays sharp instead of pixelating
+  // the way CSS zoom would.
   useEffect(() => {
-    if (!pdfHandle || !pdfCanvasRef.current) return;
+    if (!pdfHandle || !pdfCanvasRef.current || meta?.kind !== 'pdf') return;
     const canvas = pdfCanvasRef.current;
     let active = true;
     void (async () => {
       try {
-        await pdfHandle.renderPage(pageIndex + 1, canvas, 2.0);
+        await pdfHandle.renderPage(pageIndex + 1, canvas, 2.0 * effectiveZoom);
       } catch (err) {
         if (!active) return;
         toast({
@@ -291,7 +318,7 @@ export default function MaterialReaderPage() {
     return () => {
       active = false;
     };
-  }, [pdfHandle, pageIndex, toast]);
+  }, [pdfHandle, pageIndex, toast, effectiveZoom, meta?.kind]);
 
   // Track page change — every visited page is added to the viewed set, and
   // the cumulative scroll percent is reported. The backend marks the
@@ -488,7 +515,7 @@ export default function MaterialReaderPage() {
             ref={docxSurfaceRef}
             className="docx-page-surface"
             style={{
-              zoom: docxZoom < 1 ? docxZoom : undefined,
+              zoom: effectiveZoom !== 1 ? effectiveZoom : undefined,
               ...(readerTheme === 'dark' ? { filter: 'invert(1) hue-rotate(180deg)' } : {}),
             }}
             dangerouslySetInnerHTML={{ __html: docxPages[pageIndex] || '' }}
@@ -528,8 +555,13 @@ export default function MaterialReaderPage() {
 
     if (meta.kind === 'image') {
       return (
-        <div className="flex justify-center">
-          <img src={meta.url} alt={meta.title} className={`max-h-[80vh] rounded-lg border ${surfaceBg}`} />
+        <div className="flex justify-center overflow-auto">
+          <img
+            src={meta.url}
+            alt={meta.title}
+            className={`max-h-[80vh] rounded-lg border ${surfaceBg}`}
+            style={effectiveZoom !== 1 ? { zoom: effectiveZoom } : undefined}
+          />
         </div>
       );
     }
@@ -549,7 +581,7 @@ export default function MaterialReaderPage() {
         </p>
       </div>
     );
-  }, [loading, loadError, meta, pdfReady, docxPages, pptxSlides, pageIndex, docxZoom, readerTheme]);
+  }, [loading, loadError, meta, pdfReady, docxPages, pptxSlides, pageIndex, effectiveZoom, readerTheme, surfaceBg, surfaceText, goBack]);
 
   const showPager = !loading && !loadError && totalPages > 0;
 
@@ -572,6 +604,29 @@ export default function MaterialReaderPage() {
           >
             {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           </Button>
+          {/* Mobile zoom controls — only for kinds that benefit from zoom */}
+          {supportsZoom ? (
+            <div className="flex items-center gap-0.5 rounded-lg border bg-card sm:hidden" role="group" aria-label="Zoom">
+              <button
+                type="button"
+                onClick={zoomOut}
+                disabled={effectiveZoom <= ZOOM_MIN}
+                className="p-1.5 text-muted-foreground hover:bg-muted rounded-l-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Zoom out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                disabled={effectiveZoom >= ZOOM_MAX}
+                className="p-1.5 text-muted-foreground hover:bg-muted rounded-r-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Zoom in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+            </div>
+          ) : null}
           <div className="min-w-0 flex-1 text-center">
             <p className="text-sm md:text-base font-semibold truncate">{meta?.title || ''}</p>
             {totalPages > 0 ? (
@@ -593,6 +648,42 @@ export default function MaterialReaderPage() {
               {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               <span className="hidden md:inline text-xs">{downloading ? 'Saving…' : 'Download'}</span>
             </Button>
+            {/* Desktop zoom controls — full pill with percentage + Auto reset */}
+            {supportsZoom ? (
+              <div className="flex items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label="Zoom">
+                <button
+                  type="button"
+                  onClick={zoomOut}
+                  disabled={effectiveZoom <= ZOOM_MIN}
+                  className="px-1.5 py-0.5 rounded text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Zoom out"
+                >
+                  <ZoomOut className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-[10px] tabular-nums w-9 text-center text-muted-foreground select-none">
+                  {Math.round(effectiveZoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={zoomIn}
+                  disabled={effectiveZoom >= ZOOM_MAX}
+                  className="px-1.5 py-0.5 rounded text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label="Zoom in"
+                >
+                  <ZoomIn className="h-3.5 w-3.5" />
+                </button>
+                {manualZoom !== null ? (
+                  <button
+                    type="button"
+                    onClick={resetZoom}
+                    className="px-1.5 py-0.5 rounded text-[10px] uppercase text-muted-foreground hover:bg-muted"
+                    aria-label="Reset zoom"
+                  >
+                    Auto
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex items-center gap-1 rounded-lg border bg-card p-0.5">
               {(['light', 'sepia', 'dark'] as const).map((t) => (
                 <button

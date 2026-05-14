@@ -169,13 +169,17 @@ export const renderDocxToPages = async (url: string): Promise<string[]> => {
   const arrayBuffer = await response.arrayBuffer();
   const { renderAsync } = await import('docx-preview');
 
-  // Off-screen but laid out so offsetHeight measurements are accurate. Pure
-  // visibility:hidden inside a flex/grid ancestor can still influence layout;
-  // a fixed off-canvas position guarantees independence from page flow.
+  // Off-screen but laid out so getBoundingClientRect measurements are
+  // accurate. We give the host an EXPLICIT width wider than any standard
+  // page (25cm > A4's 21cm > Letter's 21.59cm) so docx-preview's flex
+  // wrapper doesn't shrink-to-fit and squeeze the section narrower than
+  // its inline `width: 21cm`. A squeezed section forces extra line wraps,
+  // inflating each block's measured height and flushing pages too early.
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-99999px';
   host.style.top = '0';
+  host.style.width = '25cm';
   host.style.visibility = 'hidden';
   host.style.pointerEvents = 'none';
   document.body.appendChild(host);
@@ -189,6 +193,14 @@ export const renderDocxToPages = async (url: string): Promise<string[]> => {
       breakPages: true,
       useBase64URL: true,
     });
+
+    // Wait for fonts before measuring. If we paginate against the system
+    // fallback font and the displayed reader uses a different (loaded)
+    // font, paragraphs render at a different height than measured — which
+    // is exactly how the white A4 sheet ended up half-empty.
+    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+      await document.fonts.ready;
+    }
 
     const sections = Array.from(host.querySelectorAll<HTMLElement>('section.docx'));
     if (sections.length === 0) {
@@ -269,7 +281,7 @@ const paginateDocxSection = (section: HTMLElement): string[] => {
 
   const flushedPages: string[] = [];
   let buffer: HTMLElement[] = [];
-  let bufferHeight = 0;
+  let anchorTop: number | null = null;
 
   // When flushing, preserve the original order of direct children (e.g.
   // <header>, <article>, <footer>). Non-article siblings appear on every
@@ -298,25 +310,28 @@ const paginateDocxSection = (section: HTMLElement): string[] => {
 
     flushedPages.push(sectionClone.outerHTML);
     buffer = [];
-    bufferHeight = 0;
+    anchorTop = null;
   };
 
+  // Position-based pagination. Anchor on the first block's `top`, then
+  // for each subsequent block check if its `bottom` would exceed
+  // `anchor + contentAreaHeight`. Using real bounding-rect positions (not
+  // summed offsetHeight + margins) is what makes pages fill: CSS margins
+  // collapse between adjacent blocks, so the SUM of margins overcounts
+  // the actual rendered height by 30-50% — flushing pages half-empty.
   for (const block of blocks) {
-    const blockStyle = window.getComputedStyle(block);
-    const marginTop = parseFloat(blockStyle.marginTop) || 0;
-    const marginBottom = parseFloat(blockStyle.marginBottom) || 0;
-    const blockHeight = block.offsetHeight + marginTop + marginBottom;
-
-    // If this block would overflow the current page and we've already
-    // buffered something, flush first so the block starts a fresh page.
-    // A block taller than a full page still gets its own page (don't
-    // infinite-loop trying to split it further).
-    if (bufferHeight > 0 && bufferHeight + blockHeight > contentAreaHeight) {
-      flushBuffer();
+    const rect = block.getBoundingClientRect();
+    if (anchorTop === null) {
+      anchorTop = rect.top;
+      buffer.push(block);
+      continue;
     }
-
+    const usedHeight = rect.bottom - anchorTop;
+    if (usedHeight > contentAreaHeight && buffer.length > 0) {
+      flushBuffer();
+      anchorTop = rect.top;
+    }
     buffer.push(block);
-    bufferHeight += blockHeight;
   }
 
   flushBuffer();
