@@ -13,6 +13,7 @@ export const proctorViolationTypeValues = [
   'screen_orientation_change',
   'network_offline',
   'picture_in_picture',
+  'screenshot_suspected',
 ] as const
 
 export const proctorViolationTypeSchema = z.enum(proctorViolationTypeValues)

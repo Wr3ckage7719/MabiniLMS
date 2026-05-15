@@ -213,8 +213,7 @@ export function CreateAssignmentDialog({
   const [examImportedQuestions, setExamImportedQuestions] = useState<ImportedQuestionDraft[]>([]);
   const [examImportFileName, setExamImportFileName] = useState<string | null>(null);
   const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
-  const [examChapterTags, setExamChapterTags] = useState('');
-  const [examQuestionsPerChapter, setExamQuestionsPerChapter] = useState('5');
+  const [examChapterRules, setExamChapterRules] = useState<Array<{ tag: string; take: string }>>([]);
   const [examTotalQuestions, setExamTotalQuestions] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
@@ -277,10 +276,15 @@ export function CreateAssignmentDialog({
       if (!hasAnyQuestion) newErrors.quizQuestions = 'Add at least one quiz question prompt';
     }
     if (taskType === 'exam' && examChapterPoolEnabled) {
-      const parsedTags = examChapterTags.split(',').map((tag) => tag.trim()).filter(Boolean);
-      if (parsedTags.length === 0) newErrors.examChapterTags = 'Add at least one chapter tag when chapter pools are enabled';
-      const perChapterCount = Number(examQuestionsPerChapter);
-      if (!Number.isFinite(perChapterCount) || perChapterCount <= 0) newErrors.examQuestionsPerChapter = 'Questions per chapter must be a positive number';
+      if (examChapterRules.length === 0) {
+        newErrors.examChapterTags = 'Add at least one chapter tag when chapter pools are enabled';
+      } else {
+        const invalidTake = examChapterRules.some((r) => {
+          const n = Number(r.take);
+          return !Number.isFinite(n) || n <= 0;
+        });
+        if (invalidTake) newErrors.examChapterTags = 'Each chapter must have a positive take count';
+      }
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -417,7 +421,10 @@ export function CreateAssignmentDialog({
         setExamImportedQuestions(result.questions);
         setExamImportFileName(file.name);
         const importChapterTags = Array.from(new Set(result.questions.map((q) => q.chapterTag).filter((tag): tag is string => Boolean(tag && tag.trim()))));
-        if (importChapterTags.length > 0 && !examChapterTags.trim()) setExamChapterTags(importChapterTags.join(', '));
+        if (importChapterTags.length > 0 && examChapterRules.length === 0) {
+          setExamChapterRules(importChapterTags.map((tag) => ({ tag, take: '5' })));
+          setExamChapterPoolEnabled(true);
+        }
       }
       toast({
         title: 'Questions imported',
@@ -500,10 +507,13 @@ export function CreateAssignmentDialog({
         setUploadingMaterialId(null);
       } else {
         const assignmentType = taskType === 'quiz' ? 'quiz' : taskType === 'exam' ? 'exam' : 'activity';
-        const chapterTags = examChapterTags.split(',').map((tag) => tag.trim()).filter(Boolean);
-        const perChapterCount = Number(examQuestionsPerChapter);
         const totalQuestionsCount = Number(examTotalQuestions);
-        const chapterPoolRules = chapterTags.map((tag) => ({ tag, ...(Number.isFinite(perChapterCount) && perChapterCount > 0 ? { take: Math.floor(perChapterCount) } : {}) }));
+        const chapterPoolRules = examChapterRules
+          .filter((r) => r.tag.trim())
+          .map((r) => {
+            const take = Math.floor(Number(r.take));
+            return { tag: r.tag.trim(), ...(Number.isFinite(take) && take > 0 ? { take } : {}) };
+          });
         const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
         const parsedExamMaxViolations = Number(examMaxViolations);
         const effectiveExamMaxViolations = Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0 ? Math.floor(parsedExamMaxViolations) : examIntegrityProfile === 'strict' ? 3 : 5;
@@ -834,10 +844,8 @@ export function CreateAssignmentDialog({
           setExamMaxViolations={setExamMaxViolations}
           examChapterPoolEnabled={examChapterPoolEnabled}
           setExamChapterPoolEnabled={setExamChapterPoolEnabled}
-          examChapterTags={examChapterTags}
-          setExamChapterTags={setExamChapterTags}
-          examQuestionsPerChapter={examQuestionsPerChapter}
-          setExamQuestionsPerChapter={setExamQuestionsPerChapter}
+          examChapterRules={examChapterRules}
+          setExamChapterRules={setExamChapterRules}
           examTotalQuestions={examTotalQuestions}
           setExamTotalQuestions={setExamTotalQuestions}
           addExamQuestion={addExamQuestion}
@@ -847,7 +855,6 @@ export function CreateAssignmentDialog({
           onImportFile={(event) => void handleImportQuestionFile('exam', event)}
           onDownloadTemplate={downloadQuestionImportTemplate}
           examChapterTagsError={errors.examChapterTags}
-          examQuestionsPerChapterError={errors.examQuestionsPerChapter}
           clearFieldError={clearFieldError}
           examBuilderCandidateCount={examBuilderCandidateCount}
           examBuilderReadyCount={examBuilderReadyCount}

@@ -198,7 +198,12 @@ export const getAssignment = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const assignment = await assignmentService.getAssignmentById(req.params.id);
+    const studentId =
+      req.user?.role === UserRole.STUDENT ? req.user.id : undefined;
+    const assignment = await assignmentService.getAssignmentById(
+      req.params.id,
+      studentId ? { studentId } : undefined
+    );
 
     res.json({
       success: true,

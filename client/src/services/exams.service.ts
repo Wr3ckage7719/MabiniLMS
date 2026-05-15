@@ -13,6 +13,7 @@ export type ProctorViolationType =
   | 'screen_orientation_change'
   | 'network_offline'
   | 'picture_in_picture'
+  | 'screenshot_suspected'
 
 export interface ProctoringPolicy {
   max_violations: number

@@ -1093,7 +1093,10 @@ export const createAssignment = async (
 /**
  * Get assignment by ID
  */
-export const getAssignmentById = async (assignmentId: string): Promise<AssignmentWithCourse> => {
+export const getAssignmentById = async (
+  assignmentId: string,
+  opts?: { studentId?: string }
+): Promise<AssignmentWithCourse> => {
   const { data, error } = await supabaseAdmin
     .from('assignments')
     .select(`
@@ -1115,7 +1118,7 @@ export const getAssignmentById = async (assignmentId: string): Promise<Assignmen
   const rawData = data as any;
   const course = Array.isArray(rawData.course) && rawData.course[0] ? rawData.course[0] : rawData.course;
   const teacher = course && Array.isArray(course.teacher) ? course.teacher[0] : course?.teacher;
-  
+
   const result: AssignmentWithCourse = {
     ...normalizeAssignmentRecord(rawData),
     course: course ? {
@@ -1123,6 +1126,25 @@ export const getAssignmentById = async (assignmentId: string): Promise<Assignmen
       teacher: teacher
     } : course
   };
+
+  // Attach submission status for student-scoped fetches so the client
+  // can render the correct badge without re-deriving from dates alone.
+  if (opts?.studentId) {
+    const { data: sub } = await supabaseAdmin
+      .from('submissions')
+      .select('status, submitted_at')
+      .eq('assignment_id', assignmentId)
+      .eq('student_id', opts.studentId)
+      .maybeSingle();
+
+    result.submission_status = (sub?.status as SubmissionStatus | undefined) ?? null;
+    result.submitted_at = sub?.submitted_at ?? null;
+    result.derived_status = computeDerivedStatus({
+      submissionStatus: sub?.status,
+      dueDate: result.due_date,
+      submissionCloseAt: result.submission_close_at,
+    });
+  }
 
   return result;
 };
