@@ -400,7 +400,12 @@ export const updateManagedUser = async (
 }
 
 /**
- * Delete a teacher or student account from admin panel
+ * Soft-delete a teacher or student account from the admin panel.
+ *
+ * Sets profiles.deleted_at and bans the auth user so they can no longer log
+ * in. Downstream rows (submissions, grades, audit logs, etc.) are
+ * preserved. Use hardDeleteManagedUser for the rare case where the data
+ * must actually be erased.
  */
 export const deleteManagedUser = async (
   userId: string,
@@ -410,21 +415,143 @@ export const deleteManagedUser = async (
 ): Promise<void> => {
   const existingUser = await getManageableUser(userId)
 
-  const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+  const nowIso = new Date().toISOString()
 
-  if (deleteError) {
-    logger.error(`Failed to delete managed user ${userId}: ${deleteError.message}`)
+  const { error: profileUpdateError } = await supabaseAdmin
+    .from('profiles')
+    .update({ deleted_at: nowIso, updated_at: nowIso })
+    .eq('id', userId)
+
+  if (profileUpdateError) {
+    logger.error(`Failed to soft-delete managed user ${userId}: ${profileUpdateError.message}`)
     throw new Error('Failed to delete user')
+  }
+
+  // Disable auth so the user cannot log in. Banning is reversible (used by
+  // restoreManagedUser) and does not cascade-delete downstream rows.
+  const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    ban_duration: '876000h', // ~100 years
+  } as any)
+
+  if (banError) {
+    logger.warn(`Soft-deleted profile ${userId} but failed to ban auth user: ${banError.message}`)
   }
 
   await logAdminAction(
     adminId,
-    'managed_user_deleted',
+    'managed_user_soft_deleted',
     userId,
     {
       role: existingUser.role,
       email: existingUser.email,
       full_name: `${existingUser.first_name} ${existingUser.last_name}`,
+      pending_approval: existingUser.pending_approval || false,
+    },
+    ipAddress,
+    userAgent
+  )
+}
+
+/**
+ * Restore a soft-deleted user. Clears deleted_at and lifts the auth ban.
+ */
+export const restoreManagedUser = async (
+  userId: string,
+  adminId: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<ManagedUser> => {
+  const { data: existingProfile, error: lookupError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, first_name, last_name, role, pending_approval, created_at, updated_at, deleted_at')
+    .eq('id', userId)
+    .single()
+
+  if (lookupError || !existingProfile) {
+    throw new Error('User not found')
+  }
+
+  if (!existingProfile.deleted_at) {
+    throw new Error('User is not deleted')
+  }
+
+  if (existingProfile.role !== 'teacher' && existingProfile.role !== 'student') {
+    throw new Error('Only teacher and student accounts can be managed')
+  }
+
+  const { data: restoredProfile, error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+    .select('id, email, first_name, last_name, role, pending_approval, created_at, updated_at')
+    .single()
+
+  if (updateError || !restoredProfile) {
+    logger.error(`Failed to restore profile ${userId}: ${updateError?.message}`)
+    throw new Error('Failed to restore user')
+  }
+
+  const { error: unbanError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    ban_duration: 'none',
+  } as any)
+
+  if (unbanError) {
+    logger.warn(`Restored profile ${userId} but failed to lift auth ban: ${unbanError.message}`)
+  }
+
+  await logAdminAction(
+    adminId,
+    'managed_user_restored',
+    userId,
+    {
+      role: existingProfile.role,
+      email: existingProfile.email,
+      full_name: `${existingProfile.first_name} ${existingProfile.last_name}`,
+    },
+    ipAddress,
+    userAgent
+  )
+
+  return restoredProfile as ManagedUser
+}
+
+/**
+ * Permanently delete a managed user. Requires the caller to retype the
+ * user's full name as a confirmation. Cascades through every dependent
+ * row — use only when retention rules require it (GDPR right-to-be-
+ * forgotten, accidental test account, etc.). Logs to the audit trail.
+ */
+export const hardDeleteManagedUser = async (
+  userId: string,
+  adminId: string,
+  confirmationName: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> => {
+  const existingUser = await getManageableUser(userId)
+
+  const expectedName = `${existingUser.first_name} ${existingUser.last_name}`.trim()
+  const providedName = (confirmationName || '').trim()
+
+  if (!expectedName || providedName.toLowerCase() !== expectedName.toLowerCase()) {
+    throw new Error('Confirmation name does not match. Type the user\'s full name exactly.')
+  }
+
+  const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+
+  if (deleteError) {
+    logger.error(`Failed to hard-delete managed user ${userId}: ${deleteError.message}`)
+    throw new Error('Failed to delete user')
+  }
+
+  await logAdminAction(
+    adminId,
+    'managed_user_hard_deleted',
+    userId,
+    {
+      role: existingUser.role,
+      email: existingUser.email,
+      full_name: expectedName,
       pending_approval: existingUser.pending_approval || false,
     },
     ipAddress,

@@ -433,7 +433,11 @@ export default function StudentManagementPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Student Account</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground">
-              This will permanently delete {selectedStudent?.email}. This action cannot be undone.
+              {selectedStudent?.email} will be deactivated and can no longer
+              sign in. Their submissions, grades, and class history stay
+              intact and can be restored by another admin. Use the
+              "Permanently delete" action only if you need to fully erase
+              this account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -446,7 +450,7 @@ export default function StudentManagementPage() {
               disabled={deleteStudentMutation.isPending}
             >
               {deleteStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Remove Student
+              Deactivate Student
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

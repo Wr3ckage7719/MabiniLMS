@@ -163,6 +163,20 @@ export const deleteManagedUser = async (userId: string): Promise<void> => {
   await apiClient.delete(`/admin/users/${userId}`);
 };
 
+export const restoreManagedUser = async (userId: string): Promise<AdminUser> => {
+  const response = await apiClient.post(`/admin/users/${userId}/restore`);
+  return unwrapApiData<AdminUser>(response);
+};
+
+export const hardDeleteManagedUser = async (
+  userId: string,
+  confirmationName: string,
+): Promise<void> => {
+  await apiClient.delete(`/admin/users/${userId}/hard`, {
+    data: { confirmation_name: confirmationName },
+  });
+};
+
 // System Settings
 export const getSystemSettings = async (): Promise<SystemSettings> => {
   const response = await apiClient.get('/admin/settings');
