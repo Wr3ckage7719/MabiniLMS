@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { examsService, ExamAttemptSession, ExamSubmissionResult, ProctorViolationType } from '@/services/exams.service'
+import { reportViolationDurable } from '@/lib/violation-buffer'
 import { Z } from '@/lib/z-index'
 
 interface ProctoredExamDialogProps {
@@ -176,40 +177,47 @@ export function ProctoredExamDialog({
 
       lastViolationAtRef.current[type] = now
 
-      try {
-        const response = await examsService.reportExamViolation(session.attempt.id, {
-          violation_type: type,
-          metadata,
+      const { buffered, result: response } = await reportViolationDurable(
+        session.attempt.id,
+        type,
+        metadata
+      )
+
+      if (buffered) {
+        // Violation buffered offline — count it locally so the UI stays
+        // accurate. Server-side termination/auto-submit logic will run when
+        // the buffer drains on reconnect.
+        setViolationCount((current) => current + 1)
+        return
+      }
+
+      if (!response) return
+
+      setViolationCount(response.violation_count)
+
+      if (response.auto_submitted && response.submission_result) {
+        setResult(response.submission_result)
+        setStarted(false)
+        setTerminated(false)
+        if (document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {})
+        }
+        toast({
+          title: 'Attempt auto-submitted',
+          description: 'Hard policy trigger finalized your attempt automatically.',
+          variant: 'destructive',
         })
+        return
+      }
 
-        setViolationCount(response.violation_count)
-
-        if (response.auto_submitted && response.submission_result) {
-          setResult(response.submission_result)
-          setStarted(false)
-          setTerminated(false)
-          if (document.fullscreenElement) {
-            void document.exitFullscreen().catch(() => {})
-          }
-          toast({
-            title: 'Attempt auto-submitted',
-            description: 'Hard policy trigger finalized your attempt automatically.',
-            variant: 'destructive',
-          })
-          return
-        }
-
-        if (response.terminated) {
-          setTerminated(true)
-          setStarted(false)
-          toast({
-            title: 'Attempt terminated',
-            description: 'Violation threshold reached. You can still submit your current answers.',
-            variant: 'destructive',
-          })
-        }
-      } catch (error) {
-        console.error('Failed to report exam violation', error)
+      if (response.terminated) {
+        setTerminated(true)
+        setStarted(false)
+        toast({
+          title: 'Attempt terminated',
+          description: 'Violation threshold reached. You can still submit your current answers.',
+          variant: 'destructive',
+        })
       }
     },
     [isAttemptActive, session, started, toast]
@@ -410,9 +418,24 @@ export function ProctoredExamDialog({
     // (proctored exam OR proctored quiz). Browsers don't always fire
     // `visibilitychange` when alt-tabbing between windows, so we also
     // listen to `blur` as a secondary signal.
+    //
+    // The 800ms debounce cuts iOS notification-slide false-positives:
+    // iOS fires visibilitychange on notification slide-down (typically
+    // <400ms) without the student actually switching away.
+    let hiddenTimer: number | null = null
+
     const onVisibilityChange = () => {
       if (document.hidden) {
-        void reportViolation('visibility_hidden', { source: 'visibilitychange' })
+        if (hiddenTimer != null) window.clearTimeout(hiddenTimer)
+        hiddenTimer = window.setTimeout(() => {
+          if (document.hidden) {
+            void reportViolation('visibility_hidden', { source: 'visibilitychange' })
+          }
+          hiddenTimer = null
+        }, 800)
+      } else if (hiddenTimer != null) {
+        window.clearTimeout(hiddenTimer)
+        hiddenTimer = null
       }
     }
 
@@ -471,8 +494,15 @@ export function ProctoredExamDialog({
       if (event.key === 'F12') {
         event.preventDefault()
         void reportViolation('devtools_open', { source: 'F12' })
+        return
       }
       const metaKey = event.ctrlKey || event.metaKey
+      // Ctrl+Shift+I/J/C — DevTools open shortcuts on Chrome/Edge/Firefox.
+      if (metaKey && event.shiftKey && ['i', 'j', 'c'].includes(event.key.toLowerCase())) {
+        event.preventDefault()
+        void reportViolation('devtools_open', { source: `Ctrl+Shift+${event.key.toUpperCase()}` })
+        return
+      }
       if (session.policy.block_print_shortcut && metaKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         void reportViolation('print_shortcut', { source: 'keydown' })
@@ -505,6 +535,7 @@ export function ProctoredExamDialog({
     }
 
     return () => {
+      if (hiddenTimer != null) window.clearTimeout(hiddenTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('blur', onWindowBlur)
       if (proctoringEnabled) {
@@ -518,6 +549,70 @@ export function ProctoredExamDialog({
       }
     }
   }, [isAttemptActive, isQuizMode, reportViolation, session, started])
+
+  // Wake Lock + orientation + PiP + offline detection.
+  // Each sub-handler is feature-gated; browsers without support skip silently.
+  useEffect(() => {
+    if (!session || !started || !isAttemptActive) return
+    if (!session.assignment.is_proctored) return
+
+    let wakeLock: any = null
+    let releaseFiredByUs = false
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request('screen')
+          wakeLock.addEventListener('release', () => {
+            if (releaseFiredByUs) return
+            void reportViolation('wake_lock_released', { source: 'wakelock-release' })
+          })
+        }
+      } catch {
+        // Wake Lock not granted — not a violation in itself.
+      }
+    }
+
+    const onOrientationChange = () => {
+      void reportViolation('screen_orientation_change', {
+        source: 'orientation-change',
+        orientation: screen.orientation?.type,
+      })
+    }
+
+    const onOffline = () => {
+      void reportViolation('network_offline', { source: 'online-event' })
+    }
+
+    const onEnterPip = () => {
+      void reportViolation('picture_in_picture', { source: 'enterpictureinpicture' })
+    }
+
+    void requestWakeLock()
+
+    if (screen.orientation && typeof screen.orientation.addEventListener === 'function') {
+      screen.orientation.addEventListener('change', onOrientationChange)
+    }
+    window.addEventListener('offline', onOffline)
+    document.addEventListener('enterpictureinpicture', onEnterPip)
+
+    // Re-acquire wake lock on visibility-restore (browsers drop it when tab hidden).
+    const onVisibleReacquire = () => {
+      if (document.visibilityState === 'visible' && !wakeLock) void requestWakeLock()
+    }
+    document.addEventListener('visibilitychange', onVisibleReacquire)
+
+    return () => {
+      releaseFiredByUs = true
+      if (wakeLock?.release) void wakeLock.release().catch(() => {})
+      if (screen.orientation && typeof screen.orientation.removeEventListener === 'function') {
+        screen.orientation.removeEventListener('change', onOrientationChange)
+      }
+      window.removeEventListener('offline', onOffline)
+      document.removeEventListener('enterpictureinpicture', onEnterPip)
+      document.removeEventListener('visibilitychange', onVisibleReacquire)
+    }
+  }, [isAttemptActive, reportViolation, session, started])
 
   const scrollToQuestion = useCallback((questionId: string) => {
     questionRefs.current[questionId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })

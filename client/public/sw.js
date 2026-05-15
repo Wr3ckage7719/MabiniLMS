@@ -1,5 +1,5 @@
 // Service Worker for Mabini Classroom PWA
-const CACHE_NAME = 'mabini-classroom-v4';
+const CACHE_NAME = 'mabini-classroom-v5';
 const MATERIALS_CACHE_NAME = 'mabini-materials-v1';
 const OFFLINE_URL = '/offline.html';
 
@@ -391,4 +391,21 @@ self.addEventListener('message', (event) => {
     default:
       break;
   }
+});
+
+// Background Sync — wake controlled clients to drain queues. If the browser
+// doesn't support the Background Sync API, this listener never fires.
+const notifyClientsToFlush = async () => {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const client of clients) {
+    client.postMessage({ type: 'mabini:flush-queues' });
+  }
+  // If no clients are open, items remain in IDB and drain when the user
+  // next opens the app. The SW deliberately does not replay requests itself
+  // because auth tokens live in the main thread's apiClient state.
+};
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'mabini-flush-submissions' && event.tag !== 'mabini-flush-progress') return;
+  event.waitUntil(notifyClientsToFlush());
 });
