@@ -774,6 +774,46 @@ export const getEnrollmentById = async (enrollmentId: string): Promise<Enrollmen
 };
 
 /**
+ * Assert that a caller may read a specific enrollment row.
+ *
+ * Admins: always allowed. Teachers: only if they own the course. Students:
+ * only if the row is their own. Returns the enrollment on success so the
+ * caller doesn't have to re-fetch.
+ */
+export const assertEnrollmentAccess = async (
+  enrollmentId: string,
+  userId: string,
+  userRole: UserRole | string
+): Promise<EnrollmentWithCourse> => {
+  const enrollment = await getEnrollmentById(enrollmentId);
+
+  if (userRole === UserRole.ADMIN) {
+    return enrollment;
+  }
+
+  if (userRole === UserRole.TEACHER) {
+    if (enrollment.course?.teacher?.id !== userId) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        'You can only view enrollments in your own courses',
+        403
+      );
+    }
+    return enrollment;
+  }
+
+  if (enrollment.student_id !== userId) {
+    throw new ApiError(
+      ErrorCode.FORBIDDEN,
+      'You can only view your own enrollment',
+      403
+    );
+  }
+
+  return enrollment;
+};
+
+/**
  * Update enrollment status (drop, complete)
  */
 export const updateEnrollmentStatus = async (
