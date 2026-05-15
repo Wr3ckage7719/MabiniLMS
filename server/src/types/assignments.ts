@@ -57,20 +57,6 @@ const proctoringPolicySchema = z.object({
   blockPrintShortcut: z.boolean().optional(),
 });
 
-const examChapterPoolSchema = z.object({
-  enabled: z.boolean().default(false),
-  chapters: z
-    .array(
-      z.object({
-        tag: z.string().trim().min(1).max(120),
-        take: z.number().int().min(1).max(500).optional(),
-      })
-    )
-    .default([]),
-  total_questions: z.number().int().min(1).max(500).optional(),
-});
-export type ExamChapterPoolSettings = z.infer<typeof examChapterPoolSchema>;
-
 // ============================================
 // Assignment Schemas
 // ============================================
@@ -102,8 +88,6 @@ export const createAssignmentSchema = z.object({
   order_mode: questionOrderModeSchema.optional(),
   exam_question_selection_mode: questionOrderModeSchema.default('random').optional(),
   exam_selection_mode: questionOrderModeSchema.optional(),
-  exam_chapter_pool: examChapterPoolSchema.optional(),
-  chapter_pool: examChapterPoolSchema.optional(),
   due_date: z.string().datetime().optional(),
   max_points: z.number().int().min(0).max(1000).default(100),
   submissions_open: z.boolean().optional().default(true),
@@ -142,8 +126,6 @@ export const updateAssignmentSchema = z.object({
   order_mode: questionOrderModeSchema.optional(),
   exam_question_selection_mode: questionOrderModeSchema.optional(),
   exam_selection_mode: questionOrderModeSchema.optional(),
-  exam_chapter_pool: examChapterPoolSchema.optional(),
-  chapter_pool: examChapterPoolSchema.optional(),
   due_date: z.string().datetime().nullable().optional(),
   max_points: z.number().int().min(0).max(1000).optional(),
   submissions_open: z.boolean().optional(),
@@ -297,7 +279,6 @@ export interface Assignment {
   grading_period?: GradingPeriod | null;
   question_order_mode?: QuestionOrderMode;
   exam_question_selection_mode?: QuestionOrderMode;
-  exam_chapter_pool?: ExamChapterPoolSettings;
   due_date: string | null;
   max_points: number;
   submissions_open?: boolean;

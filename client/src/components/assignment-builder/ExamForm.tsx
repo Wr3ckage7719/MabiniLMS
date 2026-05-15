@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { QuizBuilderQuestion, ImportedQuestionDraft, QuizQuestionType } from './lib/quiz-import';
 import {
@@ -47,19 +46,12 @@ interface ExamFormProps {
   setExamOneQuestionAtATime: (v: boolean) => void;
   examMaxViolations: string;
   setExamMaxViolations: (v: string) => void;
-  examChapterPoolEnabled: boolean;
-  setExamChapterPoolEnabled: (v: boolean) => void;
-  examChapterRules: Array<{ tag: string; take: string }>;
-  setExamChapterRules: (rules: Array<{ tag: string; take: string }>) => void;
-  examTotalQuestions: string;
-  setExamTotalQuestions: (v: string) => void;
   addExamQuestion: () => void;
   removeExamQuestion: (id: string) => void;
   updateExamQuestion: (id: string, update: Partial<QuizBuilderQuestion>) => void;
   updateExamChoice: (id: string, choiceIndex: number, value: string) => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onDownloadTemplate: () => void;
-  examChapterTagsError?: string;
   clearFieldError: (field: string) => void;
   examBuilderCandidateCount: number;
   examBuilderReadyCount: number;
@@ -90,57 +82,17 @@ export function ExamForm({
   setExamOneQuestionAtATime,
   examMaxViolations,
   setExamMaxViolations,
-  examChapterPoolEnabled,
-  setExamChapterPoolEnabled,
-  examChapterRules,
-  setExamChapterRules,
-  examTotalQuestions,
-  setExamTotalQuestions,
   addExamQuestion,
   removeExamQuestion,
   updateExamQuestion,
   updateExamChoice,
   onImportFile,
   onDownloadTemplate,
-  examChapterTagsError,
   clearFieldError,
   examBuilderCandidateCount,
   examBuilderReadyCount,
   examImportReadyCount,
 }: ExamFormProps) {
-  const [tagDraft, setTagDraft] = useState('');
-
-  // Count questions available per chapter tag (case-insensitive) so the
-  // teacher gets immediate feedback on whether their tags will match anything.
-  const allQuestions = [...examQuestions, ...examImportedQuestions];
-  const availableByTag = (tag: string): number => {
-    const lower = tag.trim().toLowerCase();
-    return allQuestions.filter(
-      (q) => (q.chapterTag || '').trim().toLowerCase() === lower
-    ).length;
-  };
-
-  const addChapterRule = () => {
-    const trimmed = tagDraft.trim();
-    if (!trimmed) return;
-    if (examChapterRules.some((r) => r.tag.toLowerCase() === trimmed.toLowerCase())) {
-      setTagDraft('');
-      return;
-    }
-    setExamChapterRules([...examChapterRules, { tag: trimmed, take: '5' }]);
-    setTagDraft('');
-    clearFieldError('examChapterTags');
-  };
-
-  const removeChapterRule = (index: number) => {
-    setExamChapterRules(examChapterRules.filter((_, i) => i !== index));
-  };
-
-  const updateChapterRuleTake = (index: number, take: string) => {
-    const next = examChapterRules.map((r, i) => (i === index ? { ...r, take } : r));
-    setExamChapterRules(next);
-  };
-
   return (
     <Card className="border border-amber-200 bg-amber-50/60">
       <CardContent className="p-4 space-y-4">
@@ -422,130 +374,6 @@ export function ExamForm({
               (including Fill in the Blank and Essay mappings) may not be playable in the current student exam player.
             </p>
           </div>
-        </div>
-
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">Use Chapter Pool Selection</p>
-              <p className="text-xs text-muted-foreground">
-                Randomly pick a set number of questions from each chapter tag. Tag questions using the
-                builder below or import with a <code className="bg-muted px-0.5 rounded">chapter</code> column.
-              </p>
-            </div>
-            <Switch
-              checked={examChapterPoolEnabled}
-              onCheckedChange={(checked) => {
-                setExamChapterPoolEnabled(checked);
-                clearFieldError('examChapterTags');
-              }}
-            />
-          </div>
-
-          {examChapterPoolEnabled && (
-            <div className="space-y-3">
-              {/* Tag input row */}
-              <div>
-                <label className="text-sm font-semibold">Add Chapter Tag</label>
-                <div className="flex gap-2 mt-2">
-                  <Input
-                    placeholder="e.g., Chapter 1"
-                    value={tagDraft}
-                    onChange={(e) => setTagDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ',') {
-                        e.preventDefault();
-                        addChapterRule();
-                      }
-                    }}
-                    className={cn('rounded-lg flex-1', examChapterTagsError && examChapterRules.length === 0 && 'border-destructive')}
-                  />
-                  <Button type="button" variant="outline" className="rounded-lg px-3" onClick={addChapterRule}>
-                    <Plus className="h-4 w-4 mr-1" /> Add
-                  </Button>
-                </div>
-                {examChapterTagsError && examChapterRules.length === 0 && (
-                  <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {examChapterTagsError}
-                  </p>
-                )}
-              </div>
-
-              {/* Per-chapter rule rows */}
-              {examChapterRules.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Chapters</p>
-                  {examChapterRules.map((rule, index) => {
-                    const available = availableByTag(rule.tag);
-                    const takeNum = Number(rule.take);
-                    const warnNoMatch = available === 0;
-                    const warnTakeTooHigh = available > 0 && Number.isFinite(takeNum) && takeNum > available;
-                    return (
-                      <div
-                        key={rule.tag}
-                        className={cn(
-                          'flex items-center gap-2 rounded-lg border p-2.5',
-                          warnNoMatch && 'border-amber-300 bg-amber-50/60'
-                        )}
-                      >
-                        <Badge variant="secondary" className="flex-shrink-0 text-xs">{rule.tag}</Badge>
-                        <span className={cn('text-xs', warnNoMatch ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
-                          {available} available
-                        </span>
-                        {warnNoMatch && (
-                          <span className="text-xs text-amber-600 flex items-center gap-0.5">
-                            <AlertCircle className="h-3 w-3" /> no match
-                          </span>
-                        )}
-                        <div className="flex-1" />
-                        <label className="text-xs text-muted-foreground whitespace-nowrap">Take:</label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max={available > 0 ? String(available) : undefined}
-                          value={rule.take}
-                          onChange={(e) => updateChapterRuleTake(index, e.target.value)}
-                          className={cn(
-                            'w-16 text-center rounded-lg h-8 text-sm',
-                            warnTakeTooHigh && 'border-amber-400'
-                          )}
-                        />
-                        {warnTakeTooHigh && (
-                          <span className="text-xs text-amber-600">
-                            max {available}
-                          </span>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeChapterRule(index)}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Total questions cap */}
-              <div>
-                <label className="text-sm font-semibold">Total Questions <span className="font-normal text-muted-foreground">(optional)</span></label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Caps the combined pool. Leave empty to include all picked questions across chapters.
-                </p>
-                <Input
-                  type="number" min="1" placeholder="Auto"
-                  value={examTotalQuestions}
-                  onChange={(e) => setExamTotalQuestions(e.target.value)}
-                  className="mt-2 rounded-lg w-40"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex flex-wrap gap-2">

@@ -212,9 +212,6 @@ export function CreateAssignmentDialog({
   const [quizMaxViolations, setQuizMaxViolations] = useState('3');
   const [examImportedQuestions, setExamImportedQuestions] = useState<ImportedQuestionDraft[]>([]);
   const [examImportFileName, setExamImportFileName] = useState<string | null>(null);
-  const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
-  const [examChapterRules, setExamChapterRules] = useState<Array<{ tag: string; take: string }>>([]);
-  const [examTotalQuestions, setExamTotalQuestions] = useState('');
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
   const [topicDraft, setTopicDraft] = useState('');
@@ -274,17 +271,6 @@ export function CreateAssignmentDialog({
     if (taskType === 'quiz') {
       const hasAnyQuestion = quizQuestions.some((question) => question.prompt.trim().length > 0);
       if (!hasAnyQuestion) newErrors.quizQuestions = 'Add at least one quiz question prompt';
-    }
-    if (taskType === 'exam' && examChapterPoolEnabled) {
-      if (examChapterRules.length === 0) {
-        newErrors.examChapterTags = 'Add at least one chapter tag when chapter pools are enabled';
-      } else {
-        const invalidTake = examChapterRules.some((r) => {
-          const n = Number(r.take);
-          return !Number.isFinite(n) || n <= 0;
-        });
-        if (invalidTake) newErrors.examChapterTags = 'Each chapter must have a positive take count';
-      }
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -420,11 +406,6 @@ export function CreateAssignmentDialog({
       } else {
         setExamImportedQuestions(result.questions);
         setExamImportFileName(file.name);
-        const importChapterTags = Array.from(new Set(result.questions.map((q) => q.chapterTag).filter((tag): tag is string => Boolean(tag && tag.trim()))));
-        if (importChapterTags.length > 0 && examChapterRules.length === 0) {
-          setExamChapterRules(importChapterTags.map((tag) => ({ tag, take: '5' })));
-          setExamChapterPoolEnabled(true);
-        }
       }
       toast({
         title: 'Questions imported',
@@ -468,7 +449,7 @@ export function CreateAssignmentDialog({
   const handleTaskTypeChange = (nextType: TaskType) => {
     setTaskType(nextType);
     if (nextType !== 'reading_material') { setUploadingMaterialId(null); setCompletedMaterialId(null); }
-    clearFieldError('dueDate'); clearFieldError('points'); clearFieldError('activityFileTypes'); clearFieldError('quizQuestions'); clearFieldError('examChapterTags'); clearFieldError('examQuestionsPerChapter');
+    clearFieldError('dueDate'); clearFieldError('points'); clearFieldError('activityFileTypes'); clearFieldError('quizQuestions');
   };
 
   const handleCreate = async () => {
@@ -507,14 +488,6 @@ export function CreateAssignmentDialog({
         setUploadingMaterialId(null);
       } else {
         const assignmentType = taskType === 'quiz' ? 'quiz' : taskType === 'exam' ? 'exam' : 'activity';
-        const totalQuestionsCount = Number(examTotalQuestions);
-        const chapterPoolRules = examChapterRules
-          .filter((r) => r.tag.trim())
-          .map((r) => {
-            const take = Math.floor(Number(r.take));
-            return { tag: r.tag.trim(), ...(Number.isFinite(take) && take > 0 ? { take } : {}) };
-          });
-        const chapterPoolEnabled = taskType === 'exam' && examChapterPoolEnabled && chapterPoolRules.length > 0;
         const parsedExamMaxViolations = Number(examMaxViolations);
         const effectiveExamMaxViolations = Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0 ? Math.floor(parsedExamMaxViolations) : examIntegrityProfile === 'strict' ? 3 : 5;
         const strictProctoring = examIntegrityProfile === 'strict';
@@ -537,7 +510,6 @@ export function CreateAssignmentDialog({
           topics: topics.length > 0 ? topics : undefined,
           question_order_mode: taskType === 'quiz' ? quizQuestionOrder : taskType === 'exam' ? examQuestionOrder : undefined,
           exam_question_selection_mode: taskType === 'exam' ? examQuestionSelection : undefined,
-          exam_chapter_pool: taskType === 'exam' ? { enabled: chapterPoolEnabled, chapters: chapterPoolEnabled ? chapterPoolRules : [], ...(Number.isFinite(totalQuestionsCount) && totalQuestionsCount > 0 ? { total_questions: Math.floor(totalQuestionsCount) } : {}) } : undefined,
           exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : taskType === 'quiz' && quizTimerEnabled ? Math.max(1, parseInt(quizDurationMinutes, 10) || 30) : null,
           is_proctored: taskType === 'exam' ? true : taskType === 'quiz' && quizExamRestrictionsEnabled ? true : undefined,
           proctoring_policy: taskType === 'exam' ? { max_violations: effectiveExamMaxViolations, require_agreement_before_start: examRequireAgreementBeforeStart, auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, terminate_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, block_clipboard: strictProctoring, block_context_menu: strictProctoring, block_print_shortcut: strictProctoring, one_question_at_a_time: examOneQuestionAtATime } : taskType === 'quiz' ? ({ one_question_at_a_time: quizOneQuestionAtATime, max_violations: quizExamRestrictionsEnabled ? Math.max(1, parseInt(quizMaxViolations, 10) || 3) : 999, require_agreement_before_start: false, auto_submit_on_tab_switch: quizExamRestrictionsEnabled && quizAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, terminate_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, require_fullscreen: quizExamRestrictionsEnabled && quizRequireFullscreen, block_clipboard: false, block_context_menu: false, block_print_shortcut: false } as any) : undefined,
@@ -595,8 +567,8 @@ export function CreateAssignmentDialog({
     setCustomSubmissionCloseDate(undefined); setQuizQuestionOrder('sequence'); setQuizQuestions([createQuizDraftQuestion()]); setQuizImportFileName(null);
     setExamQuestionOrder('random'); setExamQuestionSelection('random'); setExamQuestions([createQuizDraftQuestion()]); setExamIntegrityProfile('strict');
     setExamRequireAgreementBeforeStart(true); setExamAutoSubmitOnTabSwitch(false); setExamAutoSubmitOnFullscreenExit(true);
-    setExamMaxViolations('3'); setExamImportedQuestions([]); setExamImportFileName(null); setExamChapterPoolEnabled(false);
-    setExamChapterTags(''); setExamQuestionsPerChapter('5'); setExamTotalQuestions(''); setGradingPeriod('');
+    setExamMaxViolations('3'); setExamImportedQuestions([]); setExamImportFileName(null);
+    setGradingPeriod('');
     setFiles([]); setTopics([]); setTopicDraft(''); setIsSubmitting(false); setIsUploadingMaterial(false);
     setMaterialUploadProgress(0); setUploadingMaterialName(null); setUploadingMaterialId(null); setCompletedMaterialId(null); setErrors({});
   };
@@ -842,19 +814,12 @@ export function CreateAssignmentDialog({
           setExamOneQuestionAtATime={setExamOneQuestionAtATime}
           examMaxViolations={examMaxViolations}
           setExamMaxViolations={setExamMaxViolations}
-          examChapterPoolEnabled={examChapterPoolEnabled}
-          setExamChapterPoolEnabled={setExamChapterPoolEnabled}
-          examChapterRules={examChapterRules}
-          setExamChapterRules={setExamChapterRules}
-          examTotalQuestions={examTotalQuestions}
-          setExamTotalQuestions={setExamTotalQuestions}
           addExamQuestion={addExamQuestion}
           removeExamQuestion={removeExamQuestion}
           updateExamQuestion={updateExamQuestion}
           updateExamChoice={updateExamChoice}
           onImportFile={(event) => void handleImportQuestionFile('exam', event)}
           onDownloadTemplate={downloadQuestionImportTemplate}
-          examChapterTagsError={errors.examChapterTags}
           clearFieldError={clearFieldError}
           examBuilderCandidateCount={examBuilderCandidateCount}
           examBuilderReadyCount={examBuilderReadyCount}

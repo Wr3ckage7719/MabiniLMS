@@ -16,11 +16,6 @@ export interface AssignmentData {
   grading_period?: GradingPeriod | null;
   question_order_mode?: 'sequence' | 'random';
   exam_question_selection_mode?: 'sequence' | 'random';
-  exam_chapter_pool?: {
-    enabled: boolean;
-    chapters: Array<{ tag: string; take?: number }>;
-    total_questions?: number;
-  };
   proctoring_policy?: {
     max_violations?: number;
     terminate_on_fullscreen_exit?: boolean;
