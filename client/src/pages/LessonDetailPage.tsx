@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getClassHomePath } from '@/lib/navigation';
+import { extractApiErrorMessage } from '@/lib/api-errors';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -39,7 +40,20 @@ const completionRuleCopy = (lesson: Lesson): string => {
   if (lesson.completionRule.type === 'time_on_material') {
     return `Open every file and spend at least ${lesson.completionRule.min_minutes} minutes reading, then mark the lesson as done.`;
   }
+  if (lesson.completionRule.type === 'view_all_and_submit') {
+    return 'Open every file and submit each required assessment below, then mark the lesson as done.';
+  }
   return 'Open every file at least once, then mark the lesson as done.';
+};
+
+// Returns true when the lesson's completion rule says assessments must be
+// taken BEFORE the lesson is marked as done (i.e. view_all_and_submit).
+// AssessmentRow uses this to decide whether to lock the row purely on
+// lesson-done state, which would otherwise create a catch-22: the student
+// can't mark the lesson done until they submit, and can't submit because
+// the UI locks the assessment.
+const assessmentsUnlockedBeforeDone = (lesson: Lesson | null | undefined): boolean => {
+  return lesson?.completionRule.type === 'view_all_and_submit';
 };
 
 // Regardless of the teacher-set completion rule, students must open every
@@ -56,10 +70,15 @@ const computeMarkDoneEligibility = (
     return { canMark: false, reason: 'Locked by chain.' };
   }
 
-  if (lesson.materials.length > 0) {
-    const allViewed = lesson.materials.every((m) => m.viewed);
-    if (!allViewed) {
-      return { canMark: false, reason: 'Open every file at least once first.' };
+  // The server only enforces material-viewing on non-optional materials. The
+  // client check used to require every material (including optional) which
+  // diverged from server policy. Aligning the two prevents the button from
+  // looking enabled-then-rejected when only optional materials are unread.
+  const requiredMaterials = lesson.materials.filter((m) => !m.is_optional);
+  if (requiredMaterials.length > 0) {
+    const allRequiredViewed = requiredMaterials.every((m) => m.viewed);
+    if (!allRequiredViewed) {
+      return { canMark: false, reason: 'Open every required file at least once first.' };
     }
   }
 
@@ -77,6 +96,23 @@ const computeMarkDoneEligibility = (
     }
   }
 
+  // `view_all_and_submit` lessons require every required assessment to be
+  // submitted BEFORE the lesson can be marked done. The server enforces this
+  // and used to 403 even though the client allowed the click — match the
+  // server check here so the button reflects reality.
+  if (lesson.completionRule.type === 'view_all_and_submit') {
+    const requiredAssessments = lesson.assessments.filter((a) => !a.is_optional);
+    if (requiredAssessments.length > 0) {
+      const allSubmitted = requiredAssessments.every((a) => Boolean(a.submitted));
+      if (!allSubmitted) {
+        return {
+          canMark: false,
+          reason: 'Submit every required assessment below before marking the lesson as done.',
+        };
+      }
+    }
+  }
+
   return { canMark: true, reason: null };
 };
 
@@ -87,11 +123,17 @@ const fileIconLabel = (fileType: LessonMaterialRef['file_type']): string => {
 interface AssessmentRowProps {
   assessment: LessonAssessmentRef;
   isLessonDone: boolean;
+  // When the lesson's rule is `view_all_and_submit`, assessments must be
+  // taken before the lesson can be marked done. Forcing `locked = !isLessonDone`
+  // in that case is the source of the historical catch-22 (server requires
+  // submission to mark done; UI requires done to submit). The parent computes
+  // this from `lesson.completionRule.type` and passes it in.
+  lessonAllowsEarlySubmit: boolean;
   onOpen: (assignmentId: string) => void;
 }
 
-function AssessmentRow({ assessment, isLessonDone, onOpen }: AssessmentRowProps) {
-  const locked = !isLessonDone;
+function AssessmentRow({ assessment, isLessonDone, lessonAllowsEarlySubmit, onOpen }: AssessmentRowProps) {
+  const locked = !isLessonDone && !lessonAllowsEarlySubmit;
   const submitted = Boolean(assessment.submitted);
   const graded = Boolean(assessment.graded);
 
@@ -417,9 +459,12 @@ export default function LessonDetailPage() {
         description: 'Your assessments are now unlocked.',
       });
     } catch (error) {
+      // Surface the server-side reason ("Submit all required assessments…",
+      // "Open every required file…", etc.) instead of the bare Axios
+      // "Request failed with status code 403" the user used to see.
       toast({
         title: 'Could not mark lesson as done',
-        description: error instanceof Error ? error.message : 'Please try again.',
+        description: extractApiErrorMessage(error, 'Please try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -469,6 +514,7 @@ export default function LessonDetailPage() {
 
   const isDone = lesson.status === 'done';
   const isLocked = lesson.status === 'locked';
+  const lessonAllowsEarlySubmit = assessmentsUnlockedBeforeDone(lesson);
   const viewedMaterialCount = lesson.materials.filter((m) => m.viewed).length;
   const totalMaterialCount = lesson.materials.length;
   const canGoToNext = isDone && nextLesson && nextLesson.status !== 'locked';
@@ -600,7 +646,13 @@ export default function LessonDetailPage() {
         <section className="space-y-2">
           <h2 className="text-base md:text-sm font-semibold text-foreground md:text-muted-foreground md:uppercase md:tracking-wide flex items-center gap-2">
             <span className="block h-4 w-1 rounded-full bg-primary md:hidden" aria-hidden />
-            Assessments {isDone ? '' : <span className="font-normal text-muted-foreground text-xs md:text-sm">(unlock after marking as done)</span>}
+            Assessments {isDone ? '' : (
+              <span className="font-normal text-muted-foreground text-xs md:text-sm">
+                {lessonAllowsEarlySubmit
+                  ? '(submit each to mark this lesson done)'
+                  : '(unlock after marking as done)'}
+              </span>
+            )}
           </h2>
           {lesson.assessments.length === 0 ? (
             <Card className="border-dashed">
@@ -615,6 +667,7 @@ export default function LessonDetailPage() {
                   key={assessment.assignment_id}
                   assessment={assessment}
                   isLessonDone={isDone}
+                  lessonAllowsEarlySubmit={lessonAllowsEarlySubmit}
                   onOpen={handleOpenAssessment}
                 />
               ))}
