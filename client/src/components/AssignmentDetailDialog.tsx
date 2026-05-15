@@ -21,6 +21,7 @@ import {
 } from '@/lib/submission-storage';
 import { formatDateTime, parseServerDate } from '@/lib/datetime';
 import { ViolationList } from '@/components/ViolationList';
+import { type DerivedAssignmentStatus } from '@/lib/assignment-status';
 
 
 interface Submission {
@@ -223,14 +224,25 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     return formatDueCountdown(assignment?.dueDate);
   }, [assignment?.dueDate, nowTick]);
 
+  // Prefer the loaded submission's persisted status over the assignment-level
+  // derived_status. The single-assignment endpoint may return 'missed' or
+  // 'overdue' after the due date even when a graded submission already exists.
+  const effectiveStatus = useMemo<DerivedAssignmentStatus>(() => {
+    const TERMINAL: ReadonlyArray<string> = ['submitted', 'late', 'under_review', 'graded'];
+    if (submission?.status && TERMINAL.includes(submission.status)) {
+      return submission.status as DerivedAssignmentStatus;
+    }
+    return (assignment?.status ?? 'pending') as DerivedAssignmentStatus;
+  }, [submission?.status, assignment?.status]);
+
   const assignmentRawType = (assignment?.rawType || '').toLowerCase();
   const isExamAssignment = assignmentRawType === 'exam' || assignmentRawType === 'quiz';
   const isQuizAssignment = assignmentRawType === 'quiz';
   const isActivityAssignment = assignmentRawType === 'activity';
   const isOverdueAssignment =
-    assignment?.status === 'late' ||
-    assignment?.status === 'overdue' ||
-    assignment?.status === 'missed';
+    effectiveStatus === 'late' ||
+    effectiveStatus === 'overdue' ||
+    effectiveStatus === 'missed';
   // Past-due is a soft client-side guard so the submit button reflects what
   // the server will accept. The server enforces the same cutoff in
   // assignments.submitAssignment / exams.startExamAttempt — touching nowTick
@@ -647,7 +659,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             <span className="hidden sm:inline">Due </span>
             {formatDateTime(assignment.dueDate)}
           </Badge>
-          {countdown && assignment.status !== 'submitted' && assignment.status !== 'graded' && (
+          {countdown && effectiveStatus !== 'submitted' && effectiveStatus !== 'graded' && effectiveStatus !== 'late' && effectiveStatus !== 'under_review' && (
             <Badge
               className={`rounded-lg text-sm sm:text-sm font-semibold whitespace-nowrap ${
                 countdown.tone === 'overdue'
@@ -665,9 +677,9 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
             variant={isOverdueAssignment ? 'destructive' : 'outline'}
             className="rounded-lg capitalize text-xs sm:text-sm"
           >
-            {assignment.status}
+            {effectiveStatus}
           </Badge>
-          {(assignment.status === 'submitted' || assignment.status === 'graded') && (
+          {(effectiveStatus === 'submitted' || effectiveStatus === 'graded' || effectiveStatus === 'late' || effectiveStatus === 'under_review') && (
             <Badge className="rounded-lg text-xs sm:text-sm bg-emerald-100 text-emerald-700 border-emerald-200 border whitespace-nowrap">
               <CheckCircle2 className="h-3 w-3 mr-1" /> Submitted
             </Badge>
