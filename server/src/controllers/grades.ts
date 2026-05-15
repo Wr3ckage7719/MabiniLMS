@@ -78,7 +78,8 @@ export const getWeightedCourseGrade = async (
 ): Promise<void> => {
   try {
     const { courseId } = req.params
-    const studentId = typeof req.query.student_id === 'string' ? req.query.student_id : undefined
+    // Already a UUID (or undefined) thanks to weightedGradeQuerySchema on the route.
+    const { student_id: studentId } = req.query as unknown as { student_id?: string }
 
     const breakdown = await gradeService.getWeightedCourseGrade(
       courseId,
