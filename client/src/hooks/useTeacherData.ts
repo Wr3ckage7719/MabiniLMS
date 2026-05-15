@@ -229,6 +229,7 @@ export function useCourseSubmissions(courseId: string | null): UseCourseSubmissi
               due_date: assignment.due_date,
               max_points: assignment.max_points,
               course_id: assignment.course_id,
+              assignment_type: (assignment as any).assignment_type,
             },
           }));
           allSubmissions.push(...subs);

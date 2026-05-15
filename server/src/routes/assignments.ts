@@ -217,6 +217,13 @@ router.get(
   examController.listAttemptViolations
 );
 
+// GET /api/assignments/submissions/:submissionId/violations - list violations for a submission
+router.get(
+  '/submissions/:submissionId/violations',
+  validate({ params: submissionIdParamSchema, query: listViolationsQuerySchema }),
+  examController.listSubmissionViolations
+);
+
 // GET /api/assignments/exam/attempts/:attemptId/results - get per-question results for a completed attempt
 router.get(
   '/exam/attempts/:attemptId/results',

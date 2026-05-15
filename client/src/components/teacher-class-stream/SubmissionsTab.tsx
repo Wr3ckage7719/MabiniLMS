@@ -12,9 +12,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatProviderFileSize } from '@/lib/submission-storage';
+import { formatDateTime } from '@/lib/datetime';
+import { ViolationList } from '@/components/ViolationList';
+import { SubmissionFilters, type SubmissionFiltersState } from './SubmissionFilters';
+import type { ExamViolation } from '@/services/exams.service';
 
 export interface RecentSubmissionItem {
   id: string;
+  studentId?: string;
+  assignmentId?: string;
   student: string;
   avatar: string;
   assignment: string;
@@ -35,10 +41,14 @@ export interface RecentSubmissionItem {
   gradeId?: string | null;
   gradedAt?: string | null;
   points?: number;
+  violationCount?: number;
 }
 
 interface SubmissionsTabProps {
   recentSubmissions: RecentSubmissionItem[];
+  totalSubmissions: number;
+  filters: SubmissionFiltersState;
+  onFiltersChange: (next: SubmissionFiltersState) => void;
   exportingRegistrar: boolean;
   handleExportRegistrar: () => void;
   showSubmissionDetail: boolean;
@@ -51,10 +61,15 @@ interface SubmissionsTabProps {
   setSubmissionFeedback: (v: string) => void;
   savingSubmissionGrade: boolean;
   handleSaveSubmissionGrade: () => void;
+  submissionViolations: ExamViolation[];
+  loadingViolations: boolean;
 }
 
 export function SubmissionsTab({
   recentSubmissions,
+  totalSubmissions,
+  filters,
+  onFiltersChange,
   exportingRegistrar,
   handleExportRegistrar,
   showSubmissionDetail,
@@ -67,6 +82,8 @@ export function SubmissionsTab({
   setSubmissionFeedback,
   savingSubmissionGrade,
   handleSaveSubmissionGrade,
+  submissionViolations,
+  loadingViolations,
 }: SubmissionsTabProps) {
   return (
     <>
@@ -83,6 +100,12 @@ export function SubmissionsTab({
           {exportingRegistrar ? 'Exporting…' : 'Registrar XLSX'}
         </Button>
       </div>
+      <SubmissionFilters
+        value={filters}
+        onChange={onFiltersChange}
+        totalCount={totalSubmissions}
+        filteredCount={recentSubmissions.length}
+      />
       {recentSubmissions.length > 0 ? (
         <div className="space-y-3">
           {recentSubmissions.map((submission) => (
@@ -96,11 +119,16 @@ export function SubmissionsTab({
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <p className="font-semibold text-sm">{submission.student}</p>
                         <Badge className={submission.onTime ? 'bg-green-100 text-green-700 border-green-200 text-xs' : 'bg-red-100 text-red-700 border-red-200 text-xs'}>
                           {submission.onTime ? 'On Time' : 'Late'}
                         </Badge>
+                        {typeof submission.violationCount === 'number' && submission.violationCount > 0 && (
+                          <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
+                            {submission.violationCount} violation{submission.violationCount === 1 ? '' : 's'}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mb-1">{submission.assignment}</p>
                       <p className="text-xs text-muted-foreground">Submitted: {submission.submittedAt}</p>
@@ -266,14 +294,12 @@ export function SubmissionsTab({
                             <span className="font-semibold">{quizResult.answered_count} / {quizResult.total_questions}</span>
                           </div>
                         )}
-                        {quizResult.violation_count != null && (
-                          <div className="flex items-center justify-between rounded bg-background px-2 py-1.5">
-                            <span className="text-muted-foreground">Violations</span>
-                            <span className={quizResult.violation_count > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                              {quizResult.violation_count}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex items-center justify-between rounded bg-background px-2 py-1.5">
+                          <span className="text-muted-foreground">Violations</span>
+                          <span className={submissionViolations.length > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                            {submissionViolations.length}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ) : selectedSubmission.submissionContent ? (
@@ -291,6 +317,34 @@ export function SubmissionsTab({
                     </div>
                   ) : !selectedSubmission.submissionUrl && (
                     <p className="text-xs text-muted-foreground italic">No text submission.</p>
+                  )}
+
+                  {/* Violation timeline — single source of truth from exam_violations */}
+                  {(quizResult || submissionViolations.length > 0) && (
+                    <div className="rounded-lg border bg-card p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Violations
+                        </span>
+                        <Badge
+                          className={
+                            submissionViolations.length > 0
+                              ? 'bg-red-100 text-red-700 border-red-200'
+                              : 'bg-green-100 text-green-700 border-green-200'
+                          }
+                        >
+                          {loadingViolations ? 'Loading…' : `${submissionViolations.length} recorded`}
+                        </Badge>
+                      </div>
+                      {loadingViolations ? (
+                        <p className="text-xs text-muted-foreground italic">Loading violation timeline…</p>
+                      ) : (
+                        <ViolationList
+                          violations={submissionViolations}
+                          emptyMessage="No proctoring violations recorded for this attempt."
+                        />
+                      )}
+                    </div>
                   )}
 
                   {/* File attachment — compact inline pill */}
@@ -327,7 +381,7 @@ export function SubmissionsTab({
                       </p>
                       {selectedSubmission.gradedAt && (
                         <p className="text-[10px] text-muted-foreground">
-                          Last saved {new Date(selectedSubmission.gradedAt).toLocaleString()}
+                          Last saved {formatDateTime(selectedSubmission.gradedAt)}
                         </p>
                       )}
                     </div>

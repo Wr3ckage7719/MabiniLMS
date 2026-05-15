@@ -98,6 +98,7 @@ export interface Submission {
     due_date: string | null;
     max_points: number;
     course_id: string;
+    assignment_type?: 'exam' | 'quiz' | 'activity' | string;
   };
 }
 
@@ -111,6 +112,7 @@ export interface TeacherAssignment {
   created_at: string;
   submission_count?: number;
   graded_count?: number;
+  assignment_type?: 'exam' | 'quiz' | 'activity' | string;
 }
 
 export interface Announcement {

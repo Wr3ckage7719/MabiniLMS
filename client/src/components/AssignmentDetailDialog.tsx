@@ -13,11 +13,14 @@ import { getTaskTypeMeta } from '@/lib/task-types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { assignmentsService } from '@/services/assignments.service';
 import { authService } from '@/services/auth.service';
+import { examsService, type ExamViolation } from '@/services/exams.service';
 import { useToast } from '@/hooks/use-toast';
 import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
+import { formatDateTime } from '@/lib/datetime';
+import { ViolationList } from '@/components/ViolationList';
 
 
 interface Submission {
@@ -198,6 +201,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   const [loadingSubmission, setLoadingSubmission] = useState(false);
   const [terminalAttempt, setTerminalAttempt] = useState<{ id: string; status: string; started_at: string; ended_at: string | null } | null>(null);
   const [examScore, setExamScore] = useState<ExamScoreSummary | null>(null);
+  const [violations, setViolations] = useState<ExamViolation[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [comments, setComments] = useState<AssignmentComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
@@ -254,7 +258,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     if (!value) return null;
     const parsed = new Date(value);
     if (!Number.isFinite(parsed.getTime())) return null;
-    return parsed.toLocaleString();
+    return formatDateTime(parsed);
   };
 
   const mapApiComment = useCallback((comment: ApiAssignmentComment): AssignmentComment => {
@@ -268,7 +272,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
       author: authorName,
       avatar,
       content: comment.content,
-      timestamp: new Date(comment.created_at).toLocaleString(),
+      timestamp: formatDateTime(comment.created_at),
     };
   }, []);
 
@@ -281,6 +285,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     setLoadingSubmission(true);
     setTerminalAttempt(null);
     setExamScore(null);
+    setViolations([]);
 
     try {
       const [submissionResponse, attemptResponse] = await Promise.all([
@@ -308,6 +313,19 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
           if (resultData) setExamScore(resultData);
         } catch {
           // Results unavailable — score card will fall back to summary from submission content
+        }
+
+        // Fetch live per-violation timeline so the count + breakdown reflect any
+        // violations that flushed from the IndexedDB buffer after the submission
+        // snapshot was written.
+        try {
+          const { violations: liveViolations } = await examsService.listAttemptViolations(
+            attemptData.id,
+            { limit: 200, offset: 0 }
+          );
+          setViolations(liveViolations);
+        } catch {
+          // Soft-fail: leave the timeline empty if the endpoint is unavailable.
         }
       }
     } catch {
@@ -368,7 +386,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
         content:
           normalizedStorage.submissionText ||
           'No submission text provided.',
-        timestamp: new Date(submission.submitted_at).toLocaleString(),
+        timestamp: formatDateTime(submission.submitted_at),
         status: submission.status,
         providerLabel: normalizedStorage.providerLabel,
         providerFileId: normalizedStorage.providerFileId,
@@ -795,8 +813,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     </p>
                     {terminalAttempt?.started_at && (
                       <p className="text-[11px] text-muted-foreground">
-                        Started: {new Date(terminalAttempt.started_at).toLocaleString()}
-                        {terminalAttempt.ended_at ? ` · Ended: ${new Date(terminalAttempt.ended_at).toLocaleString()}` : ''}
+                        Started: {formatDateTime(terminalAttempt.started_at)}
+                        {terminalAttempt.ended_at ? ` · Ended: ${formatDateTime(terminalAttempt.ended_at)}` : ''}
                       </p>
                     )}
                   </div>
@@ -1078,7 +1096,11 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                     const maxScore = scoreData?.max_score ?? null;
                     const answered = scoreData?.answered_count ?? summary?.answered_count ?? null;
                     const total = scoreData?.total_questions ?? summary?.total_questions ?? null;
-                    const violations = scoreData?.violation_count ?? summary?.violation_count ?? null;
+                    // Prefer the live violation list — it reflects late-flushed
+                    // buffered violations that the submission-time snapshot misses.
+                    const violationCount = violations.length > 0
+                      ? violations.length
+                      : scoreData?.violation_count ?? summary?.violation_count ?? null;
                     const pct = scoreData?.percentage ?? (score !== null && maxScore ? Math.round((score / maxScore) * 100) : null);
 
                     return (
@@ -1101,9 +1123,25 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                           </div>
                           <div>
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Violations</div>
-                            <div className="text-sm font-semibold">{violations !== null ? violations : '—'}</div>
+                            <div className={`text-sm font-semibold ${
+                              violationCount !== null && violationCount > 0 ? 'text-red-600' : ''
+                            }`}>
+                              {violationCount !== null ? violationCount : '—'}
+                            </div>
                           </div>
                         </div>
+
+                        {/* Violation timeline — shown when proctoring recorded
+                            any incidents. Each row has the type, the PHT
+                            timestamp, and any metadata captured by the client. */}
+                        {violations.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                              Violation Timeline ({violations.length})
+                            </p>
+                            <ViolationList violations={violations} />
+                          </div>
+                        )}
 
                         {/* Per-question breakdown */}
                         {scoreData?.question_results && scoreData.question_results.length > 0 && (

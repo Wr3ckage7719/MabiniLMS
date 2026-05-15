@@ -288,6 +288,36 @@ export const listAssignmentViolations = async (
   }
 }
 
+export const listSubmissionViolations = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { submissionId } = req.params
+    const query = req.query as unknown as ListViolationsQuery
+
+    const result = await examService.listSubmissionViolations(
+      submissionId,
+      req.user!.id,
+      req.user!.role as UserRole,
+      query
+    )
+
+    res.json({
+      success: true,
+      data: result.violations,
+      meta: {
+        total: result.total,
+        limit: query.limit,
+        offset: query.offset,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 export const getExamAttemptResults = async (
   req: AuthRequest,
   res: Response,
