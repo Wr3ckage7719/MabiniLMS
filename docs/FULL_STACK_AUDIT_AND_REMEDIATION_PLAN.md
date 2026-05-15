@@ -56,14 +56,40 @@ The codebase is in good shape overall. Four parallel audits (backend, database, 
 - 100% RLS coverage in Supabase. ARIA labels present. shadcn used consistently.
 - Zero TODO/FIXME/HACK markers in `client/src` — the codebase is well-maintained.
 
-### What we will ship in this PR
+### What we will ship in this PR (post-decisions 2026-05-15)
 
-✅ All LOW + MEDIUM fixes that don't change UX behaviour (auth gaps, validation, memoization, debouncing, magic-number extraction, accessibility).
-✅ The two CRITICAL auth fixes (with regression tests).
-✅ One performance pass: composite index migration + React Query key fixes + N+1 hook fix on `GradesPage`.
-✅ Race-condition fixes in modal close handlers (silent-data-loss class of bugs).
-❌ Cascade-delete redesign, migration consolidation, `TIMESTAMPTZ` switch — **DECISION NEEDED** items in §10.
-❌ Heavy-component refactors (>30KB files) — backlog, separate PRs.
+**Security & correctness**
+✅ CRITICAL auth fixes on enrollment routes, with regression tests.
+✅ Validate previously-loose query params on search and grades.
+
+**Data integrity**
+✅ **Soft-delete on `profiles`** (replace cascade-delete behaviour, with admin "hard delete" requiring confirmation). See §5.2.
+
+**Performance**
+✅ Composite indexes on `submissions` — applied manually via `psql` after merge. See §4.1.
+✅ React Query key alignment for lessons.
+✅ Memoization fixes on hot pages (`ClassDetail`, `TeacherAssignmentDetail`, others).
+
+**Cleanups & UX**
+✅ Route `TeacherSettingsPage` through `apiClient`.
+✅ Page-by-page bug fixes catalogued in §6.bis.
+✅ Race-condition fixes in modal close handlers (silent-data-loss class).
+✅ Accessibility sweep (`aria-label` on icon-only buttons).
+✅ Magic numbers extracted to `client/src/lib/constants.ts`.
+
+**Feature wiring**
+✅ Delete dead files: `client/src/pages/CoursesPage.tsx`, `client/src/pages/StudentDashboard.tsx`.
+✅ **Build out the student `/archived` view** (mirroring `/teacher/archived`).
+✅ **Wire `MaterialEngagementPanel`** to a new `GET /api/materials/:id/engagement` endpoint.
+
+**Migrations bookkeeping**
+✅ Down migrations for 037, 040, 041.
+
+**Deferred (NOT in this PR)**
+❌ `TIMESTAMP` → `TIMESTAMPTZ` — separate scheduled deployment (§10.1).
+❌ `supabase/migrations` consolidation — pending decision (§10.3).
+❌ Migration-runner `-- migrate:no-transaction` directive — backlog.
+❌ Heavy-component refactors (>30 KB files) — backlog, separate PRs.
 
 ---
 
@@ -230,7 +256,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_submissions_assignment_status
 
 **Verify.**
 - Run `EXPLAIN ANALYZE` against the two query shapes before/after; expect index scan.
-- Watch for failure mode: `CONCURRENTLY` cannot run inside a transaction; ensure the migration runner does **not** wrap the SQL in a `BEGIN`. The current runner (`server/src/services/migration.ts`) needs to support a `-- migrate:no-transaction` directive **or** the migration must be applied manually outside the runner. **DECISION NEEDED** — see §10.4.
+- Watch for failure mode: `CONCURRENTLY` cannot run inside a transaction. The runner wraps SQL in `BEGIN`, so this migration must be applied **manually** (decision 2026-05-15, Option B). Procedure:
+  1. Connect to Supabase: `psql "$SUPABASE_DB_URL"`.
+  2. Run the two `CREATE INDEX CONCURRENTLY` statements directly.
+  3. Insert a row into `schema_migrations`: `INSERT INTO schema_migrations (version, name, applied_at) VALUES ('044', '044_submissions_composite_indexes', NOW());` (adjust columns to match the actual table shape — verify with `SELECT * FROM schema_migrations LIMIT 1` first).
+  4. Verify with `\d+ submissions` that the two indexes appear.
+- Keep the `.sql` file in source so the migration is reproducible on staging / new clones (the runner will skip it because of the inserted `schema_migrations` row).
 
 ---
 
@@ -266,17 +297,55 @@ Already in §3.4 — composite improvement.
 
 ---
 
-### 5.2 [HIGH — DECISION NEEDED] Cascade-delete on profiles
+### 5.2 [APPROVED] Cascade-delete → soft-delete on profiles
+
+**Decision (2026-05-15).** Ship in this PR.
 
 Hard-deleting a row in `profiles` cascades through 10+ tables (submissions, grades, exam_attempts, lesson_progress, audit logs…). A misclick in the admin "delete user" flow can erase a semester's worth of student work.
 
-**Proposal.**
-1. Add `profiles.deleted_at TIMESTAMPTZ NULL` column (additive, LOW risk).
-2. Update `services/admin.ts:softDeleteUser` (which exists) to set `deleted_at` instead of issuing a hard `DELETE`.
-3. Add an explicit `hardDeleteUser(profileId, { confirm: true })` admin-only path with a confirmation dialog (typed "DELETE STUDENT NAME" pattern).
-4. Update list/login queries to filter `WHERE deleted_at IS NULL`.
+**Execution plan.**
 
-**Risk.** HIGH because step 4 touches many query sites. **DECISION NEEDED.**
+1. **New migration `server/migrations/045_profiles_soft_delete.sql`:**
+   ```sql
+   -- Up
+   ALTER TABLE profiles ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+   CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON profiles (deleted_at)
+     WHERE deleted_at IS NULL;
+   -- Down
+   -- DROP INDEX IF EXISTS idx_profiles_deleted_at;
+   -- ALTER TABLE profiles DROP COLUMN IF EXISTS deleted_at;
+   ```
+   Pure additive — no downtime, no table rewrite.
+
+2. **Service layer changes in `server/src/services/admin.ts`:**
+   - `deleteUser(id)` → behavior change: set `deleted_at = now()` instead of `DELETE`. Rename internally to `softDeleteUser(id)`. Keep the HTTP endpoint shape unchanged.
+   - Add `hardDeleteUser(id, { confirmationName })`: verifies the passed name matches the profile's name, then executes the original `DELETE`. Admin-only, logged to audit.
+   - Add `restoreUser(id)`: set `deleted_at = NULL`. Admin-only.
+
+3. **Query filter audit.** Every query in `server/src/services/*.ts` that selects from `profiles` must add `.is('deleted_at', null)` UNLESS the call site explicitly wants soft-deleted rows (admin restore screen, audit log lookups).
+   Sites to check (grep `from('profiles')` and `JOIN profiles`):
+   - `services/auth.ts` — login (must reject soft-deleted users with a generic "invalid credentials" error)
+   - `services/users.ts` — directory listing
+   - `services/admin.ts` — user list (add an `includeDeleted` flag)
+   - `services/courses.ts` — teacher lookup
+   - `services/classes.ts` — student roster
+   - `services/notifications.ts` — recipient resolution
+   - Anywhere `profiles` is joined for `first_name/last_name` display
+
+4. **Frontend changes in `client/src/pages/admin/StudentManagementPage.tsx` and `PendingTeachersPage.tsx`:**
+   - Hard-delete button → opens a typed-confirmation dialog ("type the student's full name to confirm"). Pattern: see `AlertDialog` usage in `ClassCard.tsx`.
+   - Add a new "Restore" action for soft-deleted users (admin-only list filter "Show deleted").
+
+5. **Test coverage:**
+   - `server/tests/integration/admin.soft-delete.test.ts` — soft-delete hides user from listings, prevents login, preserves submissions/grades.
+   - `server/tests/integration/admin.hard-delete.test.ts` — typed-name confirmation required; cascades only with explicit hard-delete; audit-log entry created.
+
+**Risk.** MEDIUM. The mechanical risk is missing a `WHERE deleted_at IS NULL` filter in a listing query (soft-deleted users would appear). The mitigation: comprehensive grep and tests. The data-loss failure mode of the *current* code is far worse than the soft-delete failure mode.
+
+**Verify.**
+- Manual: soft-delete a test student → log in as that student → expect failure; list students as admin → user gone; check that their old submissions are still visible to the teacher of their old class.
+- Hard-delete with wrong name typed → blocked.
+- Restore soft-deleted user → can log in again.
 
 ---
 
@@ -342,7 +411,7 @@ These look like stubs but are intentional barrels. **Do not delete.**
 | `CoursesPage.tsx` | 103 B | Re-exports Dashboard | **DECISION NEEDED** |
 | `StudentDashboard.tsx` | 108 B | Re-exports Dashboard | **DECISION NEEDED** |
 
-For the latter two: they're not registered in any route in `App.tsx`. Either delete or wire up. Ask user. Default: **delete after grep confirms zero references**.
+**Decision (2026-05-15):** Delete both `CoursesPage.tsx` and `StudentDashboard.tsx`. Pre-check: `grep -r "from.*CoursesPage\|from.*StudentDashboard" client/src` returns nothing → safe to remove.
 
 ---
 
@@ -354,7 +423,17 @@ Read of `client/src/App.tsx`:
 - No `/student/dashboard` — student lands on `/dashboard`. Fine.
 - No 403 page — `NotFound` is used for everything. `ProtectedRoute` redirects to `/login`. **OK** for now.
 
-**Change.** Replace `<Route path="/archived" element={<Dashboard />} />` with either a real component or remove. **DECISION NEEDED**.
+**Decision (2026-05-15):** **BUILD OUT** the student archived view.
+
+**Execution plan.**
+1. Create `client/src/pages/ArchivedPage.tsx` (~80 lines) mirroring `client/src/pages/teacher/TeacherArchivedPage.tsx`. Pattern:
+   - Fetch via `useClasses()` then filter where `is_archived === true` OR student-archived flag.
+   - Render list of `ClassCard` with an "Unarchive" / "Restore" action that calls the existing `archive.service.ts` unarchive method.
+   - Empty state: "No archived classes yet."
+2. Update `App.tsx`: replace `<Route path="/archived" element={<Dashboard />} />` with `<Route path="/archived" element={<ArchivedPage />} />`. Lazy-load it.
+3. Ensure the side nav already links to `/archived`; if not, add a link in `Sidebar.tsx` visible only when the user has at least one archived class.
+
+**Risk.** LOW (additive UI, reuses existing backend).
 
 ---
 
@@ -401,17 +480,42 @@ For each "check", the Sonnet executor must: open the file, locate the data-fetch
 
 ---
 
-### 6.7 [LOW] `MaterialEngagementPanel` — wire backend data
+### 6.7 [APPROVED] `MaterialEngagementPanel` — wire backend data
+
+**Decision (2026-05-15):** Ship in this PR.
 
 Component exists at `client/src/components/MaterialEngagementPanel.tsx` (5KB). Migration 028 has the data columns. Currently no API endpoint exposes them.
 
-**Change (only if user OKs):**
-1. New endpoint `GET /api/materials/:id/engagement` returning aggregate (download count, avg scroll %, pages viewed distribution).
-2. Wire `MaterialEngagementPanel` to call it via React Query.
-3. Render gracefully if data is empty.
+**Execution plan.**
 
-**Risk.** LOW (additive).
-**DECISION NEEDED** — opt in, not part of "fix-only" PR.
+1. **Backend.** New endpoint `GET /api/materials/:id/engagement`.
+   - File: `server/src/routes/materials.ts` — add route, `authenticate` + teacher-or-admin authorize.
+   - File: `server/src/controllers/materials.ts` — new `getMaterialEngagement` handler.
+   - File: `server/src/services/materials.ts` — new `getEngagementAggregate(materialId)` returning:
+     ```ts
+     {
+       download_count: number,
+       average_scroll_pct: number,
+       average_view_seconds: number,
+       students_viewed: number,
+       students_total: number,
+       pages_viewed_distribution: Array<{ page: number, viewers: number }>
+     }
+     ```
+   - Source columns: `material_progress.download_count`, `current_scroll_position`, `pages_viewed`, `interaction_events` (migration 028). Aggregate via SQL `AVG`, `COUNT DISTINCT student_id`, and `jsonb_array_elements` for pages.
+   - Ownership: only the class teacher (or admin) may call; reject 403 otherwise.
+
+2. **Service-layer auth helper.** Reuse `assertMaterialAccess(materialId, userId, role)` if it exists; otherwise add one. Pattern matches `assertEnrollmentAccess` (§3.1).
+
+3. **Frontend.**
+   - New hook `client/src/hooks-api/useMaterialEngagement.ts` with `useQuery(['material-engagement', materialId], …)`. `staleTime: 60_000`.
+   - Update `client/src/components/MaterialEngagementPanel.tsx` to call the new hook; render an `Empty` state when zero student views, a `Skeleton` while loading, and an error toast on failure.
+   - Place the panel inside the teacher's material-detail / lesson-builder UI where it already had a slot (or add it under `LessonEditorPage`'s material card if there isn't one).
+
+4. **Tests.**
+   - `server/tests/integration/materials.engagement.test.ts` — owner allowed, non-teacher 403, empty data returns zeros not 404.
+
+**Risk.** LOW (additive, behind admin-or-teacher auth).
 
 ---
 
@@ -674,37 +778,29 @@ Anything bigger (route-level code splitting beyond what's already there, dialog 
 
 ---
 
-## 10. DECISION NEEDED — paused items
+## 10. Decisions recorded (2026-05-15)
 
-These require explicit user OK. They are written here so Sonnet knows not to implement them silently.
+The user made the following decisions on the items that were originally paused:
 
-### 10.1 Migrate `TIMESTAMP` → `TIMESTAMPTZ`
-See §5.1. Risk: full-table rewrite, downtime. Needs maintenance window + Supabase snapshot.
+| # | Item | Decision |
+|---|---|---|
+| 10.1 | `TIMESTAMP` → `TIMESTAMPTZ` migration | **DEFERRED to a separately scheduled deployment.** Not in this PR. Keep frontend band-aid. |
+| 10.2 | Replace cascade delete with soft delete | **APPROVED.** Ship in this PR. |
+| 10.3 | Consolidate `supabase/migrations` into `server/migrations` | **PAUSED.** Not addressed in this PR (no decision yet). |
+| 10.4 | Index migration via `psql` (Option B) | **APPROVED.** Apply 044 manually after merge; mark applied in `schema_migrations`. |
+| 10.5 | `CoursesPage` / `StudentDashboard` / `/archived` | **DELETE the two dead re-export files. BUILD OUT the student `/archived` view** mirroring `/teacher/archived`. |
+| 10.6 | (covered by 10.5) | — |
+| 10.7 | `MaterialEngagementPanel` data wiring | **APPROVED.** Ship a new `GET /api/materials/:id/engagement` endpoint and wire the panel. |
+| 10.8 | Heavy-component code splitting | **DEFERRED.** Backlog, separate PRs per page. |
 
-### 10.2 Replace cascade delete with soft-delete + explicit hard-delete
-See §5.2. Risk: many query sites need `deleted_at IS NULL` filter.
+Sections below reflect those decisions. The original "paused" wording has been moved into a follow-up backlog at §10.bis.
 
-### 10.3 Consolidate `supabase/migrations` into `server/migrations`
-See §5.3. Risk: idempotency must be verified in staging.
+### 10.bis Items still paused (require user input later)
 
-### 10.4 Migration runner: `CREATE INDEX CONCURRENTLY` support
-The current runner at `server/src/services/migration.ts` likely wraps each file in a transaction. `CONCURRENTLY` is not transaction-compatible. Options:
-  - (a) Add a directive `-- migrate:no-transaction` and respect it in the runner.
-  - (b) Apply `044_…` by hand via psql against Supabase, then mark it applied in `schema_migrations`.
-
-Default in this plan: **(b) for now, (a) as a follow-up.**
-
-### 10.5 `CoursesPage.tsx` / `StudentDashboard.tsx`
-Stub re-exports of `Dashboard`. Delete or wire? See §6.2.
-
-### 10.6 `/archived` route
-Placeholder rendering `Dashboard`. Replace or remove? See §6.3.
-
-### 10.7 `MaterialEngagementPanel` data wiring
-See §6.7.
-
-### 10.8 Heavy-component code-splitting
-See §6.9. Best done as a separate PR per page; do not bundle.
+- **10.1 `TIMESTAMPTZ` migration** — needs a scheduled maintenance window and a Supabase snapshot. Worth doing in a future quiet weekend.
+- **10.3 Migration directory consolidation** — needs idempotency verification in staging before merging.
+- **10.4-followup Migration runner directive** — `-- migrate:no-transaction` support in `server/src/services/migration.ts` so future `CONCURRENTLY` indexes don't need manual `psql` application. Backlog.
+- **10.8 Heavy-component refactors** — `LessonEditorPage`, `AssignmentDetailDialog`, `TeacherAssignmentDetail`, `ProctoredExamDialog`. Each is its own focused PR.
 
 ---
 
@@ -721,16 +817,40 @@ See §6.9. Best done as a separate PR per page; do not bundle.
 
 ## 12. Final commit & PR template
 
-### Commit suggestions (one per logical batch)
+### Commit suggestions (one per logical batch — apply in this order)
 
 ```
+# 1. Plan + bookkeeping
 docs: full-stack audit and remediation plan
+chore(server): add down migrations for 037/040/041
+
+# 2. CRITICAL security
 fix(server): require ownership check on enrollment mutation routes
 test(server): cover enrollment authorization regressions
+
+# 3. Soft-delete (data-integrity)
+feat(db): add profiles.deleted_at for soft-delete
+feat(server): soft-delete users by default; explicit hard-delete with typed confirmation
+test(server): cover soft-delete, restore, hard-delete flows
+feat(client): typed-confirmation dialog for admin hard-delete + restore action
+
+# 4. Material engagement feature wiring
+feat(server): GET /api/materials/:id/engagement aggregate endpoint
+test(server): material engagement authorization + zero-data shape
+feat(client): wire MaterialEngagementPanel to new endpoint via React Query
+
+# 5. Student archived view
+feat(client): student ArchivedPage mirroring TeacherArchivedPage
+chore(client): delete unused CoursesPage and StudentDashboard re-exports
+
+# 6. Server validation tightening
 fix(server): validate global search query parameters
 fix(server): validate grades student_id query parameter
-chore(server): add down migrations for 037/040/041
-perf(db): composite indexes on submissions (student_id+submitted_at, assignment_id+status)
+
+# 7. Perf
+perf(db): composite indexes on submissions (CONCURRENTLY — applied manually)
+
+# 8. Client correctness — page-by-page from §6.bis
 fix(client): route TeacherSettingsPage through apiClient
 fix(client): gate useAssignment on selectedAssignmentId in LessonDetailPage
 fix(client): debounce scroll & zoom tracking in MaterialReaderPage
@@ -740,12 +860,15 @@ fix(client): rollback grade-save status transition on grade-create failure
 fix(client): reset timeoutSubmitInFlightRef on submit failure in ProctoredExamDialog
 fix(client): clear examAssignment state when closing parent assignment dialog
 fix(client): disable double-submit on assignment + exam submit buttons
+fix(client): close confirm dialog only on success in TeacherClassesSection
+fix(client): bug-report form — email validation + only-reset-on-success
+
+# 9. Polish
 chore(client): extract magic numbers to lib/constants.ts
 chore(client): aria-label icon-only buttons across Header/Sidebar/TeacherHeader
 chore(client): align React Query keys for lessons
 chore(client): clear stale ?q= URL on search clear
-fix(client): close confirm dialog only on success in TeacherClassesSection
-fix(client): bug-report form — email validation + only-reset-on-success
+chore(client): vite dev-server open path "/"
 ```
 
 ### PR template
@@ -781,18 +904,35 @@ server/src/routes/search.ts                         (§3.4 — zod query schema)
 server/src/controllers/search.ts                    (§3.4 — use validated query)
 server/src/routes/grades.ts                         (§3.5 — zod query schema)
 server/src/controllers/grades.ts                    (§3.5 — typed studentId)
-server/migrations/044_submissions_composite_indexes.sql   (NEW — §4.1)
+server/src/routes/materials.ts                      (§6.7 — engagement route)
+server/src/controllers/materials.ts                 (§6.7 — engagement handler)
+server/src/services/materials.ts                    (§6.7 — getEngagementAggregate)
+server/src/services/admin.ts                        (§5.2 — softDeleteUser, hardDeleteUser, restoreUser)
+server/src/services/auth.ts                         (§5.2 — reject login when deleted_at)
+server/src/services/users.ts                        (§5.2 — filter deleted_at)
+server/src/services/courses.ts                      (§5.2 — filter deleted_at on teacher joins)
+server/src/services/classes.ts                      (§5.2 — filter deleted_at on roster)
+server/src/services/notifications.ts                (§5.2 — filter recipients)
+server/migrations/044_submissions_composite_indexes.sql   (NEW — §4.1, applied via psql)
+server/migrations/045_profiles_soft_delete.sql            (NEW — §5.2)
 server/migrations/037_lesson_centric_flow.sql             (append Down — §5.4)
 server/migrations/040_lesson_views.sql                    (append Down — §5.4)
 server/migrations/041_lesson_builder_enhancements.sql     (append Down — §5.4)
 server/tests/integration/enrollments.auth.test.ts         (NEW)
 server/tests/integration/search.validation.test.ts        (NEW)
 server/tests/integration/grades.query-validation.test.ts  (NEW)
+server/tests/integration/admin.soft-delete.test.ts        (NEW — §5.2)
+server/tests/integration/admin.hard-delete.test.ts        (NEW — §5.2)
+server/tests/integration/materials.engagement.test.ts     (NEW — §6.7)
 ```
 
 ### Client — focused targeted edits (no big refactors)
 ```
 client/src/lib/constants.ts                                (NEW — magic numbers)
+client/src/App.tsx                                         (§6.3 — register ArchivedPage)
+client/src/pages/ArchivedPage.tsx                          (NEW — §6.3, student archived view)
+client/src/pages/CoursesPage.tsx                           (DELETE — §6.2)
+client/src/pages/StudentDashboard.tsx                      (DELETE — §6.2)
 client/src/pages/TeacherSettingsPage.tsx                   (§6.1 — apiClient)
 client/src/pages/LessonDetailPage.tsx                      (§6.bis.1 — enabled flag, constants)
 client/src/pages/MaterialReaderPage.tsx                    (§6.bis.2 — debounce zoom & scroll, destroy catch)
@@ -801,6 +941,9 @@ client/src/pages/SettingsPage.tsx                          (§6.bis.4 — partia
 client/src/pages/LandingPage.tsx                           (§6.bis.6 — bug-report email + reset)
 client/src/pages/GradesPage.tsx                            (§6.bis.7 — finally revoke, error msgs)
 client/src/pages/Dashboard.tsx                             (§6.bis.8 — disable while pending)
+client/src/pages/admin/StudentManagementPage.tsx           (§5.2 — typed confirmation + restore action)
+client/src/pages/admin/PendingTeachersPage.tsx             (§5.2 — typed confirmation on reject-and-delete)
+client/src/components/MaterialEngagementPanel.tsx          (§6.7 — wire to new hook, empty/loading states)
 client/src/components/AssignmentDetailDialog.tsx           (§6.bis.9 — allSettled, dep fix, disable submit)
 client/src/components/TeacherAssignmentDetail.tsx          (§6.bis.10 — memo, rollback, 500-cap notice)
 client/src/components/ProctoredExamDialog.tsx              (§6.bis.11 — finally on ref, memo deps, try/catch)
@@ -808,9 +951,12 @@ client/src/components/TeacherClassesSection.tsx            (§6.bis.12 — one m
 client/src/components/Header.tsx                           (§6.bis.13 — cleanup timeout, logout try/catch, clear ?q=)
 client/src/hooks/useTeacherData.ts                         (§6.bis.14 — surface failure toast)
 client/src/hooks-api/useLessons.ts                         (§6.5 — query key normalization)
+client/src/hooks-api/useMaterialEngagement.ts              (NEW — §6.7)
+client/src/services/admin.service.ts                       (§5.2 — restoreUser, hardDeleteUser client methods)
+client/src/services/materials.service.ts                   (§6.7 — getEngagement client method)
 
 # Pure accessibility / aria-label sweep
-client/src/components/Sidebar.tsx
+client/src/components/Sidebar.tsx                          (§6.3 — add archived nav link + aria-label)
 client/src/components/TeacherHeader.tsx
 client/src/components/NotificationsPopover.tsx
 client/src/components/ClassCard.tsx                        (verify AlertDialogFooter is wrapped)
@@ -820,6 +966,8 @@ client/vite.config.ts                                      (open path → "/")
 
 # Tests
 client/src/pages/__tests__/TeacherSettingsPage.test.tsx    (NEW)
+client/src/pages/__tests__/ArchivedPage.test.tsx           (NEW — §6.3, empty / has-classes / restore)
+client/src/components/__tests__/MaterialEngagementPanel.test.tsx (NEW — §6.7, loading / empty / data)
 ```
 
 Files **NOT** touched in this PR (>30KB and out of scope unless explicitly approved):
@@ -834,15 +982,17 @@ Files **NOT** touched in this PR (>30KB and out of scope unless explicitly appro
 
 ---
 
-## 14. Open questions for the user
+## 14. Decisions log (2026-05-15)
 
-1. OK to soft-delete users instead of hard-delete? (§5.2 / §10.2)
-2. OK to ship `TIMESTAMP → TIMESTAMPTZ` migration in a future, scheduled deploy? (§5.1 / §10.1)
-3. Should `CoursesPage`, `StudentDashboard`, `/archived` be wired up or deleted? (§6.2 / §6.3 / §10.5 / §10.6)
-4. Should `MaterialEngagementPanel` be wired to backend data? (§6.7 / §10.7)
-5. Approve the §10.4 plan: apply index migration manually via psql, add `--migrate:no-transaction` later?
+| # | Question | User decision |
+|---|---|---|
+| 1 | Soft-delete users vs hard cascade | **Soft delete.** Ship in this PR. |
+| 2 | `TIMESTAMP` → `TIMESTAMPTZ` migration | **Separate scheduled deployment.** Not in this PR. |
+| 3 | `CoursesPage` / `StudentDashboard` / `/archived` | **Delete the two re-export files. Build out the student `/archived` view.** |
+| 4 | `MaterialEngagementPanel` wiring | **Wire it up.** Ship in this PR. |
+| 5 | Index migration application | **Option B — apply manually via `psql` after merge.** Don't change the runner. |
 
-The Sonnet executor should **not** start the items in §10 until these are answered.
+The Sonnet executor may proceed with everything marked APPROVED above without re-asking.
 
 ---
 
