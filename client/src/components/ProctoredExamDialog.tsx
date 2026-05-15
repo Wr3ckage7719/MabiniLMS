@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast'
 import { examsService, ExamAttemptSession, ExamSubmissionResult, ProctorViolationType } from '@/services/exams.service'
 import { reportViolationDurable } from '@/lib/violation-buffer'
 import { Z } from '@/lib/z-index'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface ProctoredExamDialogProps {
   assignmentId: string
@@ -38,6 +39,7 @@ export function ProctoredExamDialog({
 }: ProctoredExamDialogProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const [session, setSession] = useState<ExamAttemptSession | null>(null)
   const [loadingSession, setLoadingSession] = useState(false)
@@ -524,6 +526,15 @@ export function ProctoredExamDialog({
       }
     }
 
+    // PrintScreen detection fires on keyup (browsers don't surface it on keydown).
+    // This is best-effort: OS-level screenshot tools bypass the browser entirely,
+    // but this catches the hardware key when the page is focused.
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'PrintScreen') {
+        void reportViolation('screenshot_suspected', { source: 'PrintScreen_keyup' })
+      }
+    }
+
     if (proctoringEnabled) {
       document.addEventListener('fullscreenchange', onFullscreenChange)
       window.addEventListener('contextmenu', onContextMenu)
@@ -531,6 +542,7 @@ export function ProctoredExamDialog({
       window.addEventListener('paste', onPaste)
       window.addEventListener('cut', onCut)
       window.addEventListener('keydown', onKeyDown)
+      window.addEventListener('keyup', onKeyUp)
       window.addEventListener('resize', onWindowResize)
     }
 
@@ -545,6 +557,7 @@ export function ProctoredExamDialog({
         window.removeEventListener('paste', onPaste)
         window.removeEventListener('cut', onCut)
         window.removeEventListener('keydown', onKeyDown)
+        window.removeEventListener('keyup', onKeyUp)
         window.removeEventListener('resize', onWindowResize)
       }
     }
@@ -657,12 +670,42 @@ export function ProctoredExamDialog({
   // still edit their own answers.
   const lockSelection = started && isAttemptActive
 
+  const watermarkText = user?.email
+    ? `${user.email} • ${new Date().toLocaleDateString()}`
+    : 'MabiniLMS'
+
   return (
     <div
       style={{ zIndex: Z.examChrome }}
       className={`fixed inset-0 bg-background flex flex-col ${lockSelection ? 'select-none' : ''}`}
       onDragStart={lockSelection ? (event) => event.preventDefault() : undefined}
     >
+      {/* Watermark — visible on any screenshot. pointer-events:none so it
+          doesn't interfere with exam interaction. Rotated diagonal repeating
+          pattern stamps the student's identity on leaked captures. */}
+      {started && isAttemptActive && (
+        <div
+          aria-hidden
+          className="fixed inset-0 pointer-events-none overflow-hidden"
+          style={{ zIndex: Z.examChrome + 1 }}
+        >
+          {Array.from({ length: 12 }).map((_, row) =>
+            Array.from({ length: 4 }).map((__, col) => (
+              <span
+                key={`${row}-${col}`}
+                className="absolute text-[10px] font-mono text-foreground/[0.07] whitespace-nowrap select-none"
+                style={{
+                  top: `${row * 9}%`,
+                  left: `${col * 28 - 10}%`,
+                  transform: 'rotate(-30deg)',
+                }}
+              >
+                {watermarkText}
+              </span>
+            ))
+          )}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 md:px-6 md:py-4 flex-shrink-0">
         <div className="min-w-0">
@@ -816,7 +859,7 @@ export function ProctoredExamDialog({
                         <label htmlFor="exam-agreement" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
                           {isQuizMode
                             ? 'I understand the instructions above and am ready to begin the quiz.'
-                            : 'I agree to stay in this exam tab, keep fullscreen active, and follow all proctoring rules.'}
+                            : 'I agree to stay in this exam tab, keep fullscreen active, and follow all proctoring rules. I understand that screenshots cannot be blocked but are watermarked with my identity and tracked as violations.'}
                         </label>
                       </div>
                     )}
