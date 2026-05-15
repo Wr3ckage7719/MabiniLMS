@@ -37,10 +37,27 @@ const timeOnlyFmt = new Intl.DateTimeFormat(FORMAT_LOCALE, {
   hour12: false,
 });
 
-function toDate(input: string | Date | null | undefined): Date | null {
+// Several DB columns (assignments.due_date, submissions.submitted_at,
+// submissions.graded_at, …) are still TIMESTAMP WITHOUT TIME ZONE, so
+// Postgres returns them as naive strings like "2026-05-15T05:00:00".
+// `new Date(naive)` would treat that as device-local time, shifting every
+// rendered value by the user's offset. Treat naive datetimes as UTC so the
+// PHT formatter produces the same wall-clock value the server intended.
+const TZ_SUFFIX_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
+export function parseServerDate(input: string | Date | null | undefined): Date | null {
   if (!input) return null;
-  const d = typeof input === 'string' ? new Date(input) : input;
+  if (input instanceof Date) return Number.isFinite(input.getTime()) ? input : null;
+  let value = input;
+  if (value.includes('T') && !TZ_SUFFIX_RE.test(value)) {
+    value = `${value}Z`;
+  }
+  const d = new Date(value);
   return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function toDate(input: string | Date | null | undefined): Date | null {
+  return parseServerDate(input);
 }
 
 export function formatDateTime(input: string | Date | null | undefined, fallback = '—'): string {

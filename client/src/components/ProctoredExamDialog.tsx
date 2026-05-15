@@ -752,8 +752,8 @@ export function ProctoredExamDialog({
 
               {/* Active proctoring warning (exam only) */}
               {!isQuizMode && session.assignment.is_proctored && started && (
-                <Card className="border-yellow-500/40 bg-yellow-500/10">
-                  <CardContent className="p-3 text-xs text-yellow-100 flex items-start gap-2">
+                <Card className="border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10">
+                  <CardContent className="p-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
                     <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
                     <span>
                       Proctoring is active. Right-click, clipboard, print shortcut, tab switch, and fullscreen

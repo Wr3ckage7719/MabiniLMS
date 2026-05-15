@@ -30,10 +30,17 @@ export interface DerivedStatusInput {
   now?: Date;
 }
 
+// Naive TIMESTAMP columns (assignments.due_date, submissions.submitted_at,
+// etc.) come back from Postgres without a Z marker. Default `new Date`
+// parsing would treat them as device-local time, breaking the overdue
+// comparison; normalise them as UTC the same way the formatter does.
+const TZ_SUFFIX_RE = /(Z|[+-]\d{2}:?\d{2})$/;
+
 const toDate = (value: string | Date | null | undefined): Date | null => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  const parsed = new Date(value);
+  const normalized = value.includes('T') && !TZ_SUFFIX_RE.test(value) ? `${value}Z` : value;
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
