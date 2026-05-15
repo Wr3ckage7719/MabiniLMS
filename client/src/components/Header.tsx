@@ -92,7 +92,13 @@ export function Header({ onCreateClass, onJoinClass, onToggleSidebar }: HeaderPr
   }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = async () => {
-    await logout();
+    try {
+      await logout();
+    } catch {
+      // Server-side logout can fail (network blip, expired token). Either way,
+      // we always want the user to land on /login — the local session has
+      // already been cleared by the AuthContext.
+    }
     navigate('/login', { replace: true });
   };
 

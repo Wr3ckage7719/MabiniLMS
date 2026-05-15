@@ -181,23 +181,26 @@ export default function ClassDetail() {
     }
   }, [assignments, searchParams, selectedAssignment]);
 
-  const assignmentGrades = new Map<string, string>();
-  classGrades.forEach((grade: any) => {
-    const assignmentId = grade?.submission?.assignment_id || grade?.assignment?.id;
-    const pointsEarned = grade?.points_earned;
-    const maxPoints = grade?.submission?.assignment?.max_points || grade?.assignment?.max_points;
+  const assignmentGrades = useMemo(() => {
+    const map = new Map<string, string>();
+    classGrades.forEach((grade: any) => {
+      const assignmentId = grade?.submission?.assignment_id || grade?.assignment?.id;
+      const pointsEarned = grade?.points_earned;
+      const maxPoints = grade?.submission?.assignment?.max_points || grade?.assignment?.max_points;
 
-    if (!assignmentId || typeof pointsEarned !== 'number') {
-      return;
-    }
+      if (!assignmentId || typeof pointsEarned !== 'number') {
+        return;
+      }
 
-    assignmentGrades.set(
-      assignmentId,
-      typeof maxPoints === 'number' ? `${pointsEarned}/${maxPoints}` : `${pointsEarned}`
-    );
-  });
+      map.set(
+        assignmentId,
+        typeof maxPoints === 'number' ? `${pointsEarned}/${maxPoints}` : `${pointsEarned}`
+      );
+    });
+    return map;
+  }, [classGrades]);
 
-  const averageGradeScore = (() => {
+  const averageGradeScore = useMemo(() => {
     const numericScores = classGrades
       .map((grade: any) => Number(grade?.points_earned))
       .filter((score: number) => Number.isFinite(score));
@@ -207,7 +210,7 @@ export default function ClassDetail() {
     }
 
     return numericScores.reduce((sum: number, score: number) => sum + score, 0) / numericScores.length;
-  })();
+  }, [classGrades]);
 
   const weightedBreakdown = weightedGradeQuery.data || null;
   const finalGradePercentage = (() => {
