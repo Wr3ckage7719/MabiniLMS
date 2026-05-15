@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import { createIdbQueue } from '@/lib/idb-queue';
 
 const STORAGE_KEY = 'mabinilms:material-progress-queue:v1';
 const QUEUE_EVENT = 'material-progress-queue:changed';
@@ -19,45 +20,26 @@ interface QueuedProgressItem {
   attempts: number;
 }
 
-interface QueueState {
-  version: 1;
-  items: QueuedProgressItem[];
-}
+type QueuedProgressEntry = QueuedProgressItem & { __key: string };
 
-const defaultQueueState = (): QueueState => ({ version: 1, items: [] });
+const idbQueue = createIdbQueue<QueuedProgressEntry>({
+  dbName: 'mabini-queues',
+  storeName: 'material-progress',
+  legacyLocalStorageKey: STORAGE_KEY,
+  legacyParse: (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed?.items || !Array.isArray(parsed.items)) return [];
+      return parsed.items.map((item: QueuedProgressItem) => ({ ...item, __key: item.id }));
+    } catch {
+      return [];
+    }
+  },
+  changeEventName: QUEUE_EVENT,
+  broadcastChannel: 'mabini:queue',
+});
 
-const canUseStorage = (): boolean => {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-};
-
-const notifyChanged = (): void => {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(QUEUE_EVENT));
-};
-
-const readState = (): QueueState => {
-  if (!canUseStorage()) return defaultQueueState();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultQueueState();
-    const parsed = JSON.parse(raw) as QueueState;
-    if (!parsed || !Array.isArray(parsed.items)) return defaultQueueState();
-    return { version: 1, items: parsed.items };
-  } catch {
-    return defaultQueueState();
-  }
-};
-
-const writeState = (state: QueueState): void => {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  notifyChanged();
-};
-
-const updateState = (updater: (items: QueuedProgressItem[]) => QueuedProgressItem[]): void => {
-  const current = readState();
-  writeState({ version: 1, items: updater(current.items) });
-};
+export const ready = idbQueue.ready;
 
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -85,13 +67,26 @@ const endpointFor = (item: QueuedProgressItem): { method: 'put' | 'post'; url: s
   }
 };
 
+const tryRegisterBackgroundSync = async (tag: string): Promise<void> => {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const registration = await navigator.serviceWorker.ready;
+    if (!('sync' in registration)) return;
+    await (registration as any).sync.register(tag);
+  } catch {
+    // Silently ignore — Background Sync is a progressive enhancement.
+  }
+};
+
 export const enqueueProgressEvent = (
   kind: ProgressKind,
   materialId: string,
   payload: Record<string, unknown>
 ): void => {
-  const item: QueuedProgressItem = {
-    id: generateId(),
+  const id = generateId();
+  const item: QueuedProgressEntry = {
+    __key: id,
+    id,
     kind,
     materialId,
     payload,
@@ -99,15 +94,18 @@ export const enqueueProgressEvent = (
     attempts: 0,
   };
 
-  updateState((items) => [...items, item]);
+  idbQueue.upsert(id, item);
+  void tryRegisterBackgroundSync('mabini-flush-progress');
 };
 
 export const getMaterialProgressQueue = (): QueuedProgressItem[] => {
-  return readState().items;
+  return idbQueue.getAll();
 };
 
 export const flushMaterialProgressQueue = async (): Promise<{ synced: number; remaining: number }> => {
-  const initial = getMaterialProgressQueue();
+  await ready;
+
+  const initial = idbQueue.getAll();
   if (initial.length === 0) return { synced: 0, remaining: 0 };
   if (isOffline()) return { synced: 0, remaining: initial.length };
 
@@ -121,28 +119,18 @@ export const flushMaterialProgressQueue = async (): Promise<{ synced: number; re
       } else {
         await apiClient.post(url, item.payload);
       }
-      updateState((items) => items.filter((existing) => existing.id !== item.id));
+      idbQueue.remove(item.__key);
       synced += 1;
     } catch (error: any) {
-      updateState((items) =>
-        items.map((existing) =>
-          existing.id === item.id
-            ? { ...existing, attempts: existing.attempts + 1 }
-            : existing
-        )
-      );
-      // Network/server error — try again later. Don't keep hammering on a
-      // dead connection.
+      idbQueue.upsert(item.__key, { ...item, attempts: item.attempts + 1 });
+      // Network/server error — try again later.
       if (!error?.response || isOffline()) break;
     }
   }
 
-  return { synced, remaining: getMaterialProgressQueue().length };
+  return { synced, remaining: idbQueue.getAll().length };
 };
 
 export const subscribeToMaterialProgressQueue = (listener: () => void): (() => void) => {
-  if (typeof window === 'undefined') return () => undefined;
-  const handler = () => listener();
-  window.addEventListener(QUEUE_EVENT, handler);
-  return () => window.removeEventListener(QUEUE_EVENT, handler);
+  return idbQueue.subscribe(listener);
 };

@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import { createIdbQueue } from '@/lib/idb-queue';
 
 const STORAGE_KEY = 'mabinilms:submission-queue:v1';
 const QUEUE_EVENT = 'submission-queue:changed';
@@ -29,11 +30,6 @@ export interface QueuedSubmission {
   lastError?: string;
 }
 
-interface QueueState {
-  version: 1;
-  items: QueuedSubmission[];
-}
-
 export interface QueueSyncResult {
   synced: number;
   failed: number;
@@ -45,6 +41,27 @@ interface EnqueueSubmissionInput {
   courseId: string;
   payload: Omit<SubmissionRequestPayload, 'sync_key'> & { sync_key?: string };
 }
+
+type QueuedSubmissionEntry = QueuedSubmission & { __key: string };
+
+const idbQueue = createIdbQueue<QueuedSubmissionEntry>({
+  dbName: 'mabini-queues',
+  storeName: 'submissions',
+  legacyLocalStorageKey: STORAGE_KEY,
+  legacyParse: (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed?.items || !Array.isArray(parsed.items)) return [];
+      return parsed.items.map((item: QueuedSubmission) => ({ ...item, __key: item.syncKey }));
+    } catch {
+      return [];
+    }
+  },
+  changeEventName: QUEUE_EVENT,
+  broadcastChannel: 'mabini:queue',
+});
+
+export const ready = idbQueue.ready;
 
 const normalizeQueuePayload = (
   payload: Omit<SubmissionRequestPayload, 'sync_key'> & { sync_key?: string },
@@ -70,55 +87,6 @@ const normalizeQueuePayload = (
   };
 };
 
-const defaultQueueState = (): QueueState => ({ version: 1, items: [] });
-
-const canUseStorage = (): boolean => {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-};
-
-const notifyQueueChanged = (): void => {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(QUEUE_EVENT));
-};
-
-const readQueueState = (): QueueState => {
-  if (!canUseStorage()) {
-    return defaultQueueState();
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(STORAGE_KEY);
-    if (!rawValue) return defaultQueueState();
-
-    const parsedValue = JSON.parse(rawValue) as QueueState;
-    if (!parsedValue || !Array.isArray(parsedValue.items)) {
-      return defaultQueueState();
-    }
-
-    return {
-      version: 1,
-      items: parsedValue.items,
-    };
-  } catch {
-    return defaultQueueState();
-  }
-};
-
-const writeQueueState = (state: QueueState): void => {
-  if (!canUseStorage()) {
-    return;
-  }
-
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  notifyQueueChanged();
-};
-
-const updateQueueState = (updater: (items: QueuedSubmission[]) => QueuedSubmission[]): void => {
-  const current = readQueueState();
-  const nextItems = updater(current.items);
-  writeQueueState({ version: 1, items: nextItems });
-};
-
 const formatQueueError = (error: any): string => {
   return (
     error?.response?.data?.error?.message ||
@@ -141,24 +109,26 @@ export const createSubmissionSyncKey = (): string => {
 };
 
 export const getSubmissionQueue = (): QueuedSubmission[] => {
-  return readQueueState().items;
+  return idbQueue.getAll();
 };
 
 export const getSubmissionQueueCount = (): number => {
-  return getSubmissionQueue().length;
+  return idbQueue.getAll().length;
 };
 
 export const subscribeToSubmissionQueue = (listener: () => void): (() => void) => {
-  if (typeof window === 'undefined') {
-    return () => undefined;
+  return idbQueue.subscribe(listener);
+};
+
+const tryRegisterBackgroundSync = async (tag: string): Promise<void> => {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const registration = await navigator.serviceWorker.ready;
+    if (!('sync' in registration)) return;
+    await (registration as any).sync.register(tag);
+  } catch {
+    // Silently ignore — Background Sync is a progressive enhancement.
   }
-
-  const eventListener = () => listener();
-  window.addEventListener(QUEUE_EVENT, eventListener);
-
-  return () => {
-    window.removeEventListener(QUEUE_EVENT, eventListener);
-  };
 };
 
 export const enqueueSubmission = (input: EnqueueSubmissionInput): QueuedSubmission => {
@@ -180,47 +150,29 @@ export const enqueueSubmission = (input: EnqueueSubmissionInput): QueuedSubmissi
     queuedAt: now,
   };
 
-  updateQueueState((items) => {
-    const existingIndex = items.findIndex(
-      (item) => item.assignmentId === input.assignmentId && item.courseId === input.courseId
-    );
+  // Check if there's an existing submission for this assignment+course and
+  // replace it, mirroring the previous localStorage-based dedup logic.
+  const existing = idbQueue.getAll().find(
+    (item) => item.assignmentId === input.assignmentId && item.courseId === input.courseId
+  );
+  if (existing) {
+    idbQueue.remove(existing.__key);
+  }
+  idbQueue.upsert(syncKey, { ...queuedSubmission, __key: syncKey });
 
-    if (existingIndex >= 0) {
-      const next = [...items];
-      next[existingIndex] = queuedSubmission;
-      return next;
-    }
-
-    return [...items, queuedSubmission];
-  });
+  void tryRegisterBackgroundSync('mabini-flush-submissions');
 
   return queuedSubmission;
 };
 
-const markSyncStatus = (syncKey: string, status: 'syncing' | 'failed', errorMessage?: string): void => {
-  updateQueueState((items) =>
-    items.map((item) => {
-      if (item.syncKey !== syncKey) {
-        return item;
-      }
-
-      return {
-        ...item,
-        status,
-        attempts: status === 'failed' ? item.attempts + 1 : item.attempts,
-        lastAttemptAt: new Date().toISOString(),
-        lastError: errorMessage,
-      };
-    })
-  );
-};
-
-const removeQueuedSubmission = (syncKey: string): void => {
-  updateQueueState((items) => items.filter((item) => item.syncKey !== syncKey));
-};
+// For use in tests only — clears the in-memory mirror so tests can start fresh
+// without needing to reset modules or delete the IDB database.
+export const __clearQueueStateForTesting = (): void => idbQueue.replaceAll([]);
 
 export const flushSubmissionQueue = async (): Promise<QueueSyncResult> => {
-  const initialQueue = getSubmissionQueue();
+  await ready;
+
+  const initialQueue = idbQueue.getAll();
   if (initialQueue.length === 0) {
     return { synced: 0, failed: 0, remaining: 0 };
   }
@@ -233,28 +185,34 @@ export const flushSubmissionQueue = async (): Promise<QueueSyncResult> => {
   let failed = 0;
 
   for (const queuedItem of initialQueue) {
-    const currentQueue = getSubmissionQueue();
-    const currentItem = currentQueue.find((item) => item.syncKey === queuedItem.syncKey);
+    const currentItem = idbQueue.getAll().find((item) => item.__key === queuedItem.__key);
+    if (!currentItem) continue;
 
-    if (!currentItem) {
-      continue;
-    }
-
-    markSyncStatus(currentItem.syncKey, 'syncing');
+    idbQueue.upsert(currentItem.__key, { ...currentItem, status: 'syncing' });
 
     try {
       const payload = normalizeQueuePayload(currentItem.payload, currentItem.syncKey);
       await apiClient.post(`/assignments/${currentItem.assignmentId}/submit`, payload);
-      removeQueuedSubmission(currentItem.syncKey);
+      idbQueue.remove(currentItem.__key);
       synced++;
     } catch (error: any) {
       failed++;
-      markSyncStatus(currentItem.syncKey, 'failed', formatQueueError(error));
+      idbQueue.upsert(currentItem.__key, {
+        ...currentItem,
+        status: 'failed',
+        attempts: currentItem.attempts + 1,
+        lastAttemptAt: new Date().toISOString(),
+        lastError: formatQueueError(error),
+      });
 
       if (!error?.response || isOffline()) {
         break;
       }
     }
+  }
+
+  if (idbQueue.getAll().length > 0) {
+    void tryRegisterBackgroundSync('mabini-flush-submissions');
   }
 
   return {

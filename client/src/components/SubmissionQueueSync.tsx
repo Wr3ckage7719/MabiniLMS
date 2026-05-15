@@ -4,10 +4,12 @@ import {
   flushSubmissionQueue,
   getSubmissionQueueCount,
   subscribeToSubmissionQueue,
+  ready as submissionQueueReady,
 } from '@/services/submission-queue.service';
 import {
   flushMaterialProgressQueue,
   subscribeToMaterialProgressQueue,
+  ready as materialProgressQueueReady,
 } from '@/services/material-progress-queue.service';
 
 const FAILURE_TOAST_COOLDOWN_MS = 2 * 60 * 1000;
@@ -41,6 +43,11 @@ export default function SubmissionQueueSync() {
 
       const result = await flushSubmissionQueue();
 
+      // Fire-and-forget violation buffer flush on every sync cycle.
+      void import('@/lib/violation-buffer').then(({ flushViolationBuffer }) => {
+        void flushViolationBuffer().catch(() => undefined);
+      });
+
       if (showSuccessToast && result.synced > 0) {
         const suffix = result.synced === 1 ? '' : 's';
         toast({
@@ -66,9 +73,15 @@ export default function SubmissionQueueSync() {
     }
   }, [toast]);
 
+  // Wait for both queues to hydrate from IDB before the first sync so we
+  // don't flush against an empty mirror that hasn't migrated legacy data yet.
   useEffect(() => {
-    void runSync(false);
+    void Promise.all([submissionQueueReady, materialProgressQueueReady]).then(() => {
+      void runSync(false);
+    });
+  }, [runSync]);
 
+  useEffect(() => {
     const handleOnline = () => {
       void runSync(true);
     };
@@ -93,6 +106,30 @@ export default function SubmissionQueueSync() {
       window.clearInterval(intervalId);
     };
   }, [runSync]);
+
+  // Listen for Background Sync wake-up messages from the service worker.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'mabini:flush-queues') void runSync(false);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [runSync]);
+
+  // Surface a destructive toast when IDB quota is exceeded so the student
+  // knows to sync before storage fills up.
+  useEffect(() => {
+    const onQuota = () => {
+      toast({
+        title: 'Storage is full',
+        description: 'Old queued submissions may be at risk. Sync now to free space.',
+        variant: 'destructive',
+      });
+    };
+    window.addEventListener('mabini:queue-quota-exceeded', onQuota);
+    return () => window.removeEventListener('mabini:queue-quota-exceeded', onQuota);
+  }, [toast]);
 
   return null;
 }

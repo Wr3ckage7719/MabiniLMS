@@ -9,6 +9,10 @@ export type ProctorViolationType =
   | 'cut'
   | 'print_shortcut'
   | 'devtools_open'
+  | 'wake_lock_released'
+  | 'screen_orientation_change'
+  | 'network_offline'
+  | 'picture_in_picture'
 
 export interface ProctoringPolicy {
   max_violations: number
