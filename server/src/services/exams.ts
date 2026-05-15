@@ -1380,7 +1380,7 @@ export const listSubmissionViolations = async (
 ): Promise<{ violations: ExamViolation[]; total: number }> => {
   const { data: submission, error: submissionError } = await supabaseAdmin
     .from('submissions')
-    .select('id, assignment_id, student_id')
+    .select('id, assignment_id, student_id, content, anti_cheat_violations')
     .eq('id', submissionId)
     .maybeSingle()
 
@@ -1407,13 +1407,36 @@ export const listSubmissionViolations = async (
     assertTeacherOrAdminAccess(assignment, userId, userRole)
   }
 
-  const { data, error, count } = await supabaseAdmin
+  // Extract attempt_id from submission content JSON so we can query by
+  // attempt rather than assignment+student. This prevents empty results
+  // when the assignment_id in exam_violations diverges from the submission.
+  let attemptId: string | null = null
+  try {
+    const parsed = JSON.parse(submission.content || '{}')
+    if (parsed && typeof parsed.attempt_id === 'string') {
+      attemptId = parsed.attempt_id
+    }
+  } catch {
+    // Malformed content — fall back to assignment+student filter below.
+  }
+
+  let query1 = supabaseAdmin
     .from('exam_violations')
     .select('*', { count: 'exact' })
-    .eq('assignment_id', submission.assignment_id)
-    .eq('student_id', submission.student_id)
     .order('created_at', { ascending: true })
-    .range(query.offset, query.offset + query.limit - 1)
+
+  if (attemptId) {
+    query1 = query1.eq('attempt_id', attemptId) as typeof query1
+  } else {
+    query1 = query1
+      .eq('assignment_id', submission.assignment_id)
+      .eq('student_id', submission.student_id) as typeof query1
+  }
+
+  const { data, error, count } = await query1.range(
+    query.offset,
+    query.offset + query.limit - 1
+  )
 
   if (error) {
     logger.error('Failed to list submission exam violations', {
@@ -1421,6 +1444,32 @@ export const listSubmissionViolations = async (
       error: error.message,
     })
     throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load submission violations', 500)
+  }
+
+  // When the live table returns nothing but the submission carries a
+  // violation snapshot (written atomically at submit time), surface the
+  // snapshot so the teacher always sees what the auto-grader saw.
+  if ((data || []).length === 0 && Array.isArray(submission.anti_cheat_violations)) {
+    const snapshot = submission.anti_cheat_violations as Array<{
+      id?: string
+      type?: string
+      created_at?: string
+      metadata?: Record<string, unknown>
+    }>
+    const synth: ExamViolation[] = snapshot
+      .filter((v) => v.type)
+      .map((v) => ({
+        id: v.id || crypto.randomUUID(),
+        attempt_id: attemptId || '',
+        assignment_id: submission.assignment_id as string,
+        student_id: submission.student_id as string,
+        violation_type: v.type as ExamViolation['violation_type'],
+        metadata: v.metadata || {},
+        created_at: v.created_at || new Date().toISOString(),
+      }))
+
+    const paged = synth.slice(query.offset, query.offset + query.limit)
+    return { violations: paged, total: synth.length }
   }
 
   return {
@@ -1691,6 +1740,7 @@ export const submitExamAttempt = async (
     screen_orientation_change: 'Device rotated',
     network_offline: 'Device went offline',
     picture_in_picture: 'Entered Picture-in-Picture',
+    screenshot_suspected: 'Screenshot key pressed',
   }
   const breakdownLines = Object.entries(violationsByType)
     .sort(([, a], [, b]) => b.count - a.count)
