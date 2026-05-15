@@ -1,4 +1,5 @@
 import type { Assignment } from './data';
+import { parseServerDate } from './datetime';
 
 export interface CourseCompletion {
   /** 0-100, integer. 0 if there are no assignments yet. */
@@ -78,8 +79,9 @@ export function formatDueCountdown(dueDateIso: string | null | undefined): {
   tone: 'overdue' | 'soon' | 'normal' | 'none';
 } | null {
   if (!dueDateIso) return null;
-  const due = new Date(dueDateIso).getTime();
-  if (!Number.isFinite(due)) return null;
+  const parsed = parseServerDate(dueDateIso);
+  if (!parsed) return null;
+  const due = parsed.getTime();
 
   const diffMs = due - Date.now();
   if (diffMs < 0) {

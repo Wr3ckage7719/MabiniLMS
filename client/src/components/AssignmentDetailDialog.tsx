@@ -19,7 +19,7 @@ import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
-import { formatDateTime } from '@/lib/datetime';
+import { formatDateTime, parseServerDate } from '@/lib/datetime';
 import { ViolationList } from '@/components/ViolationList';
 
 
@@ -238,9 +238,8 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
   // without requiring the dialog to be reopened.
   const isPastDue = useMemo(() => {
     void nowTick;
-    if (!assignment?.dueDate) return false;
-    const due = new Date(assignment.dueDate).getTime();
-    return Number.isFinite(due) && Date.now() > due;
+    const due = parseServerDate(assignment?.dueDate);
+    return due !== null && Date.now() > due.getTime();
   }, [assignment?.dueDate, nowTick]);
   const submissionsClosed = assignment?.submissionsOpen === false || isPastDue;
   const taskMeta = getTaskTypeMeta(assignment?.rawType || assignment?.type);
@@ -646,12 +645,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
           <Badge variant="secondary" className="rounded-lg text-xs sm:text-sm whitespace-nowrap">
             <Calendar className="h-3 w-3 mr-1" />
             <span className="hidden sm:inline">Due </span>
-            {new Date(assignment.dueDate).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
+            {formatDateTime(assignment.dueDate)}
           </Badge>
           {countdown && assignment.status !== 'submitted' && assignment.status !== 'graded' && (
             <Badge
@@ -791,7 +785,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                       This assessment can only be taken once. Your submission has been recorded.
                     </p>
                     <div className="text-[11px] text-muted-foreground space-y-0.5">
-                      <p>Submitted: {new Date(submission.submitted_at).toLocaleString()}</p>
+                      <p>Submitted: {formatDateTime(submission.submitted_at)}</p>
                       <p>Status: <span className="capitalize">{submission.status.replace('_', ' ')}</span></p>
                     </div>
                     <p className="text-[11px] text-muted-foreground italic">
