@@ -54,7 +54,6 @@ const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'grading_period',
   'question_order_mode',
   'exam_question_selection_mode',
-  'exam_chapter_pool',
   'created_at',
   'submissions_open',
   'submission_open_at',
@@ -245,20 +244,6 @@ const resolveExamSelectionMode = (input: AssignmentInputWithAliases): 'sequence'
     resolveModeValue(input.exam_question_selection_mode)
     || resolveModeValue(input.exam_selection_mode)
   );
-};
-
-const resolveExamChapterPool = (
-  input: AssignmentInputWithAliases
-): CreateAssignmentInput['exam_chapter_pool'] | undefined => {
-  if (input.exam_chapter_pool && typeof input.exam_chapter_pool === 'object') {
-    return input.exam_chapter_pool;
-  }
-
-  if (input.chapter_pool && typeof input.chapter_pool === 'object') {
-    return input.chapter_pool as CreateAssignmentInput['exam_chapter_pool'];
-  }
-
-  return undefined;
 };
 
 const toBoolean = (value: unknown): boolean | undefined => {
@@ -929,7 +914,6 @@ export const createAssignment = async (
   const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
   const questionOrderMode = resolveQuestionOrderMode(normalizedInput);
   const examSelectionMode = resolveExamSelectionMode(normalizedInput);
-  const examChapterPool = resolveExamChapterPool(normalizedInput);
 
   const insertPayload: Record<string, unknown> = {
     course_id: courseId,
@@ -962,10 +946,6 @@ export const createAssignment = async (
 
   if (examSelectionMode) {
     insertPayload.exam_question_selection_mode = examSelectionMode;
-  }
-
-  if (examChapterPool) {
-    insertPayload.exam_chapter_pool = examChapterPool;
   }
 
   // Quizzes carry assessment-flow settings on the same proctoring_policy
@@ -1324,16 +1304,6 @@ export const updateAssignment = async (
     }
   }
 
-  const chapterPoolProvided =
-    Object.prototype.hasOwnProperty.call(normalizedInput, 'exam_chapter_pool')
-    || Object.prototype.hasOwnProperty.call(normalizedInput, 'chapter_pool');
-  if (chapterPoolProvided) {
-    const examChapterPool = resolveExamChapterPool(normalizedInput);
-    if (examChapterPool) {
-      updatePayload.exam_chapter_pool = examChapterPool;
-    }
-  }
-
   if (Object.prototype.hasOwnProperty.call(normalizedInput, 'proctoring_policy')) {
     updatePayload.proctoring_policy = normalizeProctoringPolicyInput(normalizedInput.proctoring_policy, {
       withDefaults: false,
@@ -1355,7 +1325,6 @@ export const updateAssignment = async (
   delete updatePayload.question_order;
   delete updatePayload.order_mode;
   delete updatePayload.exam_selection_mode;
-  delete updatePayload.chapter_pool;
 
   const hasAssignmentTypeColumn = await supportsAssignmentTypeColumn();
   if (!hasAssignmentTypeColumn) {

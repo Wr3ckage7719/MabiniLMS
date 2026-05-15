@@ -30,11 +30,6 @@ type AssignmentContext = {
   assignment_type: string
   question_order_mode: 'sequence' | 'random'
   exam_question_selection_mode: 'sequence' | 'random'
-  exam_chapter_pool: {
-    enabled: boolean
-    chapters: Array<{ tag: string; take?: number }>
-    total_questions?: number
-  }
   max_points: number
   due_date: string | null
   course_id: string
@@ -205,42 +200,6 @@ const normalizeMode = (value: unknown, fallback: 'sequence' | 'random'): 'sequen
   return fallback
 }
 
-const toChapterPool = (
-  raw: unknown
-): { enabled: boolean; chapters: Array<{ tag: string; take?: number }>; total_questions?: number } => {
-  const source = toRecord(raw)
-  const chapters = Array.isArray(source.chapters)
-    ? source.chapters
-        .map((entry) => {
-          const chapterEntry = toRecord(entry)
-          const tag = typeof chapterEntry.tag === 'string' ? chapterEntry.tag.trim() : ''
-          const take = Number.isInteger(chapterEntry.take) && Number(chapterEntry.take) > 0
-            ? Number(chapterEntry.take)
-            : undefined
-
-          if (!tag) {
-            return null
-          }
-
-          return {
-            tag,
-            ...(take ? { take } : {}),
-          }
-        })
-        .filter((entry): entry is { tag: string; take?: number } => Boolean(entry))
-    : []
-
-  const totalQuestions = Number.isInteger(source.total_questions) && Number(source.total_questions) > 0
-    ? Number(source.total_questions)
-    : undefined
-
-  return {
-    enabled: Boolean(source.enabled),
-    chapters,
-    ...(totalQuestions ? { total_questions: totalQuestions } : {}),
-  }
-}
-
 const parseExamQuestion = (row: Record<string, unknown>): ExamQuestion => {
   const itemType = normalizeExamQuestionItemType(row.item_type)
 
@@ -314,7 +273,7 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
         .from('assignments')
         .select(`
           id, title, assignment_type, question_order_mode, exam_question_selection_mode,
-          exam_chapter_pool, max_points, due_date, course_id,
+          max_points, due_date, course_id,
           is_proctored, exam_duration_minutes, proctoring_policy,
           course:courses(id, teacher_id)
         `)
@@ -324,7 +283,7 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
         .from('assignments')
         .select(`
           id, title, question_order_mode, exam_question_selection_mode,
-          exam_chapter_pool, max_points, due_date, course_id,
+          max_points, due_date, course_id,
           is_proctored, exam_duration_minutes, proctoring_policy,
           course:courses(id, teacher_id)
         `)
@@ -348,7 +307,6 @@ const getAssignmentContext = async (assignmentId: string): Promise<AssignmentCon
     assignment_type: normalizeAssignmentType(assignment.assignment_type),
     question_order_mode: normalizeMode(assignment.question_order_mode, 'sequence'),
     exam_question_selection_mode: normalizeMode(assignment.exam_question_selection_mode, 'random'),
-    exam_chapter_pool: toChapterPool(assignment.exam_chapter_pool),
     max_points: toNumber(assignment.max_points, 100),
     due_date: assignment.due_date ? String(assignment.due_date) : null,
     course_id: String(assignment.course_id),
@@ -677,88 +635,6 @@ const normalizeExamQuestionWritePayload = (
   }
 }
 
-const selectQuestionSubset = (
-  source: ExamQuestion[],
-  requestedCount: number,
-  mode: 'sequence' | 'random',
-  random: () => number
-): ExamQuestion[] => {
-  if (requestedCount >= source.length) {
-    return [...source]
-  }
-
-  if (mode === 'random') {
-    const indexes = fisherYatesOrder(source.length, random).slice(0, requestedCount)
-    return indexes.map((index) => source[index])
-  }
-
-  return source.slice(0, requestedCount)
-}
-
-const resolveQuestionsForAttempt = (
-  questions: ExamQuestion[],
-  assignment: AssignmentContext,
-  random: () => number
-): ExamQuestion[] => {
-  const chapterPool = assignment.exam_chapter_pool
-
-  if (!chapterPool.enabled || chapterPool.chapters.length === 0) {
-    return questions
-  }
-
-  const selectedQuestions: ExamQuestion[] = []
-  const selectedQuestionIds = new Set<string>()
-
-  for (const chapterRule of chapterPool.chapters) {
-    const wantedTag = chapterRule.tag.trim().toLowerCase()
-    if (!wantedTag) {
-      continue
-    }
-
-    const chapterQuestions = questions.filter(
-      (question) => (question.chapter_tag || '').trim().toLowerCase() === wantedTag
-    )
-
-    if (chapterQuestions.length === 0) {
-      continue
-    }
-
-    const takeCount = Math.min(chapterRule.take || chapterQuestions.length, chapterQuestions.length)
-    const picked = selectQuestionSubset(
-      chapterQuestions,
-      takeCount,
-      assignment.exam_question_selection_mode,
-      random
-    )
-
-    for (const question of picked) {
-      if (selectedQuestionIds.has(question.id)) {
-        continue
-      }
-
-      selectedQuestionIds.add(question.id)
-      selectedQuestions.push(question)
-    }
-  }
-
-  const pooledQuestions = selectedQuestions.length > 0 ? selectedQuestions : questions
-
-  if (
-    chapterPool.total_questions
-    && chapterPool.total_questions > 0
-    && pooledQuestions.length > chapterPool.total_questions
-  ) {
-    return selectQuestionSubset(
-      pooledQuestions,
-      chapterPool.total_questions,
-      assignment.exam_question_selection_mode,
-      random
-    )
-  }
-
-  return pooledQuestions
-}
-
 export const listExamQuestions = async (
   assignmentId: string,
   userId: string,
@@ -1024,14 +900,7 @@ export const startExamAttempt = async (
   const seed = crypto.randomInt(1, 2_147_483_646)
   const random = mulberry32(seed)
 
-  const selectedQuestions = resolveQuestionsForAttempt(questions, assignment, random)
-  if (selectedQuestions.length === 0) {
-    throw new ApiError(
-      ErrorCode.VALIDATION_ERROR,
-      'No questions matched the configured exam chapter pool.',
-      400
-    )
-  }
+  const selectedQuestions = questions
 
   const questionOrderIndexes = assignment.question_order_mode === 'random'
     ? fisherYatesOrder(selectedQuestions.length, random)
