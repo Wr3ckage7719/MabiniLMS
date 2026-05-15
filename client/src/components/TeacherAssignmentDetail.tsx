@@ -63,6 +63,8 @@ import {
   formatProviderFileSize,
   normalizeSubmissionStorageMetadata,
 } from '@/lib/submission-storage';
+import { formatDateTime } from '@/lib/datetime';
+import { VIOLATION_LABELS as SHARED_VIOLATION_LABELS } from '@/lib/proctor-labels';
 
 interface StudentSubmission {
   id: string;
@@ -84,20 +86,7 @@ interface StudentSubmission {
   submissionSnapshotAt?: string;
 }
 
-const VIOLATION_LABELS: Record<ProctorViolationType, string> = {
-  visibility_hidden: 'Tab switch / window blur',
-  fullscreen_exit: 'Exited fullscreen',
-  context_menu: 'Right-click attempt',
-  copy: 'Copy attempt',
-  paste: 'Paste attempt',
-  cut: 'Cut attempt',
-  print_shortcut: 'Print / save shortcut',
-  devtools_open: 'DevTools opened',
-  wake_lock_released: 'Screen sleep / wake-lock released',
-  screen_orientation_change: 'Device rotated',
-  network_offline: 'Device went offline',
-  picture_in_picture: 'Entered Picture-in-Picture',
-};
+const VIOLATION_LABELS: Record<ProctorViolationType, string> = SHARED_VIOLATION_LABELS;
 
 interface AssignmentComment {
   id: string;
@@ -184,7 +173,7 @@ const formatOptionalTimestamp = (value?: string | null): string | null => {
     return null;
   }
 
-  return timestamp.toLocaleString();
+  return formatDateTime(timestamp);
 };
 
 const resolveDrivePreviewUrl = (
@@ -273,7 +262,7 @@ export function TeacherAssignmentDetail({
       author: authorName,
       avatar,
       content: comment.content,
-      timestamp: new Date(comment.created_at).toLocaleString(),
+      timestamp: formatDateTime(comment.created_at),
       isTeacher: ['teacher', 'admin'].includes((comment.author?.role || '').toLowerCase()),
     };
   }, []);
@@ -440,7 +429,7 @@ export function TeacherAssignmentDetail({
         name: studentName,
         avatar,
         status: normalizedStatus,
-        submittedDate: new Date(submission.submitted_at).toLocaleString(),
+        submittedDate: formatDateTime(submission.submitted_at),
         grade:
           typeof normalizedGrade?.points_earned === 'number'
             ? String(normalizedGrade.points_earned)
@@ -977,7 +966,7 @@ export function TeacherAssignmentDetail({
                                     selectedSubmission.providerMimeType || null,
                                     formatProviderFileSize(selectedSubmission.providerSizeBytes),
                                     selectedSubmission.submissionSnapshotAt
-                                      ? `Snapshot ${new Date(selectedSubmission.submissionSnapshotAt).toLocaleString()}`
+                                      ? `Snapshot ${formatDateTime(selectedSubmission.submissionSnapshotAt)}`
                                       : null,
                                   ]
                                     .filter(Boolean)
@@ -1102,7 +1091,7 @@ export function TeacherAssignmentDetail({
                                 {STATUS_LABELS[entry.to_status]}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                {new Date(entry.created_at).toLocaleString()}
+                                {formatDateTime(entry.created_at)}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground">By {actorName}</p>
@@ -1461,7 +1450,7 @@ export function TeacherAssignmentDetail({
                         .join('\n');
                       const lastViolationAt =
                         studentViolations.length > 0
-                          ? new Date(studentViolations[0].created_at).toLocaleString()
+                          ? formatDateTime(studentViolations[0].created_at)
                           : null;
 
                       return (

@@ -1368,6 +1368,67 @@ export const listAssignmentViolations = async (
   }
 }
 
+// Looks up a submission's (student_id, assignment_id) pair and returns the
+// exam_violations recorded for that pair. Used by the teacher grading modal
+// and the student review dialog, both of which carry submission ids rather
+// than attempt ids.
+export const listSubmissionViolations = async (
+  submissionId: string,
+  userId: string,
+  userRole: UserRole,
+  query: ListViolationsQuery
+): Promise<{ violations: ExamViolation[]; total: number }> => {
+  const { data: submission, error: submissionError } = await supabaseAdmin
+    .from('submissions')
+    .select('id, assignment_id, student_id')
+    .eq('id', submissionId)
+    .maybeSingle()
+
+  if (submissionError) {
+    logger.error('Failed to load submission for violations lookup', {
+      submissionId,
+      error: submissionError.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load submission violations', 500)
+  }
+
+  if (!submission || !submission.assignment_id || !submission.student_id) {
+    throw new ApiError(ErrorCode.NOT_FOUND, 'Submission not found', 404)
+  }
+
+  const assignment = await getAssignmentContext(submission.assignment_id as string)
+
+  // Teachers/admins for the owning course, or the student themselves.
+  if (userRole === UserRole.STUDENT) {
+    if (submission.student_id !== userId) {
+      throw new ApiError(ErrorCode.FORBIDDEN, 'You can only view your own submission violations', 403)
+    }
+  } else {
+    assertTeacherOrAdminAccess(assignment, userId, userRole)
+  }
+
+  const { data, error, count } = await supabaseAdmin
+    .from('exam_violations')
+    .select('*', { count: 'exact' })
+    .eq('assignment_id', submission.assignment_id)
+    .eq('student_id', submission.student_id)
+    .order('created_at', { ascending: true })
+    .range(query.offset, query.offset + query.limit - 1)
+
+  if (error) {
+    logger.error('Failed to list submission exam violations', {
+      submissionId,
+      error: error.message,
+    })
+    throw new ApiError(ErrorCode.INTERNAL_ERROR, 'Failed to load submission violations', 500)
+  }
+
+  return {
+    violations: (data || []) as ExamViolation[],
+    total: count || 0,
+  }
+}
+
 export const submitExamAttempt = async (
   attemptId: string,
   userId: string,
@@ -1425,8 +1486,9 @@ export const submitExamAttempt = async (
 
   const { data: violationsData, error: violationsError } = await supabaseAdmin
     .from('exam_violations')
-    .select('id, violation_type, created_at')
+    .select('id, violation_type, created_at, metadata')
     .eq('attempt_id', attemptId)
+    .order('created_at', { ascending: true })
 
   if (violationsError) {
     logger.error('Failed to load exam violations while submitting attempt', {
@@ -1441,7 +1503,22 @@ export const submitExamAttempt = async (
     id: violation.id,
     type: violation.violation_type,
     created_at: violation.created_at,
+    metadata: violation.metadata ?? {},
   }))
+
+  const violationsByType = (violationsData || []).reduce<
+    Record<string, { count: number; first: string; last: string }>
+  >((acc, v) => {
+    const existing = acc[v.violation_type]
+    if (!existing) {
+      acc[v.violation_type] = { count: 1, first: v.created_at, last: v.created_at }
+    } else {
+      existing.count += 1
+      if (v.created_at < existing.first) existing.first = v.created_at
+      if (v.created_at > existing.last) existing.last = v.created_at
+    }
+    return acc
+  }, {})
 
   const now = new Date().toISOString()
   const dueDate = context.assignment.due_date ? new Date(context.assignment.due_date) : null
@@ -1471,6 +1548,7 @@ export const submitExamAttempt = async (
     max_question_score: totalQuestionPoints,
     scaled_score: scaledScore,
     violation_count: violationCount,
+    violations_by_type: violationsByType,
   })
 
   let submissionId: string
@@ -1599,7 +1677,35 @@ export const submitExamAttempt = async (
 
   const graderId = context.assignment.teacher_id || userId
   const graderRole = context.assignment.teacher_id ? UserRole.TEACHER : UserRole.ADMIN
-  const autoFeedback = `Auto-graded exam attempt. Answered ${answeredCount}/${totalQuestions} questions. Violations: ${violationCount}.`
+
+  const VIOLATION_LABELS: Record<string, string> = {
+    visibility_hidden: 'Tab switch / window blur',
+    fullscreen_exit: 'Exited fullscreen',
+    context_menu: 'Right-click attempt',
+    copy: 'Copy attempt',
+    paste: 'Paste attempt',
+    cut: 'Cut attempt',
+    print_shortcut: 'Print / save shortcut',
+    devtools_open: 'DevTools opened',
+    wake_lock_released: 'Screen wake-lock released',
+    screen_orientation_change: 'Device rotated',
+    network_offline: 'Device went offline',
+    picture_in_picture: 'Entered Picture-in-Picture',
+  }
+  const breakdownLines = Object.entries(violationsByType)
+    .sort(([, a], [, b]) => b.count - a.count)
+    .map(
+      ([type, info]) =>
+        `  • ${VIOLATION_LABELS[type] ?? type}: ${info.count}x (first ${info.first}, last ${info.last})`
+    )
+  const autoFeedback = [
+    `Auto-graded exam attempt.`,
+    `Answered: ${answeredCount}/${totalQuestions}`,
+    `Score: ${scaledScore}/${context.assignment.max_points} (${percentage}%)`,
+    `Violations: ${violationCount}`,
+    ...(breakdownLines.length ? ['Violation breakdown:', ...breakdownLines] : []),
+    `(Timestamps in UTC; UI renders in PHT.)`,
+  ].join('\n')
 
   const { data: existingGrade, error: existingGradeError } = await supabaseAdmin
     .from('grades')

@@ -53,8 +53,11 @@ import { invalidateClassData } from '@/lib/query-invalidation';
 import { Announcement as ClassAnnouncement } from '@/lib/data';
 import { useSearchParams } from 'react-router-dom';
 import { normalizeSubmissionStorageMetadata } from '@/lib/submission-storage';
+import { formatDateTime as formatDateTimePHT } from '@/lib/datetime';
+import { examsService, type ExamViolation } from '@/services/exams.service';
 import { StreamTab, type TeacherDiscussionPost } from './StreamTab';
 import { SubmissionsTab, type RecentSubmissionItem } from './SubmissionsTab';
+import type { SubmissionFiltersState } from './SubmissionFilters';
 
 interface TeacherClassStreamProps {
   classId: string;
@@ -111,16 +114,7 @@ const parseGradeInput = (value: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return 'Unknown';
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleString();
-};
+const formatDateTime = (value?: string | null): string => formatDateTimePHT(value, 'Unknown');
 
 const toTeacherDiscussionPost = (post: DiscussionPost): TeacherDiscussionPost => {
   const firstName = post.author?.first_name?.trim() || '';
@@ -217,6 +211,20 @@ export function TeacherClassStream({
   const [hidingDiscussionPostIds, setHidingDiscussionPostIds] = useState<string[]>([]);
   const [deletingDiscussionPostIds, setDeletingDiscussionPostIds] = useState<string[]>([]);
   const [exportingRegistrar, setExportingRegistrar] = useState(false);
+  const [submissionFilters, setSubmissionFilters] = useState<SubmissionFiltersState>({
+    search: '',
+    status: 'all',
+    sort: 'newest',
+  });
+  // Map of `${assignment_id}|${student_id}` -> violation count, populated by
+  // the bulk fetch below. Used to render the "N violations" badge on each
+  // card and to satisfy the "with_violations" filter without opening every
+  // submission. ExamViolation count is the source of truth — submission
+  // content snapshots (which can be stale if violations flushed late from
+  // IndexedDB) are no longer trusted.
+  const [violationCountByKey, setViolationCountByKey] = useState<Record<string, number>>({});
+  const [selectedSubmissionViolations, setSelectedSubmissionViolations] = useState<ExamViolation[]>([]);
+  const [loadingSelectedSubmissionViolations, setLoadingSelectedSubmissionViolations] = useState(false);
   const backgroundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateClassRouteState = (nextTab: TeacherClassTab) => {
@@ -297,52 +305,185 @@ export function TeacherClassStream({
     setAssignments(mappedAssignments);
   }, [apiAssignments, apiSubmissions]);
 
-  const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
-    return apiSubmissions
-      .map((submission) => {
-        const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
-        const firstName = submission.student?.first_name?.trim() || '';
-        const lastName = submission.student?.last_name?.trim() || '';
-        const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
-        const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || studentName.slice(0, 2).toUpperCase();
-        const normalizedGrade = Array.isArray((submission as any).grade)
-          ? (submission as any).grade[0]
-          : (submission as any).grade;
+  const allRecentSubmissions: RecentSubmissionItem[] = useMemo(() => {
+    return apiSubmissions.map((submission) => {
+      const normalizedStorage = normalizeSubmissionStorageMetadata(submission);
+      const firstName = submission.student?.first_name?.trim() || '';
+      const lastName = submission.student?.last_name?.trim() || '';
+      const studentName = `${firstName} ${lastName}`.trim() || submission.student?.email || 'Student';
+      const avatar = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || studentName.slice(0, 2).toUpperCase();
+      const normalizedGrade = Array.isArray((submission as any).grade)
+        ? (submission as any).grade[0]
+        : (submission as any).grade;
+      const assignmentId = submission.assignment?.id || submission.assignment_id;
+      const studentId = submission.student?.id || submission.student_id;
+      const violationKey = assignmentId && studentId ? `${assignmentId}|${studentId}` : null;
 
-        return {
-          id: submission.id,
-          student: studentName,
-          avatar,
-          assignment: submission.assignment?.title || 'Assignment',
-          assignmentType: (submission.assignment as any)?.assignment_type || undefined,
-          submittedAt: new Date(submission.submitted_at).toLocaleString(),
-          submittedAtValue: submission.submitted_at,
-          dueDate: submission.assignment?.due_date
-            ? new Date(submission.assignment.due_date).toLocaleString()
-            : 'No due date',
-          onTime: submission.assignment?.due_date
-            ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
-            : true,
-          submissionStatus: submission.status,
-          points: submission.assignment?.max_points,
-          submissionContent: normalizedStorage.submissionText || undefined,
-          submissionUrl: normalizedStorage.submissionUrl || undefined,
-          providerLabel: normalizedStorage.providerLabel,
-          providerFileName: normalizedStorage.providerFileName || undefined,
-          providerMimeType: normalizedStorage.providerMimeType || undefined,
-          providerSizeBytes: normalizedStorage.providerSizeBytes ?? undefined,
-          existingGrade:
-            typeof normalizedGrade?.points_earned === 'number'
-              ? normalizedGrade.points_earned
-              : null,
-          existingFeedback: normalizedGrade?.feedback || null,
-          gradeId: normalizedGrade?.id || null,
-          gradedAt: normalizedGrade?.graded_at || null,
-        };
-      })
-      .sort((a, b) => new Date(b.submittedAtValue).getTime() - new Date(a.submittedAtValue).getTime())
-      .slice(0, 10);
+      return {
+        id: submission.id,
+        studentId,
+        assignmentId,
+        student: studentName,
+        avatar,
+        assignment: submission.assignment?.title || 'Assignment',
+        assignmentType: submission.assignment?.assignment_type || undefined,
+        submittedAt: formatDateTimePHT(submission.submitted_at),
+        submittedAtValue: submission.submitted_at,
+        dueDate: submission.assignment?.due_date
+          ? formatDateTimePHT(submission.assignment.due_date)
+          : 'No due date',
+        onTime: submission.assignment?.due_date
+          ? new Date(submission.submitted_at).getTime() <= new Date(submission.assignment.due_date).getTime()
+          : true,
+        submissionStatus: submission.status,
+        points: submission.assignment?.max_points,
+        submissionContent: normalizedStorage.submissionText || undefined,
+        submissionUrl: normalizedStorage.submissionUrl || undefined,
+        providerLabel: normalizedStorage.providerLabel,
+        providerFileName: normalizedStorage.providerFileName || undefined,
+        providerMimeType: normalizedStorage.providerMimeType || undefined,
+        providerSizeBytes: normalizedStorage.providerSizeBytes ?? undefined,
+        existingGrade:
+          typeof normalizedGrade?.points_earned === 'number'
+            ? normalizedGrade.points_earned
+            : null,
+        existingFeedback: normalizedGrade?.feedback || null,
+        gradeId: normalizedGrade?.id || null,
+        gradedAt: normalizedGrade?.graded_at || null,
+        violationCount: violationKey ? violationCountByKey[violationKey] : undefined,
+      };
+    });
+  }, [apiSubmissions, violationCountByKey]);
+
+  const recentSubmissions: RecentSubmissionItem[] = useMemo(() => {
+    const search = submissionFilters.search.trim().toLowerCase();
+
+    const filtered = allRecentSubmissions.filter((s) => {
+      if (search) {
+        const haystack = `${s.student} ${s.assignment}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      switch (submissionFilters.status) {
+        case 'on_time':
+          return s.onTime === true;
+        case 'late':
+          return s.onTime === false;
+        case 'graded':
+          return s.existingGrade !== null && s.existingGrade !== undefined;
+        case 'pending':
+          return s.existingGrade === null || s.existingGrade === undefined;
+        case 'with_violations':
+          return typeof s.violationCount === 'number' && s.violationCount > 0;
+        case 'all':
+        default:
+          return true;
+      }
+    });
+
+    const sorted = filtered.slice();
+    switch (submissionFilters.sort) {
+      case 'oldest':
+        sorted.sort((a, b) => new Date(a.submittedAtValue).getTime() - new Date(b.submittedAtValue).getTime());
+        break;
+      case 'student_asc':
+        sorted.sort((a, b) => a.student.localeCompare(b.student));
+        break;
+      case 'student_desc':
+        sorted.sort((a, b) => b.student.localeCompare(a.student));
+        break;
+      case 'status':
+        sorted.sort((a, b) => a.submissionStatus.localeCompare(b.submissionStatus));
+        break;
+      case 'violations_desc':
+        sorted.sort((a, b) => (b.violationCount ?? 0) - (a.violationCount ?? 0));
+        break;
+      case 'newest':
+      default:
+        sorted.sort((a, b) => new Date(b.submittedAtValue).getTime() - new Date(a.submittedAtValue).getTime());
+        break;
+    }
+    return sorted;
+  }, [allRecentSubmissions, submissionFilters]);
+
+  // Bulk-fetch exam violations once per unique exam/quiz assignment in view,
+  // then collapse to a (assignment_id, student_id) count map. We Promise.all
+  // across assignments and silently skip any that reject (non-exam types or
+  // permission denied).
+  useEffect(() => {
+    const examAssignmentIds = Array.from(
+      new Set(
+        apiSubmissions
+          .filter((s) => {
+            const t = s.assignment?.assignment_type;
+            return t === 'exam' || t === 'quiz';
+          })
+          .map((s) => s.assignment?.id || s.assignment_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      )
+    );
+
+    if (examAssignmentIds.length === 0) {
+      setViolationCountByKey({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const results = await Promise.allSettled(
+        examAssignmentIds.map((assignmentId) =>
+          examsService.listAssignmentViolations(assignmentId, { limit: 500, offset: 0 })
+        )
+      );
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      for (const result of results) {
+        if (result.status !== 'fulfilled') continue;
+        for (const v of result.value.violations) {
+          const key = `${v.assignment_id}|${v.student_id}`;
+          next[key] = (next[key] ?? 0) + 1;
+        }
+      }
+      setViolationCountByKey(next);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [apiSubmissions]);
+
+  // Per-submission violation timeline for the grading modal. Re-fetched every
+  // time a new submission is opened so the teacher always sees the live list,
+  // not a snapshot embedded in the submission content.
+  useEffect(() => {
+    if (!showSubmissionDetail || !selectedSubmission) {
+      setSelectedSubmissionViolations([]);
+      setLoadingSelectedSubmissionViolations(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSelectedSubmissionViolations(true);
+    setSelectedSubmissionViolations([]);
+
+    void (async () => {
+      try {
+        const { violations } = await examsService.listSubmissionViolations(selectedSubmission.id, {
+          limit: 200,
+          offset: 0,
+        });
+        if (cancelled) return;
+        setSelectedSubmissionViolations(violations);
+      } catch {
+        if (!cancelled) setSelectedSubmissionViolations([]);
+      } finally {
+        if (!cancelled) setLoadingSelectedSubmissionViolations(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubmission, showSubmissionDetail]);
 
   const discussionPosts: TeacherDiscussionPost[] = useMemo(() => {
     return apiDiscussionPosts.map(toTeacherDiscussionPost);
@@ -1255,6 +1396,9 @@ export function TeacherClassStream({
           {activeTab === 'submissions' && (
             <SubmissionsTab
               recentSubmissions={recentSubmissions}
+              totalSubmissions={allRecentSubmissions.length}
+              filters={submissionFilters}
+              onFiltersChange={setSubmissionFilters}
               exportingRegistrar={exportingRegistrar}
               handleExportRegistrar={handleExportRegistrar}
               showSubmissionDetail={showSubmissionDetail}
@@ -1267,6 +1411,8 @@ export function TeacherClassStream({
               setSubmissionFeedback={setSubmissionFeedback}
               savingSubmissionGrade={savingSubmissionGrade}
               handleSaveSubmissionGrade={() => { void handleSaveSubmissionGrade(); }}
+              submissionViolations={selectedSubmissionViolations}
+              loadingViolations={loadingSelectedSubmissionViolations}
             />
           )}
 

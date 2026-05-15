@@ -277,6 +277,26 @@ export const examsService = {
     }
   },
 
+  async listSubmissionViolations(
+    submissionId: string,
+    params?: { limit?: number; offset?: number }
+  ): Promise<{ violations: ExamViolation[]; total: number }> {
+    const query = new URLSearchParams()
+    if (params?.limit !== undefined) query.set('limit', String(params.limit))
+    if (params?.offset !== undefined) query.set('offset', String(params.offset))
+
+    const response = await apiClient.get<{
+      success: boolean
+      data: ExamViolation[]
+      meta?: { total?: number }
+    }>(`/assignments/submissions/${submissionId}/violations${query.toString() ? `?${query}` : ''}`)
+
+    return {
+      violations: response?.data || [],
+      total: Number(response?.meta?.total || (response?.data?.length || 0)),
+    }
+  },
+
   async submitExamAttempt(attemptId: string): Promise<ExamSubmissionResult> {
     const response = await apiClient.post<{ success: boolean; data: ExamSubmissionResult }>(
       `/assignments/exam/attempts/${attemptId}/submit`,
