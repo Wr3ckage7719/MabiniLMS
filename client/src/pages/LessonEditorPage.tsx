@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   Globe,
   Timer,
+  Pencil,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -358,6 +359,8 @@ interface AssessmentChipProps {
 
 function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps) {
   const Icon = assessmentTypeIcon(assessment.raw_type);
+  const navigate = useNavigate();
+  const { id: classId, lessonId } = useParams();
   const dueDateLabel = assessment.due_date
     ? new Date(assessment.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
     : null;
@@ -399,6 +402,15 @@ function AssessmentChip({ assessment, onRemove, removing }: AssessmentChipProps)
           )}
         </div>
       </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground flex-shrink-0"
+        onClick={() => navigate(`/class/${classId}/lessons/${lessonId}/assessments/${assessment.assignment_id}/edit`)}
+        aria-label={`Edit ${assessment.title}`}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"

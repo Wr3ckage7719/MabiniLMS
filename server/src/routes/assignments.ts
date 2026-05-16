@@ -33,6 +33,7 @@ import * as assignmentController from '../controllers/assignments.js';
 import * as examController from '../controllers/exams.js';
 import * as gatingController from '../controllers/assessment-gating.js';
 import * as engagementController from '../controllers/teacher-engagement.js';
+import { materialUpload } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -142,6 +143,14 @@ router.post(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: examAssignmentParamSchema, body: createExamQuestionSchema }),
   examController.createExamQuestion
+);
+
+// POST /api/assignments/:assignmentId/exam/questions/upload-image - upload question image
+router.post(
+  '/:assignmentId/exam/questions/upload-image',
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  materialUpload.single('image'),
+  examController.uploadQuestionImage
 );
 
 // PATCH /api/assignments/:assignmentId/exam/questions/:questionId - update exam question

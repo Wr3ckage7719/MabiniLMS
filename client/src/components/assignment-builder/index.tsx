@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -25,7 +25,6 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import {
   CheckCircle2,
@@ -33,6 +32,8 @@ import {
   Activity,
   BookOpen,
   ClipboardCheck,
+  Mic,
+  FolderOpen,
   Calendar as CalendarIcon,
   Paperclip,
   X,
@@ -59,8 +60,10 @@ import { ReadingMaterialForm } from './ReadingMaterialForm';
 import { ActivityForm, type ActivityMode } from './ActivityForm';
 import { QuizForm } from './QuizForm';
 import { ExamForm } from './ExamForm';
+import { RecitationForm, type RecitationMode } from './RecitationForm';
+import { ProjectForm, type ProjectGroupMode } from './ProjectForm';
 
-export type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam';
+export type TaskType = 'reading_material' | 'activity' | 'quiz' | 'exam' | 'recitation' | 'project';
 
 interface CreateAssignmentDialogProps {
   open: boolean;
@@ -70,6 +73,8 @@ interface CreateAssignmentDialogProps {
   initialTaskType?: TaskType;
   isPage?: boolean;
   lessonId?: string;
+  mode?: 'create' | 'edit';
+  assignmentId?: string;
 }
 
 interface AttachedFile {
@@ -85,6 +90,8 @@ const TASK_LABELS: Record<TaskType, string> = {
   activity: 'Activity',
   quiz: 'Quiz',
   exam: 'Exam',
+  recitation: 'Recitation',
+  project: 'Project',
 };
 
 const TASK_HELP_TEXT: Record<TaskType, string> = {
@@ -92,6 +99,8 @@ const TASK_HELP_TEXT: Record<TaskType, string> = {
   activity: 'Students submit files (PDF, DOCX, etc.) for teacher review and manual grading.',
   quiz: 'Build MCQ, True/False, or Short Answer questions. Students answer in-app and get instant auto-graded results.',
   exam: 'Proctored in-app exam with anti-cheat (fullscreen, tab-switch detection). Import questions or build inline.',
+  recitation: 'Oral or recorded performance assessment. Teacher grades students live or reviews uploaded video.',
+  project: 'Individual or group deliverable with file submission and manual grading.',
 };
 
 const TASK_PAGE_INTRO: Record<TaskType, string> = {
@@ -99,6 +108,8 @@ const TASK_PAGE_INTRO: Record<TaskType, string> = {
   activity: 'Create traditional work such as essays, group activities, or assignments with direct file submission.',
   quiz: 'Build quiz questions, choose question types, and control random or sequential delivery.',
   exam: 'Set up proctored exam behavior, chapter pools, and delivery controls.',
+  recitation: 'Configure recitation format, grading criteria, and submission window.',
+  project: 'Set up individual or group project deliverables with file submission controls.',
 };
 
 const toEndOfDayISOString = (value?: Date): string | null => {
@@ -134,12 +145,12 @@ const resolveCorrectChoiceIndex = (choices: string[], answerKey: string): number
 };
 
 const toExamQuestionPayload = (
-  question: { type: QuizQuestionType; prompt: string; choices: string[]; answerKey: string; points?: number; explanation?: string; chapterTag?: string | null },
+  question: { type: QuizQuestionType; prompt: string; choices: string[]; answerKey: string; points?: number; explanation?: string; chapterTag?: string | null; imageUrl?: string | null },
   orderIndex: number
 ): CreateExamQuestionPayload | null => {
   const prompt = question.prompt.trim();
   if (!prompt) return null;
-  const basePayload = { prompt, points: question.points, explanation: question.explanation || undefined, order_index: orderIndex, chapter_tag: question.chapterTag };
+  const basePayload = { prompt, points: question.points, explanation: question.explanation || undefined, order_index: orderIndex, chapter_tag: question.chapterTag, image_url: question.imageUrl ?? null };
   if (question.type === 'multiple_choice') {
     const choices = question.choices.map((choice) => choice.trim()).filter(Boolean);
     if (choices.length < 2) return null;
@@ -175,6 +186,8 @@ export function CreateAssignmentDialog({
   initialTaskType,
   isPage = false,
   lessonId,
+  mode = 'create',
+  assignmentId,
 }: CreateAssignmentDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -223,12 +236,97 @@ export function CreateAssignmentDialog({
   const [uploadingMaterialId, setUploadingMaterialId] = useState<string | null>(null);
   const [completedMaterialId, setCompletedMaterialId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Recitation state
+  const [recitationMode, setRecitationMode] = useState<RecitationMode>('in_class_oral');
+  const [recitationCriteria, setRecitationCriteria] = useState('');
+  // Project state
+  const [projectGroupMode, setProjectGroupMode] = useState<ProjectGroupMode>('individual');
+  const [projectGroupSize, setProjectGroupSize] = useState('4');
+  const [projectAllowedFileTypes, setProjectAllowedFileTypes] = useState<string[]>(['pdf', 'docx', 'zip']);
+  // Chapter pool state (for exam)
+  const [examChapterPoolEnabled, setExamChapterPoolEnabled] = useState(false);
+  const [examChapterPool, setExamChapterPool] = useState<Array<{ tag: string; count: number }>>([]);
+  // Edit mode loading state
+  const [isLoadingEdit, setIsLoadingEdit] = useState(false);
+  // Track server-side question IDs that existed at load time (for edit diff)
+  const existingServerQuestionIds = useRef<Set<string>>(new Set());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (initialTaskType) setTaskType(initialTaskType);
   }, [initialTaskType]);
+
+  useEffect(() => {
+    if (mode !== 'edit' || !assignmentId || !classId || !open) return;
+    setIsLoadingEdit(true);
+    Promise.all([
+      assignmentsService.getAssignmentById(classId, assignmentId),
+      assignmentsService.getAssignmentById(classId, assignmentId).then(() =>
+        examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[])
+      ),
+    ]).then(async ([asgResp]) => {
+      const rawAssignment = (asgResp as any)?.data?.assignment ?? (asgResp as any)?.data;
+      if (!rawAssignment) return;
+      const questionsResp = await examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[]);
+
+      setTitle(rawAssignment.title ?? '');
+      setDescription(rawAssignment.description ?? '');
+      const rawType = rawAssignment.assignment_type ?? 'activity';
+      const mappedType: TaskType = rawType === 'recitation' ? 'recitation' : rawType === 'project' ? 'project' : rawType === 'quiz' ? 'quiz' : rawType === 'exam' ? 'exam' : rawType === 'reading_material' ? 'reading_material' : 'activity';
+      setTaskType(mappedType);
+      if (rawAssignment.due_date) setDueDate(new Date(rawAssignment.due_date));
+      if (rawAssignment.max_points != null) setPoints(String(rawAssignment.max_points));
+      setGradingPeriod((rawAssignment.grading_period as typeof gradingPeriod) ?? '');
+      setSubmissionsOpen(rawAssignment.submissions_open ?? true);
+      setAutoCloseSubmissionsOnDueDate(!rawAssignment.submission_close_at || rawAssignment.submission_close_at === rawAssignment.due_date);
+      if (rawAssignment.topics) setTopics(Array.isArray(rawAssignment.topics) ? rawAssignment.topics : []);
+
+      if ((mappedType === 'exam' || mappedType === 'quiz') && questionsResp.length > 0) {
+        const builderQuestions: QuizBuilderQuestion[] = questionsResp.map((q) => {
+          let answerKey = '';
+          if (q.item_type === 'true_false') answerKey = q.correct_choice_index === 0 ? 'True' : 'False';
+          else if (q.item_type === 'multiple_choice') answerKey = String.fromCharCode(65 + q.correct_choice_index);
+          else if (q.item_type === 'short_answer') {
+            const accepted = (q.answer_payload as any)?.accepted_answers;
+            answerKey = Array.isArray(accepted) ? accepted.join('|') : '';
+          }
+          return {
+            id: `edit-${q.id}`,
+            serverId: q.id,
+            type: q.item_type === 'true_false' ? 'true_false' : q.item_type === 'short_answer' ? 'short_answer' : 'multiple_choice',
+            prompt: q.prompt,
+            choices: q.choices ?? [],
+            answerKey,
+            points: q.points,
+            chapterTag: q.chapter_tag,
+            imageUrl: q.image_url,
+            explanation: q.explanation ?? undefined,
+          };
+        });
+        existingServerQuestionIds.current = new Set(questionsResp.map((q) => q.id));
+        if (mappedType === 'quiz') setQuizQuestions(builderQuestions);
+        else setExamQuestions(builderQuestions);
+      }
+
+      if (rawAssignment.exam_duration_minutes) {
+        setExamTimerEnabled(true);
+        setExamDurationMinutes(String(rawAssignment.exam_duration_minutes));
+      }
+      if (rawAssignment.question_order_mode) setExamQuestionOrder(rawAssignment.question_order_mode);
+      if (rawAssignment.exam_question_selection_mode) setExamQuestionSelection(rawAssignment.exam_question_selection_mode);
+      const pool = rawAssignment.exam_chapter_pool;
+      if (pool?.enabled) {
+        setExamChapterPoolEnabled(true);
+        setExamChapterPool(Array.isArray(pool.chapters) ? pool.chapters : []);
+      }
+    }).catch((err) => {
+      toast({ title: 'Failed to load assessment', description: err?.message || 'Unable to load assessment data for editing.', variant: 'destructive' });
+    }).finally(() => {
+      setIsLoadingEdit(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, assignmentId, classId, open]);
 
   useEffect(() => {
     if (examIntegrityProfile === 'strict') {
@@ -258,14 +356,15 @@ export function CreateAssignmentDialog({
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     if (!title.trim()) newErrors.title = 'Title is required';
-    if (taskType !== 'reading_material' && !dueDate) newErrors.dueDate = 'Due date is required for activity, quiz, and exam tasks';
+    if (taskType !== 'reading_material' && !dueDate) newErrors.dueDate = 'Due date is required';
     if (taskType === 'reading_material' && files.length === 0) newErrors.readingMaterialFile = 'Attach a compatible file to continue';
     if (taskType !== 'reading_material') {
       const parsedPoints = Number(points);
       if (!Number.isFinite(parsedPoints) || parsedPoints < 0) newErrors.points = 'Points must be a non-negative number';
     }
     if (taskType === 'activity' && activityAllowedFileTypes.length === 0) newErrors.activityFileTypes = 'Select at least one allowed file type for activity submissions';
-    if (taskType !== 'reading_material' && submissionsOpen && !autoCloseSubmissionsOnDueDate && !customSubmissionCloseDate) {
+    if (taskType === 'project' && projectAllowedFileTypes.length === 0) newErrors.projectFileTypes = 'Select at least one allowed file type for project submissions';
+    if (['activity', 'project'].includes(taskType) && submissionsOpen && !autoCloseSubmissionsOnDueDate && !customSubmissionCloseDate) {
       newErrors.customSubmissionCloseDate = 'Pick a custom close date or enable automatic closing on due date';
     }
     if (taskType === 'quiz') {
@@ -349,6 +448,14 @@ export function CreateAssignmentDialog({
     clearFieldError('activityFileTypes');
   };
 
+  const toggleProjectFileType = (fileType: string, checked: boolean) => {
+    setProjectAllowedFileTypes((prev) => {
+      if (checked) { if (prev.includes(fileType)) return prev; return [...prev, fileType]; }
+      return prev.filter((value) => value !== fileType);
+    });
+    clearFieldError('projectFileTypes');
+  };
+
   const addQuizQuestion = () => { setQuizQuestions((prev) => [...prev, createQuizDraftQuestion()]); clearFieldError('quizQuestions'); };
   const removeQuizQuestion = (questionId: string) => {
     setQuizQuestions((prev) => { if (prev.length <= 1) return prev; return prev.filter((q) => q.id !== questionId); });
@@ -426,6 +533,15 @@ export function CreateAssignmentDialog({
     return ['Activity Configuration', `Mode: ${modeLabel}`, `Allowed file types: ${activityAllowedFileTypes.join(', ')}`, 'Storage: Institutional Google Drive (teacher-visible student-owned files)', `Submission state: ${submissionsOpen ? 'Open' : 'Closed'}`, `Submission close policy: ${closePolicy}`].join('\n');
   };
 
+  const buildRecitationInstructions = () => {
+    return ['Recitation Configuration', `Mode: ${recitationMode}`, `Criteria: ${recitationCriteria || '(none)'}`, `Submission state: ${submissionsOpen ? 'Open' : 'Closed'}`].join('\n');
+  };
+
+  const buildProjectInstructions = () => {
+    const groupLabel = projectGroupMode === 'group' ? `Group (max ${projectGroupSize})` : 'Individual';
+    return ['Project Configuration', `Type: ${groupLabel}`, `Allowed file types: ${projectAllowedFileTypes.join(', ')}`, `Submission state: ${submissionsOpen ? 'Open' : 'Closed'}`].join('\n');
+  };
+
   const buildQuizInstructions = () => {
     const questionBlueprint = quizQuestions.filter((q) => q.prompt.trim().length > 0).map((q) => ({
       type: q.type,
@@ -450,6 +566,96 @@ export function CreateAssignmentDialog({
     setTaskType(nextType);
     if (nextType !== 'reading_material') { setUploadingMaterialId(null); setCompletedMaterialId(null); }
     clearFieldError('dueDate'); clearFieldError('points'); clearFieldError('activityFileTypes'); clearFieldError('quizQuestions');
+  };
+
+  const handleImageUpload = async (questionId: string, file: File): Promise<void> => {
+    if (!classId) return;
+    const currentAssignmentId = mode === 'edit' ? assignmentId : undefined;
+    if (!currentAssignmentId) {
+      toast({ title: 'Save the assessment first', description: 'Create the assessment before attaching question images.', variant: 'destructive' });
+      return;
+    }
+    try {
+      const url = await examsService.uploadQuestionImage(currentAssignmentId, file);
+      setExamQuestions((prev) => prev.map((q) => q.id === questionId ? { ...q, imageUrl: url } : q));
+      setQuizQuestions((prev) => prev.map((q) => q.id === questionId ? { ...q, imageUrl: url } : q));
+    } catch {
+      toast({ title: 'Image upload failed', description: 'Failed to upload question image. Try again.', variant: 'destructive' });
+    }
+  };
+
+  const handleSave = async () => {
+    if (isSubmitting || isUploadingMaterial) return;
+    if (!validateForm()) return;
+    if (!classId) {
+      toast({ title: 'Missing class context', description: 'Open this dialog from a class page to create tasks.', variant: 'destructive' });
+      return;
+    }
+
+    if (mode === 'edit' && assignmentId) {
+      setIsSubmitting(true);
+      try {
+        const dueDateISO = combineDateAndTimeISOString(dueDate, dueTime);
+        const submissionCloseAt = autoCloseSubmissionsOnDueDate ? dueDateISO : customSubmissionCloseDate ? toEndOfDayISOString(customSubmissionCloseDate) : null;
+        const submissionOpenAt = submissionsOpen ? new Date().toISOString() : null;
+
+        const patchPayload: Parameters<typeof assignmentsService.updateAssignment>[2] = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          grading_period: gradingPeriod || null,
+          due_date: dueDateISO ?? undefined,
+          max_points: (taskType === 'quiz') ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : (taskType === 'exam') ? Math.max(1, examQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : (Number(points) || 100),
+          submissions_open: submissionsOpen,
+          submission_open_at: submissionOpenAt,
+          submission_close_at: submissionCloseAt,
+          topics: topics.length > 0 ? topics : undefined,
+          exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : null,
+          question_order_mode: taskType === 'quiz' ? quizQuestionOrder : taskType === 'exam' ? examQuestionOrder : undefined,
+          exam_question_selection_mode: taskType === 'exam' ? examQuestionSelection : undefined,
+        };
+
+        await assignmentsService.updateAssignment(classId, assignmentId, patchPayload);
+
+        if (taskType === 'exam' || taskType === 'quiz') {
+          const sourceQuestions = taskType === 'quiz' ? quizQuestions : examQuestions;
+          const toSave = sourceQuestions.filter(hasQuestionDraftContent);
+          const serverIds = existingServerQuestionIds.current;
+          const keepServerIds = new Set(toSave.map((q) => q.serverId).filter(Boolean));
+
+          // DELETE removed questions
+          const deleteIds = [...serverIds].filter((id) => !keepServerIds.has(id));
+          await Promise.allSettled(deleteIds.map((id) => examsService.deleteExamQuestion(assignmentId, id)));
+
+          // PATCH updated + POST new
+          await Promise.allSettled(toSave.map((q, index) => {
+            const payload = toExamBuilderPayload(q, index);
+            if (!payload) return Promise.resolve();
+            if (q.serverId && serverIds.has(q.serverId)) {
+              return examsService.updateExamQuestion(assignmentId, q.serverId, payload);
+            }
+            return examsService.createExamQuestion(assignmentId, payload);
+          }));
+        }
+
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['assignments', classId] }),
+          queryClient.invalidateQueries({ queryKey: ['assignment', classId, assignmentId] }),
+          ...(lessonId ? [queryClient.invalidateQueries({ queryKey: ['lessons', 'teacher', classId] })] : []),
+        ]);
+
+        toast({ title: 'Saved', description: `${TASK_LABELS[taskType]} updated successfully.` });
+        onOpenChange(false);
+        onCreated?.();
+      } catch (error: any) {
+        const message = error?.response?.data?.error?.message || error?.message || 'Failed to save changes';
+        toast({ title: 'Save failed', description: message, variant: 'destructive' });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    return handleCreate();
   };
 
   const handleCreate = async () => {
@@ -487,14 +693,14 @@ export function CreateAssignmentDialog({
         setCompletedMaterialId(attachedMaterial?.id || null);
         setUploadingMaterialId(null);
       } else {
-        const assignmentType = taskType === 'quiz' ? 'quiz' : taskType === 'exam' ? 'exam' : 'activity';
+        const assignmentType = taskType === 'quiz' ? 'quiz' : taskType === 'exam' ? 'exam' : taskType === 'recitation' ? 'recitation' : taskType === 'project' ? 'project' : 'activity';
         const parsedExamMaxViolations = Number(examMaxViolations);
         const effectiveExamMaxViolations = Number.isFinite(parsedExamMaxViolations) && parsedExamMaxViolations > 0 ? Math.floor(parsedExamMaxViolations) : examIntegrityProfile === 'strict' ? 3 : 5;
         const strictProctoring = examIntegrityProfile === 'strict';
         const dueDateISO = combineDateAndTimeISOString(dueDate, dueTime);
         const submissionCloseAt = autoCloseSubmissionsOnDueDate ? dueDateISO : customSubmissionCloseDate ? toEndOfDayISOString(customSubmissionCloseDate) : null;
         const submissionOpenAt = submissionsOpen ? new Date().toISOString() : null;
-        const assignmentInstructions = taskType === 'activity' ? buildActivityInstructions() : taskType === 'quiz' ? buildQuizInstructions() : taskType === 'exam' ? buildExamInstructions() : undefined;
+        const assignmentInstructions = taskType === 'activity' ? buildActivityInstructions() : taskType === 'quiz' ? buildQuizInstructions() : taskType === 'exam' ? buildExamInstructions() : taskType === 'recitation' ? buildRecitationInstructions() : taskType === 'project' ? buildProjectInstructions() : undefined;
 
         const createAssignmentResponse = await assignmentsService.createAssignment(classId, {
           title: title.trim(),
@@ -569,6 +775,10 @@ export function CreateAssignmentDialog({
     setExamRequireAgreementBeforeStart(true); setExamAutoSubmitOnTabSwitch(false); setExamAutoSubmitOnFullscreenExit(true);
     setExamMaxViolations('3'); setExamImportedQuestions([]); setExamImportFileName(null);
     setGradingPeriod('');
+    setRecitationMode('in_class_oral'); setRecitationCriteria('');
+    setProjectGroupMode('individual'); setProjectGroupSize('4'); setProjectAllowedFileTypes(['pdf', 'docx', 'zip']);
+    setExamChapterPoolEnabled(false); setExamChapterPool([]);
+    existingServerQuestionIds.current = new Set();
     setFiles([]); setTopics([]); setTopicDraft(''); setIsSubmitting(false); setIsUploadingMaterial(false);
     setMaterialUploadProgress(0); setUploadingMaterialName(null); setUploadingMaterialId(null); setCompletedMaterialId(null); setErrors({});
   };
@@ -584,12 +794,15 @@ export function CreateAssignmentDialog({
     { id: 'activity' as const, label: 'Activity', description: 'Submit files · Graded by teacher', icon: Activity },
     { id: 'quiz' as const, label: 'Quiz', description: 'In-app · Auto-graded · Instant results', icon: FileText },
     { id: 'exam' as const, label: 'Exam', description: 'Proctored assessment flow', icon: ClipboardCheck },
+    { id: 'recitation' as const, label: 'Recitation', description: 'Oral or video assessment', icon: Mic },
+    { id: 'project' as const, label: 'Project', description: 'Individual or group deliverable', icon: FolderOpen },
   ];
 
-  const createTaskButtonLabel = isUploadingMaterial ? `Uploading ${Math.max(0, Math.min(100, Math.round(materialUploadProgress)))}%` : isSubmitting ? 'Creating...' : taskType === 'reading_material' ? 'Create Reading Material' : taskType === 'activity' ? 'Create Activity Task' : taskType === 'quiz' ? 'Create Quiz Task' : 'Create Exam Task';
-  const isActionLocked = isSubmitting || isUploadingMaterial;
-  const selectedTaskOption = taskOptions.find((option) => option.id === taskType);
-  const SelectedTaskIcon = selectedTaskOption?.icon ?? FileText;
+  const isEditMode = mode === 'edit';
+  const createTaskButtonLabel = isUploadingMaterial ? `Uploading ${Math.max(0, Math.min(100, Math.round(materialUploadProgress)))}%` : isSubmitting ? (isEditMode ? 'Saving...' : 'Creating...') : isEditMode ? 'Save changes' : taskType === 'reading_material' ? 'Create Reading Material' : `Create ${TASK_LABELS[taskType]}`;
+  const isActionLocked = isSubmitting || isUploadingMaterial || isLoadingEdit;
+  const taskIconMap: Record<TaskType, typeof FileText> = { reading_material: BookOpen, activity: Activity, quiz: FileText, exam: ClipboardCheck, recitation: Mic, project: FolderOpen };
+  const SelectedTaskIcon = taskIconMap[taskType] ?? FileText;
 
   const examBuilderCandidateCount = examQuestions.filter(hasQuestionDraftContent).length;
   const examBuilderReadyCount = examQuestions.reduce((count, question, index) => {
@@ -601,8 +814,8 @@ export function CreateAssignmentDialog({
   const actionButtons = (
     <>
       <Button variant="outline" className="rounded-lg" onClick={() => handleOpenChange(false)} disabled={isActionLocked}>Cancel</Button>
-      <Button className="rounded-lg gap-2" onClick={handleCreate} disabled={isActionLocked}>
-        {isActionLocked ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+      <Button className="rounded-lg gap-2" onClick={handleSave} disabled={isActionLocked}>
+        {isActionLocked ? <Loader2 className="h-4 w-4 animate-spin" /> : <SelectedTaskIcon className="h-4 w-4" />}
         {createTaskButtonLabel}
       </Button>
     </>
@@ -784,6 +997,7 @@ export function CreateAssignmentDialog({
           updateQuizChoice={updateQuizChoice}
           onImportFile={(event) => void handleImportQuestionFile('quiz', event)}
           onDownloadTemplate={downloadQuestionImportTemplate}
+          onImageUpload={isEditMode ? handleImageUpload : undefined}
           quizQuestionsError={errors.quizQuestions}
           clearFieldError={clearFieldError}
         />
@@ -820,10 +1034,46 @@ export function CreateAssignmentDialog({
           updateExamChoice={updateExamChoice}
           onImportFile={(event) => void handleImportQuestionFile('exam', event)}
           onDownloadTemplate={downloadQuestionImportTemplate}
+          onImageUpload={isEditMode ? handleImageUpload : undefined}
           clearFieldError={clearFieldError}
           examBuilderCandidateCount={examBuilderCandidateCount}
           examBuilderReadyCount={examBuilderReadyCount}
           examImportReadyCount={examImportReadyCount}
+          examChapterPoolEnabled={examChapterPoolEnabled}
+          setExamChapterPoolEnabled={setExamChapterPoolEnabled}
+          examChapterPool={examChapterPool}
+          setExamChapterPool={setExamChapterPool}
+        />
+      )}
+
+      {taskType === 'recitation' && (
+        <RecitationForm
+          recitationMode={recitationMode}
+          setRecitationMode={setRecitationMode}
+          recitationCriteria={recitationCriteria}
+          setRecitationCriteria={setRecitationCriteria}
+          submissionsOpen={submissionsOpen}
+          setSubmissionsOpen={setSubmissionsOpen}
+        />
+      )}
+
+      {taskType === 'project' && (
+        <ProjectForm
+          projectGroupMode={projectGroupMode}
+          setProjectGroupMode={setProjectGroupMode}
+          projectGroupSize={projectGroupSize}
+          setProjectGroupSize={setProjectGroupSize}
+          projectAllowedFileTypes={projectAllowedFileTypes}
+          toggleProjectFileType={toggleProjectFileType}
+          submissionsOpen={submissionsOpen}
+          setSubmissionsOpen={setSubmissionsOpen}
+          autoCloseSubmissionsOnDueDate={autoCloseSubmissionsOnDueDate}
+          setAutoCloseSubmissionsOnDueDate={setAutoCloseSubmissionsOnDueDate}
+          customSubmissionCloseDate={customSubmissionCloseDate}
+          setCustomSubmissionCloseDate={setCustomSubmissionCloseDate}
+          projectFileTypesError={errors.projectFileTypes}
+          customSubmissionCloseDateError={errors.customSubmissionCloseDate}
+          clearFieldError={clearFieldError}
         />
       )}
     </div>
@@ -941,32 +1191,24 @@ export function CreateAssignmentDialog({
     </div>
   );
 
-  const formTabs = (
-    <Tabs defaultValue="details" className="w-full">
-      <TabsList className="grid w-full grid-cols-3 rounded-lg">
-        <TabsTrigger value="details" className="rounded-md">Details</TabsTrigger>
-        <TabsTrigger value="topics" className="rounded-md">Topics</TabsTrigger>
-        <TabsTrigger value="files" className="rounded-md">Attachments</TabsTrigger>
-      </TabsList>
-      <TabsContent value="details" className="space-y-5 mt-6">{detailsSectionContent}</TabsContent>
-      <TabsContent value="topics" className="space-y-4 mt-6">{topicsSectionContent}</TabsContent>
-      <TabsContent value="files" className="space-y-4 mt-6">{attachmentsSectionContent}</TabsContent>
-    </Tabs>
-  );
-
-  const pageFormSections = (
+  const formSections = (
     <div className="space-y-8">
       <section className="space-y-5">
-        <div className="border-b border-border pb-2"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Details</h3></div>
         {detailsSectionContent}
       </section>
+      {(taskType === 'reading_material' || (taskType !== 'recitation' && taskType !== 'project')) && (
+        <section className="space-y-4">
+          <div className="border-t border-border pt-6">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Topics</h3>
+            {topicsSectionContent}
+          </div>
+        </section>
+      )}
       <section className="space-y-4">
-        <div className="border-b border-border pb-2"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Topics</h3></div>
-        {topicsSectionContent}
-      </section>
-      <section className="space-y-4">
-        <div className="border-b border-border pb-2"><h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attachments</h3></div>
-        {attachmentsSectionContent}
+        <div className="border-t border-border pt-6">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Reference Files</h3>
+          {attachmentsSectionContent}
+        </div>
       </section>
     </div>
   );
@@ -974,11 +1216,16 @@ export function CreateAssignmentDialog({
   if (isPage) {
     return (
       <div className="w-full min-h-[calc(100vh-14rem)] rounded-2xl border border-border bg-card p-4 md:p-6 lg:p-8">
+        {isLoadingEdit && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading assessment data...
+          </div>
+        )}
         <div className="mb-6">
-          <h2 className="text-2xl font-semibold">Create {TASK_LABELS[taskType]}</h2>
+          <h2 className="text-2xl font-semibold">{isEditMode ? `Edit ${TASK_LABELS[taskType]}` : `Create ${TASK_LABELS[taskType]}`}</h2>
           <p className="text-sm text-muted-foreground mt-1">{TASK_PAGE_INTRO[taskType]}</p>
         </div>
-        {pageFormSections}
+        {formSections}
         <div className="mt-8 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{actionButtons}</div>
       </div>
     );
@@ -988,10 +1235,15 @@ export function CreateAssignmentDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-xl">
         <DialogHeader>
-          <DialogTitle className="text-xl">Create Task</DialogTitle>
-          <DialogDescription>Create a reading material, activity, quiz, or exam for your class.</DialogDescription>
+          <DialogTitle className="text-xl">{isEditMode ? `Edit ${TASK_LABELS[taskType]}` : 'Create Task'}</DialogTitle>
+          <DialogDescription>{isEditMode ? `Update the details for this ${TASK_LABELS[taskType].toLowerCase()}.` : 'Create a reading material, activity, quiz, exam, recitation, or project for your class.'}</DialogDescription>
         </DialogHeader>
-        {formTabs}
+        {isLoadingEdit && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading assessment data...
+          </div>
+        )}
+        {formSections}
         <DialogFooter className="mt-6">{actionButtons}</DialogFooter>
       </DialogContent>
     </Dialog>

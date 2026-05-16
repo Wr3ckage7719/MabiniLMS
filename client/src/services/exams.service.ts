@@ -36,6 +36,7 @@ export interface ExamQuestion {
   item_type: ExamQuestionItemType
   answer_payload: Record<string, unknown>
   chapter_tag: string | null
+  image_url: string | null
   choices: string[]
   correct_choice_index: number
   points: number
@@ -55,6 +56,7 @@ export interface CreateExamQuestionPayload {
   explanation?: string
   order_index?: number
   chapter_tag?: string | null
+  image_url?: string | null
 }
 
 export interface UpdateExamQuestionPayload {
@@ -67,6 +69,7 @@ export interface UpdateExamQuestionPayload {
   explanation?: string | null
   order_index?: number
   chapter_tag?: string | null
+  image_url?: string | null
 }
 
 export interface ExamRenderedChoice {
@@ -155,6 +158,17 @@ const unwrapData = <T>(response: { success?: boolean; data?: T }): T => {
 }
 
 export const examsService = {
+  async uploadQuestionImage(assignmentId: string, file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('image', file)
+    const response = await apiClient.post<{ success: boolean; data: { url: string } }>(
+      `/assignments/${assignmentId}/exam/questions/upload-image`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } } as any
+    )
+    return (response as any)?.data?.url || ''
+  },
+
   async listExamQuestions(assignmentId: string): Promise<ExamQuestion[]> {
     const response = await apiClient.get<{ success: boolean; data: ExamQuestion[] }>(
       `/assignments/${assignmentId}/exam/questions`

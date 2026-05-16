@@ -2,11 +2,15 @@ export type QuizQuestionType = 'multiple_choice' | 'true_false' | 'short_answer'
 
 export interface QuizBuilderQuestion {
   id: string;
+  serverId?: string;
   type: QuizQuestionType;
   prompt: string;
   choices: string[];
   answerKey: string;
   points?: number;
+  chapterTag?: string | null;
+  imageUrl?: string | null;
+  explanation?: string;
 }
 
 export interface ImportedQuestionDraft {

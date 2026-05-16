@@ -362,3 +362,44 @@ export const getMyExamAttempt = async (
     next(error)
   }
 }
+
+export const uploadQuestionImage = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { assignmentId } = req.params
+    const file = req.file
+
+    if (!file) {
+      res.status(400).json({ success: false, error: { message: 'Image file is required' } })
+      return
+    }
+
+    const { supabaseAdmin } = await import('../lib/supabase.js')
+    const BUCKET = 'course-materials'
+    const objectPath = `exam-question-images/${assignmentId}/${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from(BUCKET)
+      .upload(objectPath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      })
+
+    if (uploadError) {
+      res.status(500).json({ success: false, error: { message: 'Failed to upload image' } })
+      return
+    }
+
+    const { data: urlData } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(objectPath)
+
+    res.json({
+      success: true,
+      data: { url: urlData.publicUrl },
+    })
+  } catch (error) {
+    next(error)
+  }
+}

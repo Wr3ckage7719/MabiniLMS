@@ -12,7 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Plus, Trash2, Image, X as XIcon } from 'lucide-react';
+import { useRef } from 'react';
+import { cn } from '@/lib/utils';
 import type {
   QuizBuilderQuestion,
   QuizQuestionType,
@@ -49,6 +51,7 @@ interface QuizFormProps {
   updateQuizChoice: (id: string, choiceIndex: number, value: string) => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onDownloadTemplate: () => void;
+  onImageUpload?: (questionId: string, file: File) => Promise<void>;
   quizQuestionsError?: string;
   clearFieldError: (field: string) => void;
 }
@@ -78,9 +81,19 @@ export function QuizForm({
   updateQuizChoice,
   onImportFile,
   onDownloadTemplate,
+  onImageUpload,
   quizQuestionsError,
   clearFieldError,
 }: QuizFormProps) {
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const handleImageFileSelect = async (questionId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onImageUpload) return;
+    e.target.value = '';
+    await onImageUpload(questionId, file);
+  };
+
   return (
     <Card className="border border-violet-200 bg-violet-50/60">
       <CardContent className="p-4 space-y-4">
@@ -250,6 +263,48 @@ export function QuizForm({
                     />
                     {question.type === 'fill_in_blank' && (
                       <p className="text-xs text-muted-foreground mt-1">Use ___ (three underscores) to mark the blank in your prompt.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Question Image</label>
+                    {question.imageUrl ? (
+                      <div className="mt-2 relative">
+                        <img
+                          src={question.imageUrl}
+                          alt="Question image"
+                          className="max-h-40 rounded-lg border border-border object-contain bg-muted/30"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateQuizQuestion(question.id, { imageUrl: null })}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <input
+                          ref={(el) => { imageInputRefs.current[question.id] = el; }}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          className="hidden"
+                          id={`quiz-q-img-${question.id}`}
+                          onChange={(e) => void handleImageFileSelect(question.id, e)}
+                        />
+                        <label
+                          htmlFor={`quiz-q-img-${question.id}`}
+                          className={cn(
+                            'flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border',
+                            'text-sm text-muted-foreground cursor-pointer hover:bg-muted/40 transition-colors w-fit'
+                          )}
+                        >
+                          <Image className="h-4 w-4" />
+                          Attach image (optional)
+                        </label>
+                        <p className="text-[11px] text-muted-foreground mt-1">JPEG, PNG, WebP · max 5 MB</p>
+                      </div>
                     )}
                   </div>
 
