@@ -823,17 +823,7 @@ export function CreateAssignmentDialog({
 
   const detailsSectionContent = (
     <div className="space-y-5">
-      {isTaskTypeLocked ? (
-        <Card className="border border-primary/25 bg-primary/5">
-          <CardContent className="p-4 flex items-start gap-3">
-            <div className="rounded-lg bg-primary/15 p-2 text-primary"><SelectedTaskIcon className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm font-semibold">Task type locked for this page</p>
-              <p className="text-xs text-muted-foreground mt-1">You selected {TASK_LABELS[taskType]} from the classwork menu. Fill out this page to publish it.</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
+      {!isTaskTypeLocked && (
         <div>
           <label className="text-sm font-semibold mb-3 block">Task Type</label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -857,13 +847,15 @@ export function CreateAssignmentDialog({
         </div>
       )}
 
-      <Card className="border-0 bg-muted/30">
-        <CardContent className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm font-medium">Selected: {TASK_LABELS[taskType]}</div>
-          <Badge variant="secondary" className="rounded-full w-fit">Task-specific workspace</Badge>
-          <p className="text-xs text-muted-foreground sm:ml-2">{TASK_HELP_TEXT[taskType]}</p>
-        </CardContent>
-      </Card>
+      {!isTaskTypeLocked && (
+        <Card className="border-0 bg-muted/30">
+          <CardContent className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm font-medium">Selected: {TASK_LABELS[taskType]}</div>
+            <Badge variant="secondary" className="rounded-full w-fit">Task-specific workspace</Badge>
+            <p className="text-xs text-muted-foreground sm:ml-2">{TASK_HELP_TEXT[taskType]}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div>
         <label className="text-sm font-semibold">Title <span className="text-destructive">*</span></label>
