@@ -57,7 +57,6 @@ interface ExamFormProps {
   clearFieldError: (field: string) => void;
   examBuilderCandidateCount: number;
   examBuilderReadyCount: number;
-  examImportReadyCount: number;
   examChapterPoolEnabled: boolean;
   setExamChapterPoolEnabled: (v: boolean) => void;
   examChapterPool: Array<{ tag: string; count: number }>;
@@ -98,7 +97,6 @@ export function ExamForm({
   clearFieldError,
   examBuilderCandidateCount,
   examBuilderReadyCount,
-  examImportReadyCount,
   examChapterPoolEnabled,
   setExamChapterPoolEnabled,
   examChapterPool,
@@ -273,11 +271,8 @@ export function ExamForm({
           {examImportFileName && (
             <div className="space-y-1 text-xs text-muted-foreground">
               <p>Imported source: {examImportFileName}</p>
-              <p>{examImportReadyCount} of {examImportedQuestions.length} questions are ready for automatic save.</p>
-              <p>
-                Supported types: Multiple Choice, True/False, Short Answer, Fill in the Blank, and Essay.
-                Essay questions are saved for manual teacher review.
-              </p>
+              <p>{examImportedQuestions.length} question{examImportedQuestions.length === 1 ? '' : 's'} loaded into the builder below. Review and edit before saving.</p>
+              <p>Supported types: Multiple Choice, True/False, Short Answer, Fill in the Blank, and Essay.</p>
             </div>
           )}
         </div>
