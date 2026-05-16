@@ -23,8 +23,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { GraduationCap, UserPlus, Upload, Loader2, Search, Pencil, Trash2, ArrowUpDown } from 'lucide-react';
+import { GraduationCap, UserPlus, Upload, Loader2, Search, Pencil, Trash2, ArrowUpDown, RotateCcw, AlertTriangle } from 'lucide-react';
 import CreateStudentModal from '@/components/admin/CreateStudentModal';
 import BulkImportStudentsModal from '@/components/admin/BulkImportStudentsModal';
 
@@ -42,6 +43,9 @@ export default function StudentManagementPage() {
   const [bulkImportModalOpen, setBulkImportModalOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [hardDeleteDialogOpen, setHardDeleteDialogOpen] = useState(false);
+  const [hardDeleteConfirmation, setHardDeleteConfirmation] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<adminService.AdminUser | null>(null);
   const [editForm, setEditForm] = useState({
     first_name: '',
@@ -51,11 +55,19 @@ export default function StudentManagementPage() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const limit = 10;
 
   const { data: studentsResponse, isLoading: studentsLoading } = useQuery({
-    queryKey: ['admin-students', page, search],
-    queryFn: () => adminService.listUsers({ page, limit, role: 'student', search: search || undefined }),
+    queryKey: ['admin-students', page, search, showDeactivated],
+    queryFn: () =>
+      adminService.listUsers({
+        page,
+        limit,
+        role: 'student',
+        search: search || undefined,
+        include_deleted: showDeactivated || undefined,
+      }),
   });
 
   const students = studentsResponse?.users ?? EMPTY_STUDENTS;
@@ -114,14 +126,58 @@ export default function StudentManagementPage() {
       setDeleteDialogOpen(false);
       setSelectedStudent(null);
       toast({
-        title: 'Student Removed',
-        description: 'Student account has been deleted.',
+        title: 'Student Deactivated',
+        description: 'Account is deactivated. Their work is preserved and can be restored.',
       });
     },
     onError: (error: unknown) => {
       toast({
         title: 'Delete Failed',
-        description: getApiErrorMessage(error, 'Failed to delete student account.'),
+        description: getApiErrorMessage(error, 'Failed to deactivate student account.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const restoreStudentMutation = useMutation({
+    mutationFn: (userId: string) => adminService.restoreManagedUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      setRestoreDialogOpen(false);
+      setSelectedStudent(null);
+      toast({
+        title: 'Student Restored',
+        description: 'Account is active again. The student can sign in.',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Restore Failed',
+        description: getApiErrorMessage(error, 'Failed to restore student account.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const hardDeleteStudentMutation = useMutation({
+    mutationFn: ({ userId, confirmationName }: { userId: string; confirmationName: string }) =>
+      adminService.hardDeleteManagedUser(userId, confirmationName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-students'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      setHardDeleteDialogOpen(false);
+      setHardDeleteConfirmation('');
+      setSelectedStudent(null);
+      toast({
+        title: 'Student Permanently Deleted',
+        description: 'All associated data has been erased.',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Permanent Delete Failed',
+        description: getApiErrorMessage(error, 'Failed to permanently delete account.'),
         variant: 'destructive',
       });
     },
@@ -141,6 +197,24 @@ export default function StudentManagementPage() {
     setSelectedStudent(student);
     setDeleteDialogOpen(true);
   };
+
+  const openRestoreDialog = (student: adminService.AdminUser) => {
+    setSelectedStudent(student);
+    setRestoreDialogOpen(true);
+  };
+
+  const openHardDeleteDialog = (student: adminService.AdminUser) => {
+    setSelectedStudent(student);
+    setHardDeleteConfirmation('');
+    setHardDeleteDialogOpen(true);
+  };
+
+  const expectedConfirmationName = selectedStudent
+    ? `${selectedStudent.first_name || ''} ${selectedStudent.last_name || ''}`.trim()
+    : '';
+  const isHardDeleteConfirmed =
+    expectedConfirmationName.length > 0 &&
+    hardDeleteConfirmation.trim().toLowerCase() === expectedConfirmationName.toLowerCase();
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,6 +337,19 @@ export default function StudentManagementPage() {
               </Select>
             </div>
           </div>
+          <div className="mb-3 flex items-center gap-2">
+            <Switch
+              id="show-deactivated"
+              checked={showDeactivated}
+              onCheckedChange={(value) => {
+                setShowDeactivated(value);
+                setPage(1);
+              }}
+            />
+            <Label htmlFor="show-deactivated" className="text-sm text-muted-foreground cursor-pointer">
+              Show deactivated accounts
+            </Label>
+          </div>
 
           {studentsLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -275,44 +362,89 @@ export default function StudentManagementPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {sortedStudents.map((student) => (
-                <div
-                  key={student.id}
-                  className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-4 py-3"
-                >
-                  <div>
-                    <p className="text-foreground font-medium">
-                      {(student.first_name || '').trim()} {(student.last_name || '').trim()}
-                    </p>
-                    <p className="text-sm text-muted-foreground">{student.email}</p>
-                  </div>
+              {sortedStudents.map((student) => {
+                const isDeactivated = Boolean(student.deleted_at);
+                return (
+                  <div
+                    key={student.id}
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+                      isDeactivated
+                        ? 'border-amber-500/30 bg-amber-500/5'
+                        : 'border-border bg-background/60'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-foreground font-medium truncate">
+                          {(student.first_name || '').trim()} {(student.last_name || '').trim()}
+                        </p>
+                        {isDeactivated && (
+                          <span className="text-[10px] uppercase font-semibold tracking-wide text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                            Deactivated
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{student.email}</p>
+                      {isDeactivated && student.deleted_at && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Deactivated {new Date(student.deleted_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
 
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground mr-2">
-                      Joined {new Date(student.created_at).toLocaleDateString()}
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="border-border hover:bg-accent"
-                      onClick={() => openEditDialog(student)}
-                    >
-                      <Pencil className="w-4 h-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => openDeleteDialog(student)}
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Remove
-                    </Button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <p className="text-xs text-muted-foreground mr-2 hidden sm:block">
+                        Joined {new Date(student.created_at).toLocaleDateString()}
+                      </p>
+                      {isDeactivated ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-border hover:bg-accent"
+                            onClick={() => openRestoreDialog(student)}
+                          >
+                            <RotateCcw className="w-4 h-4 mr-1" />
+                            Restore
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => openHardDeleteDialog(student)}
+                          >
+                            <AlertTriangle className="w-4 h-4 mr-1" />
+                            Delete permanently
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-border hover:bg-accent"
+                            onClick={() => openEditDialog(student)}
+                          >
+                            <Pencil className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => openDeleteDialog(student)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Deactivate
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -455,6 +587,107 @@ export default function StudentManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={restoreDialogOpen}
+        onOpenChange={(open) => {
+          setRestoreDialogOpen(open);
+          if (!open) {
+            setSelectedStudent(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-card border-border text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore Student Account</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {selectedStudent?.email} will be reactivated and able to sign in
+              again. Their submissions and grades have been preserved while the
+              account was deactivated.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => selectedStudent && restoreStudentMutation.mutate(selectedStudent.id)}
+              disabled={restoreStudentMutation.isPending}
+            >
+              {restoreStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Restore Account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={hardDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setHardDeleteDialogOpen(open);
+          if (!open) {
+            setHardDeleteConfirmation('');
+            setSelectedStudent(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-500">
+              <AlertTriangle className="w-5 h-5" />
+              Permanently Delete Account
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              This permanently erases <span className="font-medium text-foreground">{selectedStudent?.email}</span>{' '}
+              and cascades to delete all of their submissions, grades, exam
+              attempts, lesson progress, and audit log entries. This action
+              cannot be undone. Restoration is impossible.
+              <br />
+              <br />
+              Type the user's full name{' '}
+              <span className="font-mono text-foreground">{expectedConfirmationName}</span>{' '}
+              to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="hard-delete-confirm">Confirm full name</Label>
+            <Input
+              id="hard-delete-confirm"
+              autoFocus
+              value={hardDeleteConfirmation}
+              onChange={(e) => setHardDeleteConfirmation(e.target.value)}
+              className="bg-background border-input text-foreground"
+              placeholder={expectedConfirmationName}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setHardDeleteDialogOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!isHardDeleteConfirmed || hardDeleteStudentMutation.isPending}
+              onClick={() =>
+                selectedStudent &&
+                hardDeleteStudentMutation.mutate({
+                  userId: selectedStudent.id,
+                  confirmationName: hardDeleteConfirmation,
+                })
+              }
+            >
+              {hardDeleteStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Erase Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

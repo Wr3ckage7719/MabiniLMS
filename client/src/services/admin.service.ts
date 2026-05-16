@@ -87,6 +87,7 @@ export interface AdminUser {
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface ManagedUserUpdateInput {
@@ -140,6 +141,7 @@ export const listUsers = async (params?: {
   limit?: number;
   role?: 'admin' | 'teacher' | 'student';
   search?: string;
+  include_deleted?: boolean;
 }): Promise<PaginatedUsersResponse> => {
   const response = await apiClient.get('/users', { params });
   return unwrapApiData<PaginatedUsersResponse>(response);
