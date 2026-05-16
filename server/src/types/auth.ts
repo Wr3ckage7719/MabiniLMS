@@ -92,6 +92,11 @@ export const listUsersQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
   role: z.nativeEnum(UserRole).optional(),
   search: z.string().optional(),
+  // Set to 'true' to include soft-deleted users in admin restore screens.
+  include_deleted: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
 });
 
 // ============================================

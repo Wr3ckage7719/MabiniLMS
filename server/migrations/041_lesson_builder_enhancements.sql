@@ -50,3 +50,34 @@ ALTER TABLE public.lessons
 
 ALTER TABLE public.lesson_materials
   ADD COLUMN IF NOT EXISTS is_optional BOOLEAN NOT NULL DEFAULT false;
+
+-- DOWN
+-- Reversal of 041. Comments are deliberate — copy and run by hand against the
+-- target environment only after taking a backup. Dropping the is_optional or
+-- unlock_delay_hours columns will lose any teacher-configured values.
+--
+-- ALTER TABLE public.lesson_materials DROP COLUMN IF EXISTS is_optional;
+--
+-- ALTER TABLE public.lessons DROP COLUMN IF EXISTS unlock_delay_hours;
+--
+-- DO $$
+-- DECLARE cname text;
+-- BEGIN
+--   SELECT conname INTO cname FROM pg_constraint c
+--   JOIN pg_class t ON c.conrelid = t.oid
+--   WHERE t.relname = 'lessons'
+--     AND c.contype = 'c'
+--     AND pg_get_constraintdef(c.oid) ILIKE '%completion_rule_type%';
+--   IF cname IS NOT NULL THEN
+--     EXECUTE 'ALTER TABLE public.lessons DROP CONSTRAINT ' || quote_ident(cname);
+--   END IF;
+-- END $$;
+--
+-- ALTER TABLE public.lessons
+--   ADD CONSTRAINT lessons_completion_rule_type_check
+--   CHECK (completion_rule_type IN (
+--     'mark_as_done',
+--     'view_all_files',
+--     'time_on_material',
+--     'view_all_and_submit'
+--   ));

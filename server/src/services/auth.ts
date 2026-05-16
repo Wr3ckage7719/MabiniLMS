@@ -1776,7 +1776,7 @@ export const logSessionEvent = async (
 export const getUserProfile = async (userId: string): Promise<UserProfile> => {
   const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role, avatar_url, email_verified, email_verified_at, pending_approval, created_at, updated_at')
+    .select('id, email, first_name, last_name, role, avatar_url, email_verified, email_verified_at, pending_approval, created_at, updated_at, deleted_at')
     .eq('id', userId)
     .single();
 
@@ -1789,7 +1789,21 @@ export const getUserProfile = async (userId: string): Promise<UserProfile> => {
     );
   }
 
-  return data as UserProfile;
+  // Soft-deleted users keep their downstream data (submissions, grades, etc.)
+  // but lose the ability to authenticate. Behave as if the account doesn't
+  // exist so we don't leak the deletion state.
+  if ((data as { deleted_at?: string | null }).deleted_at) {
+    throw new ApiError(
+      ErrorCode.UNAUTHORIZED,
+      'Account is no longer active',
+      401
+    );
+  }
+
+  // Drop deleted_at from the returned shape — the rest of the app expects
+  // a regular UserProfile.
+  const { deleted_at: _ignored, ...profile } = data as Record<string, unknown>;
+  return profile as unknown as UserProfile;
 };
 
 /**

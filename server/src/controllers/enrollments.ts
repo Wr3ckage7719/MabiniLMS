@@ -244,7 +244,11 @@ export const getEnrollment = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const enrollment = await enrollmentService.getEnrollmentById(req.params.id);
+    const enrollment = await enrollmentService.assertEnrollmentAccess(
+      req.params.id,
+      req.user!.id,
+      req.user!.role as UserRole
+    );
 
     res.json({
       success: true,

@@ -135,7 +135,7 @@ router.patch(
 )
 
 /**
- * Delete a teacher/student account
+ * Soft-delete a teacher/student account (default delete behaviour).
  */
 router.delete(
   '/users/:id',
@@ -145,6 +145,36 @@ router.delete(
     })
   }),
   adminController.deleteManagedUser
+)
+
+/**
+ * Restore a soft-deleted teacher/student account.
+ */
+router.post(
+  '/users/:id/restore',
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid user ID')
+    })
+  }),
+  adminController.restoreManagedUser
+)
+
+/**
+ * Permanently delete a teacher/student account. Requires the caller to pass
+ * confirmation_name that matches the user's full name.
+ */
+router.delete(
+  '/users/:id/hard',
+  validate({
+    params: z.object({
+      id: z.string().uuid('Invalid user ID'),
+    }),
+    body: z.object({
+      confirmation_name: z.string().min(1, 'confirmation_name is required'),
+    }),
+  }),
+  adminController.hardDeleteManagedUser
 )
 
 // ========================================

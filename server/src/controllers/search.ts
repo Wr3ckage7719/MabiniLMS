@@ -51,18 +51,25 @@ export const globalSearch = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { q, types, limit, highlight } = req.query
+    // Values are validated/coerced by the zod schema on the route — q is a
+    // bounded string, limit is a number capped at 50, highlight is a boolean.
+    const { q, types, limit, highlight } = req.query as unknown as {
+      q: string
+      types?: string
+      limit: number
+      highlight: boolean
+    }
 
     const typeArray = types
-      ? (types as string).split(',').filter(Boolean) as searchService.SearchEntityType[]
+      ? (types.split(',').filter(Boolean) as searchService.SearchEntityType[])
       : undefined
 
     const results = await searchService.globalSearch(
       {
-        query: q as string,
+        query: q,
         types: typeArray,
-        limit: limit ? parseInt(limit as string, 10) : 5,
-        highlight: highlight === 'true',
+        limit,
+        highlight,
       },
       req.user?.id,
       req.user?.role as UserRole

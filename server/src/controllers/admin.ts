@@ -402,7 +402,8 @@ export const updateManagedUser = async (
 }
 
 /**
- * Delete a teacher/student account from admin panel
+ * Soft-delete a teacher/student account from admin panel. Preserves
+ * downstream rows (submissions, grades, etc.) and blocks future logins.
  */
 export const deleteManagedUser = async (
   req: AuthRequest,
@@ -421,6 +422,76 @@ export const deleteManagedUser = async (
       success: true,
       data: {
         message: 'User deleted successfully',
+      }
+    }
+
+    res.json(response)
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Restore a soft-deleted teacher/student account.
+ */
+export const restoreManagedUser = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params
+    const adminId = req.user!.id
+    const ipAddress = req.ip
+    const userAgent = req.get('user-agent')
+
+    const user = await adminService.restoreManagedUser(id, adminId, ipAddress, userAgent)
+
+    const response: ApiResponse = {
+      success: true,
+      data: user,
+    }
+
+    res.json(response)
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Permanently delete a teacher/student account. Requires the caller to
+ * retype the user's full name as a guard against misclicks.
+ */
+export const hardDeleteManagedUser = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id } = req.params
+    const adminId = req.user!.id
+    const ipAddress = req.ip
+    const userAgent = req.get('user-agent')
+    const { confirmation_name: confirmationName } = req.body as { confirmation_name?: string }
+
+    if (!confirmationName) {
+      const response: ApiResponse = {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'confirmation_name is required',
+        }
+      }
+      res.status(400).json(response)
+      return
+    }
+
+    await adminService.hardDeleteManagedUser(id, adminId, confirmationName, ipAddress, userAgent)
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        message: 'User permanently deleted',
       }
     }
 

@@ -146,13 +146,18 @@ export const updateProfile = async (
  * List all users with pagination and filtering (admin only)
  */
 export const listUsers = async (query: ListUsersQuery): Promise<PaginatedUsers> => {
-  const { page, limit, role, search } = query;
+  const { page, limit, role, search, include_deleted: includeDeleted } = query;
   const offset = (page - 1) * limit;
 
   // Build query
   let queryBuilder = supabaseAdmin
     .from('profiles')
-    .select('id, email, first_name, last_name, role, pending_approval, avatar_url, created_at, updated_at', { count: 'exact' });
+    .select('id, email, first_name, last_name, role, pending_approval, avatar_url, created_at, updated_at, deleted_at', { count: 'exact' });
+
+  // Hide soft-deleted users by default; admin restore screens opt in.
+  if (!includeDeleted) {
+    queryBuilder = queryBuilder.is('deleted_at', null);
+  }
 
   // Apply role filter
   if (role) {
@@ -215,7 +220,7 @@ export const listUsers = async (query: ListUsersQuery): Promise<PaginatedUsers> 
   const totalPages = Math.ceil(total / limit);
 
   return {
-    users: (data || []) as UserProfile[],
+    users: (data || []) as unknown as UserProfile[],
     total,
     page,
     limit,

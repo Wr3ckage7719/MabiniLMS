@@ -16,7 +16,7 @@ import {
 } from '@/lib/pwa-zoom-policy';
 import { applyThemePreference, isDarkModeEnabled } from '@/lib/theme';
 import { notificationSettingsService } from '@/services/notification-settings.service';
-import axios from 'axios';
+import { isAxiosError } from 'axios';
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 interface LocalSettingsPreferences {
@@ -212,8 +212,8 @@ export default function TeacherSettingsPage() {
         description: 'Your profile avatar has been updated.',
       });
     } catch (error) {
-      const isNetworkError = axios.isAxiosError(error) && !error.response;
-      const responseMessage = axios.isAxiosError(error)
+      const isNetworkError = isAxiosError(error) && !error.response;
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       const errorMessage = isNetworkError
@@ -249,7 +249,7 @@ export default function TeacherSettingsPage() {
         last_name: lastName.trim() || undefined,
       });
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       profileSaveError = responseMessage || (error instanceof Error ? error.message : 'Unable to update profile.');
@@ -262,7 +262,7 @@ export default function TeacherSettingsPage() {
         due_date_reminders_enabled: dueDateReminders,
       });
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       notificationSaveError =
@@ -336,7 +336,7 @@ export default function TeacherSettingsPage() {
         description: 'Your password has been changed successfully.',
       });
     } catch (error) {
-      const responseMessage = axios.isAxiosError(error)
+      const responseMessage = isAxiosError(error)
         ? error.response?.data?.error?.message || error.response?.data?.message
         : undefined;
       setPasswordChangeError(
