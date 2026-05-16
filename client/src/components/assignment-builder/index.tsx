@@ -1204,12 +1204,14 @@ export function CreateAssignmentDialog({
           </div>
         </section>
       )}
-      <section className="space-y-4">
-        <div className="border-t border-border pt-6">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Reference Files</h3>
-          {attachmentsSectionContent}
-        </div>
-      </section>
+      {(taskType === 'activity' || taskType === 'reading_material') && (
+        <section className="space-y-4">
+          <div className="border-t border-border pt-6">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Reference Files</h3>
+            {attachmentsSectionContent}
+          </div>
+        </section>
+      )}
     </div>
   );
 
