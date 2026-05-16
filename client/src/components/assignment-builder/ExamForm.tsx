@@ -52,7 +52,7 @@ interface ExamFormProps {
   updateExamQuestion: (id: string, update: Partial<QuizBuilderQuestion>) => void;
   updateExamChoice: (id: string, choiceIndex: number, value: string) => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onDownloadTemplate: () => void;
+  onDownloadTemplate: () => void | Promise<void>;
   onImageUpload?: (questionId: string, file: File) => Promise<void>;
   clearFieldError: (field: string) => void;
   examBuilderCandidateCount: number;
@@ -261,8 +261,8 @@ export function ExamForm({
                 className="hidden"
                 onChange={onImportFile}
               />
-              <Button type="button" variant="outline" className="rounded-lg" onClick={onDownloadTemplate}>
-                Download JSON Template
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => void onDownloadTemplate()}>
+                Download DOCX Template
               </Button>
               <Button type="button" className="rounded-lg" asChild>
                 <label htmlFor="exam-question-import-input" className="cursor-pointer">Import File</label>
@@ -275,8 +275,8 @@ export function ExamForm({
               <p>Imported source: {examImportFileName}</p>
               <p>{examImportReadyCount} of {examImportedQuestions.length} questions are ready for automatic save.</p>
               <p>
-                For exam auto-save, objective backend item types are Multiple Choice, True/False, and Short Answer.
-                Fill in the Blank and Essay are mapped to Short Answer when answer keys are provided.
+                Supported types: Multiple Choice, True/False, Short Answer, Fill in the Blank, and Essay.
+                Essay questions are saved for manual teacher review.
               </p>
             </div>
           )}
@@ -461,26 +461,37 @@ export function ExamForm({
 
                   {question.type === 'multiple_choice' && (
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Choices</label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {question.choices.map((choice, choiceIndex) => (
-                          <Input
-                            key={`${question.id}-exam-${choiceIndex}`}
-                            value={choice}
-                            onChange={(event) => updateExamChoice(question.id, choiceIndex, event.target.value)}
-                            placeholder={`Choice ${String.fromCharCode(65 + choiceIndex)}`}
-                            className="rounded-lg"
-                          />
-                        ))}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Choices</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {question.choices.map((choice, choiceIndex) => (
+                            <Input
+                              key={`${question.id}-exam-${choiceIndex}`}
+                              value={choice}
+                              onChange={(event) => updateExamChoice(question.id, choiceIndex, event.target.value)}
+                              placeholder={`Choice ${String.fromCharCode(65 + choiceIndex)}`}
+                              className="rounded-lg"
+                            />
+                          ))}
+                        </div>
                       </div>
                       <div>
-                        <label className="text-sm font-medium">Correct Answer Key</label>
-                        <Input
-                          value={question.answerKey}
-                          onChange={(event) => updateExamQuestion(question.id, { answerKey: event.target.value })}
-                          placeholder="Use choice text or letter (A-D)"
-                          className="mt-2 rounded-lg"
-                        />
+                        <label className="text-sm font-medium">Correct Answer</label>
+                        <Select
+                          value={question.answerKey || 'A'}
+                          onValueChange={(value) => updateExamQuestion(question.id, { answerKey: value })}
+                        >
+                          <SelectTrigger className="mt-2 rounded-lg">
+                            <SelectValue placeholder="Select correct answer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {question.choices.map((choice, choiceIndex) => (
+                              <SelectItem key={choiceIndex} value={String.fromCharCode(65 + choiceIndex)}>
+                                {String.fromCharCode(65 + choiceIndex)}{choice.trim() ? `. ${choice.trim()}` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   )}
@@ -543,7 +554,7 @@ export function ExamForm({
 
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="rounded-full text-xs">
-            Supports: MCQ · True/False · Short Answer · Import from DOCX/JSON
+            Supports: MCQ · True/False · Short Answer · Fill in the Blank · Essay · Import from DOCX/JSON
           </Badge>
           <Badge variant="outline" className="rounded-full text-xs">
             Proctored · Anti-cheat · Fullscreen enforced

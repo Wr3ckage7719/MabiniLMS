@@ -27,7 +27,7 @@ export interface ProctoringPolicy {
   one_question_at_a_time: boolean
 }
 
-export type ExamQuestionItemType = 'multiple_choice' | 'true_false' | 'short_answer'
+export type ExamQuestionItemType = 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in_blank' | 'essay'
 
 export interface ExamQuestion {
   id: string

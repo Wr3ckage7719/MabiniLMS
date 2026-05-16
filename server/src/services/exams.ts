@@ -178,7 +178,13 @@ const toChoiceArray = (value: unknown): string[] => {
 }
 
 const normalizeExamQuestionItemType = (value: unknown): ExamQuestionItemType => {
-  if (value === 'multiple_choice' || value === 'true_false' || value === 'short_answer') {
+  if (
+    value === 'multiple_choice' ||
+    value === 'true_false' ||
+    value === 'short_answer' ||
+    value === 'fill_in_blank' ||
+    value === 'essay'
+  ) {
     return value
   }
 
@@ -613,7 +619,7 @@ const normalizeExamQuestionWritePayload = (
     ? toRecord(input.answer_payload)
     : (existingQuestion?.answer_payload || {})
 
-  if (itemType === 'short_answer') {
+  if (itemType === 'short_answer' || itemType === 'fill_in_blank' || itemType === 'essay') {
     choices = []
     correctChoiceIndex = 0
   }
@@ -993,7 +999,22 @@ export const submitExamAnswer = async (
   let pointsAwarded = 0
   let upsertData: Record<string, unknown>
 
-  if (question.item_type === 'short_answer') {
+  if (question.item_type === 'essay') {
+    const answerText = (input.answer_text ?? '').trim()
+    // Essay is manually graded by the teacher — save the text, leave grade as null
+    isCorrect = null
+    pointsAwarded = 0
+
+    upsertData = {
+      attempt_id: attemptId,
+      question_id: input.question_id,
+      selected_choice_index: null,
+      answer_text: answerText || null,
+      is_correct: null,
+      points_awarded: 0,
+      answered_at: new Date().toISOString(),
+    }
+  } else if (question.item_type === 'short_answer' || question.item_type === 'fill_in_blank') {
     const answerText = (input.answer_text ?? '').trim()
     const acceptedAnswers: string[] = Array.isArray(question.answer_payload?.accepted_answers)
       ? (question.answer_payload.accepted_answers as string[])

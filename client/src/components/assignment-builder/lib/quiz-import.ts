@@ -35,23 +35,14 @@ export const QUESTION_IMPORT_ACCEPT =
   '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.json,application/json';
 
 export const QUESTION_IMPORT_DOCX_GUIDE =
-  'DOCX format guide: Use one question block per section with fields like Type:, Prompt:, Choices:, Answer:, Points:, Chapter:, Explanation:. Separate each question block with a blank line.';
-
-export const QUESTION_IMPORT_TEMPLATE = {
-  questions: [
-    { type: 'multiple_choice', prompt: 'What is 2 + 2?', choices: ['1', '2', '3', '4'], answer: '4', points: 1, chapter_tag: 'Arithmetic' },
-    { type: 'true_false', prompt: 'The earth revolves around the sun.', answer: 'true', points: 1, chapter_tag: 'Science Basics' },
-    { type: 'short_answer', prompt: 'Name the process plants use to make food.', answer: 'photosynthesis|photo synthesis', points: 2, explanation: 'Accept common spelling variations.', chapter_tag: 'Biology' },
-    { type: 'fill_in_blank', prompt: 'The capital of the Philippines is _____.', answer: 'Manila', points: 1, chapter_tag: 'Geography' },
-    { type: 'essay', prompt: 'Explain the importance of teamwork in group projects.', answer: 'Teacher-reviewed rubric response', points: 5, chapter_tag: 'Performance Task' },
-  ],
-};
+  'DOCX format guide: Each question block starts with "Question N:" followed by field lines (Type:, Prompt:, Choices:, Answer:, Points:, Chapter:, Explanation:). Separate blocks with "---" or start a new "Question N:" header. Download the DOCX template below for a ready-to-edit example of all question types.';
 
 export const QUIZ_QUESTION_TYPE_OPTIONS: Array<{ value: QuizQuestionType; label: string }> = [
   { value: 'multiple_choice', label: 'Multiple Choice' },
   { value: 'true_false', label: 'True or False' },
   { value: 'short_answer', label: 'Short Answer' },
   { value: 'fill_in_blank', label: 'Fill in the Blank' },
+  { value: 'essay', label: 'Essay' },
 ];
 
 export const createQuizDraftQuestion = (type: QuizQuestionType = 'multiple_choice'): QuizBuilderQuestion => ({
@@ -67,7 +58,7 @@ const normalizeQuestionImportType = (value: unknown): QuizQuestionType => {
   if (normalized === 'multiple_choice' || normalized === 'mcq') return 'multiple_choice';
   if (normalized === 'true_false' || normalized === 'truefalse') return 'true_false';
   if (normalized === 'short_answer' || normalized === 'shortanswer') return 'short_answer';
-  if (normalized === 'fill_in_blank' || normalized === 'fillintheblank') return 'fill_in_blank';
+  if (normalized === 'fill_in_blank' || normalized === 'fillintheblank' || normalized === 'fill_in_the_blank') return 'fill_in_blank';
   if (normalized === 'essay') return 'essay';
   return 'multiple_choice';
 };
@@ -263,13 +254,153 @@ export const parseQuestionImportFile = async (file: File): Promise<QuestionImpor
   return { questions: importedQuestions, skippedCount };
 };
 
-export const downloadQuestionImportTemplate = () => {
-  const payload = JSON.stringify(QUESTION_IMPORT_TEMPLATE, null, 2);
-  const blob = new Blob([payload], { type: 'application/json' });
+// ---------------------------------------------------------------------------
+// DOCX template generation
+// ---------------------------------------------------------------------------
+
+const escapeXml = (text: string): string =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+const makeParagraph = (text: string, bold = false): string => {
+  if (!text) return '<w:p/>';
+  const rpr = bold ? '<w:rPr><w:b/></w:rPr>' : '';
+  return `<w:p><w:r>${rpr}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+};
+
+const buildDocxXml = (paragraphs: string[]): string => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphs.join('\n    ')}
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+const DOCX_CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+const DOCX_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+const DOCX_WORD_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+
+const TEMPLATE_QUESTIONS = [
+  {
+    num: 1,
+    lines: [
+      'Type: multiple_choice',
+      'Prompt: What is the capital of the Philippines?',
+      'Choices: Manila | Cebu | Davao | Quezon City',
+      'Answer: Manila',
+      'Points: 1',
+      'Chapter: Philippine Geography',
+    ],
+  },
+  {
+    num: 2,
+    lines: [
+      'Type: true_false',
+      'Prompt: The Earth revolves around the Sun.',
+      'Answer: true',
+      'Points: 1',
+      'Chapter: Science Basics',
+    ],
+  },
+  {
+    num: 3,
+    lines: [
+      'Type: short_answer',
+      'Prompt: Name the process by which plants produce food using sunlight.',
+      'Answer: photosynthesis | Photosynthesis',
+      'Points: 2',
+      'Chapter: Biology',
+      'Explanation: Accept any common spelling variation.',
+    ],
+  },
+  {
+    num: 4,
+    lines: [
+      'Type: fill_in_blank',
+      'Prompt: The capital of Japan is _____.',
+      'Answer: Tokyo',
+      'Points: 1',
+      'Chapter: World Geography',
+    ],
+  },
+  {
+    num: 5,
+    lines: [
+      'Type: essay',
+      'Prompt: Explain the causes and long-term effects of the Industrial Revolution.',
+      'Points: 10',
+      'Chapter: World History',
+      'Explanation: Grade based on depth of analysis, evidence, and clarity of argument.',
+    ],
+  },
+];
+
+const buildTemplateParagraphs = (): string[] => {
+  const paragraphs: string[] = [];
+
+  // Header instructions
+  paragraphs.push(makeParagraph('MabiniLMS Question Import Template', true));
+  paragraphs.push(makeParagraph('---'));
+  paragraphs.push(makeParagraph('HOW TO USE THIS TEMPLATE', true));
+  paragraphs.push(makeParagraph('1. Each question block starts with "Question N:" on its own line.'));
+  paragraphs.push(makeParagraph('2. Use the exact field names: Type, Prompt, Choices, Answer, Points, Chapter, Explanation.'));
+  paragraphs.push(makeParagraph('3. Separate question blocks with "---" on its own line.'));
+  paragraphs.push(makeParagraph('4. For Multiple Choice: list choices inline separated by | (e.g. Choice A | Choice B | Choice C).'));
+  paragraphs.push(makeParagraph('5. For Short Answer / Fill in the Blank: separate multiple accepted answers with | (e.g. Tokyo | tokyo).'));
+  paragraphs.push(makeParagraph('6. For Essay: no Answer field is needed — the teacher grades manually.'));
+  paragraphs.push(makeParagraph('7. Delete this instructions section (up to and including the === line) before importing.'));
+  paragraphs.push(makeParagraph('8. Save the file as DOCX and click "Import File" in the quiz or exam builder.'));
+  paragraphs.push(makeParagraph('==='));
+  paragraphs.push(makeParagraph('EXAMPLE QUESTIONS BELOW — replace with your own:', true));
+  paragraphs.push(makeParagraph('---'));
+
+  // Example questions
+  for (const q of TEMPLATE_QUESTIONS) {
+    paragraphs.push(makeParagraph(`Question ${q.num}:`, true));
+    for (const line of q.lines) {
+      paragraphs.push(makeParagraph(line));
+    }
+    paragraphs.push(makeParagraph('---'));
+  }
+
+  return paragraphs;
+};
+
+export const downloadQuestionImportTemplate = async (): Promise<void> => {
+  const { zipSync, strToU8 } = await import('fflate');
+
+  const paragraphs = buildTemplateParagraphs();
+  const documentXml = buildDocxXml(paragraphs);
+
+  const docxZip = zipSync({
+    '[Content_Types].xml': strToU8(DOCX_CONTENT_TYPES),
+    '_rels/.rels': strToU8(DOCX_RELS),
+    'word/document.xml': strToU8(documentXml),
+    'word/_rels/document.xml.rels': strToU8(DOCX_WORD_RELS),
+  });
+
+  const blob = new Blob([docxZip], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = objectUrl;
-  link.download = 'question-import-template.json';
+  link.download = 'question-import-template.docx';
   link.click();
   URL.revokeObjectURL(objectUrl);
 };

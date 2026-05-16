@@ -160,9 +160,18 @@ const toExamQuestionPayload = (
     const normalizedAnswer = question.answerKey.trim().toLowerCase();
     return { ...basePayload, item_type: 'true_false', choices: ['True', 'False'], correct_choice_index: normalizedAnswer === 'false' || normalizedAnswer === 'f' ? 1 : 0 };
   }
+  if (question.type === 'essay') {
+    // Essay questions are manually graded — no accepted_answers required
+    return { ...basePayload, item_type: 'essay', answer_payload: {} };
+  }
+  // short_answer and fill_in_blank require at least one accepted answer
   const acceptedAnswers = question.answerKey.split('|').map((answer) => answer.trim()).filter(Boolean);
   if (acceptedAnswers.length === 0) return null;
-  return { ...basePayload, item_type: 'short_answer', answer_payload: { accepted_answers: acceptedAnswers, case_sensitive: false } };
+  return {
+    ...basePayload,
+    item_type: question.type === 'fill_in_blank' ? 'fill_in_blank' : 'short_answer',
+    answer_payload: { accepted_answers: acceptedAnswers, case_sensitive: false },
+  };
 };
 
 const toExamImportPayload = (question: ImportedQuestionDraft, orderIndex: number): CreateExamQuestionPayload | null =>
@@ -291,10 +300,16 @@ export function CreateAssignmentDialog({
             const accepted = (q.answer_payload as any)?.accepted_answers;
             answerKey = Array.isArray(accepted) ? accepted.join('|') : '';
           }
+          const mappedType: QuizQuestionType =
+            q.item_type === 'true_false' ? 'true_false'
+            : q.item_type === 'short_answer' ? 'short_answer'
+            : q.item_type === 'fill_in_blank' ? 'fill_in_blank'
+            : q.item_type === 'essay' ? 'essay'
+            : 'multiple_choice';
           return {
             id: `edit-${q.id}`,
             serverId: q.id,
-            type: q.item_type === 'true_false' ? 'true_false' : q.item_type === 'short_answer' ? 'short_answer' : 'multiple_choice',
+            type: mappedType,
             prompt: q.prompt,
             choices: q.choices ?? [],
             answerKey,
@@ -488,8 +503,10 @@ export function CreateAssignmentDialog({
     setExamQuestions((prev) => prev.map((question) => {
       if (question.id !== questionId) return question;
       const nextType = update.type ?? question.type;
+      const typeChanged = update.type !== undefined && update.type !== question.type;
       const nextChoices = nextType === 'multiple_choice' ? (question.choices.length >= 4 ? question.choices : ['', '', '', '']) : [];
-      return { ...question, ...update, type: nextType, choices: update.choices ?? nextChoices };
+      const nextAnswerKey = typeChanged ? (nextType === 'true_false' ? 'true' : nextType === 'multiple_choice' ? 'A' : '') : (update.answerKey ?? question.answerKey);
+      return { ...question, ...update, type: nextType, choices: update.choices ?? nextChoices, answerKey: nextAnswerKey };
     }));
   };
   const updateExamChoice = (questionId: string, choiceIndex: number, value: string) => {
@@ -507,7 +524,7 @@ export function CreateAssignmentDialog({
     try {
       const result = await parseQuestionImportFile(file);
       if (targetTask === 'quiz') {
-        setQuizQuestions(result.questions.map((q) => ({ id: q.id, type: q.type, prompt: q.prompt, choices: q.choices, answerKey: q.answerKey })));
+        setQuizQuestions(result.questions.map((q) => ({ id: q.id, type: q.type, prompt: q.prompt, choices: q.choices, answerKey: q.answerKey, points: q.points, chapterTag: q.chapterTag, explanation: q.explanation || undefined })));
         setQuizImportFileName(file.name);
         clearFieldError('quizQuestions');
       } else {

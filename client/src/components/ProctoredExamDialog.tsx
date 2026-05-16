@@ -933,7 +933,7 @@ export function ProctoredExamDialog({
                               </CardTitle>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
-                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : itemType === 'fill_in_blank' ? 'Fill in the Blank' : itemType === 'essay' ? 'Essay' : 'Multiple Choice'}
                                 </span>
                                 <button
                                   type="button"
@@ -973,17 +973,32 @@ export function ProctoredExamDialog({
                                 })}
                               </div>
                             )}
-                            {itemType === 'short_answer' && (
+                            {(itemType === 'short_answer' || itemType === 'fill_in_blank') && (
                               <Textarea
                                 value={textValue}
                                 onChange={(e) =>
                                   setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
                                 }
                                 onBlur={() => void handleTextAnswer(question.id, textValue)}
-                                placeholder="Type your answer here…"
+                                placeholder={itemType === 'fill_in_blank' ? 'Type your answer for the blank…' : 'Type your answer here…'}
                                 disabled={disableInteraction}
                                 className="resize-none min-h-[100px] text-sm select-text"
                               />
+                            )}
+                            {itemType === 'essay' && (
+                              <>
+                                <Textarea
+                                  value={textValue}
+                                  onChange={(e) =>
+                                    setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                                  }
+                                  onBlur={() => void handleTextAnswer(question.id, textValue)}
+                                  placeholder="Write your essay response here…"
+                                  disabled={disableInteraction}
+                                  className="resize-none min-h-[180px] text-sm select-text"
+                                />
+                                <p className="text-[11px] text-muted-foreground">Essay responses are reviewed and graded by your teacher.</p>
+                              </>
                             )}
                             {itemType === 'multiple_choice' && (
                               question.choices.map((choice) => {
@@ -1099,7 +1114,7 @@ export function ProctoredExamDialog({
                               </CardTitle>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <span className="text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
-                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : 'Multiple Choice'}
+                                  {itemType === 'true_false' ? 'True/False' : itemType === 'short_answer' ? 'Short Answer' : itemType === 'fill_in_blank' ? 'Fill in the Blank' : itemType === 'essay' ? 'Essay' : 'Multiple Choice'}
                                 </span>
                                 <button
                                   type="button"
@@ -1140,17 +1155,33 @@ export function ProctoredExamDialog({
                               </div>
                             )}
 
-                            {itemType === 'short_answer' && (
+                            {(itemType === 'short_answer' || itemType === 'fill_in_blank') && (
                               <Textarea
                                 value={textValue}
                                 onChange={(e) =>
                                   setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
                                 }
                                 onBlur={() => void handleTextAnswer(question.id, textValue)}
-                                placeholder="Type your answer here…"
+                                placeholder={itemType === 'fill_in_blank' ? 'Type your answer for the blank…' : 'Type your answer here…'}
                                 disabled={disableInteraction}
                                 className="resize-none min-h-[100px] text-sm select-text"
                               />
+                            )}
+
+                            {itemType === 'essay' && (
+                              <>
+                                <Textarea
+                                  value={textValue}
+                                  onChange={(e) =>
+                                    setTextAnswerMap((prev) => ({ ...prev, [question.id]: e.target.value }))
+                                  }
+                                  onBlur={() => void handleTextAnswer(question.id, textValue)}
+                                  placeholder="Write your essay response here…"
+                                  disabled={disableInteraction}
+                                  className="resize-none min-h-[180px] text-sm select-text"
+                                />
+                                <p className="text-[11px] text-muted-foreground">Essay responses are reviewed and graded by your teacher.</p>
+                              </>
                             )}
 
                             {itemType === 'multiple_choice' && (
