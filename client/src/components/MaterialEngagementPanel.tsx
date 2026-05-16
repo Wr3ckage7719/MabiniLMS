@@ -1,8 +1,17 @@
 import { useNavigate } from 'react-router-dom';
-import { Loader2, BookOpen, Download, Eye, CheckCircle2, ChevronRight } from 'lucide-react';
+import {
+  Loader2,
+  BookOpen,
+  Download,
+  Eye,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useCourseMaterialEngagement } from '@/hooks-api/useTeacherEngagement';
+import { formatDurationSeconds } from '@/lib/duration';
 
 interface MaterialEngagementPanelProps {
   classId: string;
@@ -97,6 +106,10 @@ export function MaterialEngagementPanel({ classId }: MaterialEngagementPanelProp
                       <span className="flex items-center gap-1">
                         <CheckCircle2 className="h-3 w-3" />
                         {m.students_completed}/{m.enrolled_students} completed
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        Avg {formatDurationSeconds(m.avg_time_per_student_seconds)} per student
                       </span>
                       <span className="flex items-center gap-1">
                         <Download className="h-3 w-3" />

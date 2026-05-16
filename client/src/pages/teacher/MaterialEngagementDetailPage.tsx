@@ -8,6 +8,7 @@ import {
   Eye,
   CheckCircle2,
   Circle,
+  Clock,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -23,8 +24,9 @@ import {
 } from '@/components/ui/select';
 import { useMaterialStudentEngagement } from '@/hooks-api/useTeacherEngagement';
 import type { MaterialStudentEngagementRow } from '@/services/teacher-engagement.service';
+import { formatDurationSeconds } from '@/lib/duration';
 
-type SortKey = 'name' | 'progress_desc' | 'progress_asc' | 'last_activity';
+type SortKey = 'name' | 'progress_desc' | 'progress_asc' | 'last_activity' | 'time_desc';
 
 const formatRelative = (iso: string | null): string => {
   if (!iso) return '—';
@@ -74,6 +76,9 @@ export default function MaterialEngagementDetailPage() {
           const bt = b.last_viewed_at ? new Date(b.last_viewed_at).getTime() : 0;
           return bt - at;
         });
+        break;
+      case 'time_desc':
+        rows.sort((a, b) => b.total_time_spent_seconds - a.total_time_spent_seconds);
         break;
       case 'name':
       default:
@@ -135,7 +140,7 @@ export default function MaterialEngagementDetailPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="rounded-lg border bg-secondary/30 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
                     Started
@@ -162,6 +167,14 @@ export default function MaterialEngagementDetailPage() {
                 </div>
                 <div className="rounded-lg border bg-secondary/30 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                    Avg time / student
+                  </p>
+                  <p className="text-lg font-semibold">
+                    {formatDurationSeconds(data.avg_time_per_student_seconds)}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-secondary/30 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
                     Downloads
                   </p>
                   <p className="text-lg font-semibold">{data.total_downloads}</p>
@@ -182,6 +195,7 @@ export default function MaterialEngagementDetailPage() {
                     <SelectItem value="name">Sort by Name</SelectItem>
                     <SelectItem value="progress_desc">Progress (high → low)</SelectItem>
                     <SelectItem value="progress_asc">Progress (low → high)</SelectItem>
+                    <SelectItem value="time_desc">Time spent (most first)</SelectItem>
                     <SelectItem value="last_activity">Last activity</SelectItem>
                   </SelectContent>
                 </Select>
@@ -247,6 +261,10 @@ export default function MaterialEngagementDetailPage() {
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-0.5 flex-shrink-0 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1" title="Time spent on this material">
+                          <Clock className="h-3 w-3" />
+                          {formatDurationSeconds(student.total_time_spent_seconds)}
+                        </span>
                         <span className="flex items-center gap-1">
                           <Download className="h-3 w-3" />
                           {student.download_count}

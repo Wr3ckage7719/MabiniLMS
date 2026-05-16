@@ -18,6 +18,8 @@ export interface MaterialEngagementSummaryRow {
   avg_progress_percent: number;
   total_downloads: number;
   last_activity_at: string | null;
+  total_time_spent_seconds: number;
+  avg_time_per_student_seconds: number;
 }
 
 export interface CourseMaterialEngagementSummary {
@@ -27,6 +29,37 @@ export interface CourseMaterialEngagementSummary {
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+// Pulls a student's cumulative time-on-material from the JSONB
+// `interaction_events` stream. The trackMaterialViewEnd flow already
+// merges per-session durations into the most recent view_end event's
+// `total_time_spent_seconds`, so we just need to read that. We fall back
+// to summing individual `time_spent_seconds` values if the cumulative
+// total isn't present (older rows).
+const extractTotalTimeSpentSeconds = (events: unknown): number => {
+  if (!Array.isArray(events)) return 0;
+  // Most recent view_end first — server prepends events when persisting.
+  for (const event of events) {
+    if (!event || typeof event !== 'object') continue;
+    const e = event as { type?: string; data?: Record<string, unknown> };
+    if (e.type !== 'view_end') continue;
+    const total = Number(e.data?.total_time_spent_seconds);
+    if (Number.isFinite(total) && total >= 0) {
+      return Math.round(total);
+    }
+    break;
+  }
+  // Fallback: sum every view_end's session time.
+  let sum = 0;
+  for (const event of events) {
+    if (!event || typeof event !== 'object') continue;
+    const e = event as { type?: string; data?: Record<string, unknown> };
+    if (e.type !== 'view_end') continue;
+    const session = Number(e.data?.time_spent_seconds);
+    if (Number.isFinite(session) && session >= 0) sum += session;
+  }
+  return Math.round(sum);
+};
 
 export const getCourseMaterialEngagementSummary = async (
   courseId: string
@@ -45,7 +78,7 @@ export const getCourseMaterialEngagementSummary = async (
     supabaseAdmin
       .from('material_progress')
       .select(
-        'material_id, user_id, progress_percent, completed, download_count, last_viewed_at'
+        'material_id, user_id, progress_percent, completed, download_count, last_viewed_at, interaction_events'
       )
       .eq('course_id', courseId),
   ]);
@@ -87,6 +120,8 @@ export const getCourseMaterialEngagementSummary = async (
     progressCount: number;
     downloads: number;
     lastActivityMs: number;
+    totalTimeSpentSeconds: number;
+    studentsWithTime: number;
   };
   const buckets = new Map<string, Bucket>();
   const ensureBucket = (id: string): Bucket => {
@@ -99,6 +134,8 @@ export const getCourseMaterialEngagementSummary = async (
         progressCount: 0,
         downloads: 0,
         lastActivityMs: 0,
+        totalTimeSpentSeconds: 0,
+        studentsWithTime: 0,
       };
       buckets.set(id, b);
     }
@@ -112,6 +149,7 @@ export const getCourseMaterialEngagementSummary = async (
     completed: boolean;
     download_count: number | null;
     last_viewed_at: string | null;
+    interaction_events: unknown;
   }>) {
     if (!row.material_id) continue;
     if (row.user_id && !enrolledStudentIds.has(row.user_id)) continue;
@@ -126,6 +164,11 @@ export const getCourseMaterialEngagementSummary = async (
       const t = new Date(row.last_viewed_at).getTime();
       if (Number.isFinite(t) && t > b.lastActivityMs) b.lastActivityMs = t;
     }
+    const timeSpent = extractTotalTimeSpentSeconds(row.interaction_events);
+    if (timeSpent > 0) {
+      b.totalTimeSpentSeconds += timeSpent;
+      b.studentsWithTime += 1;
+    }
   }
 
   const enrolledCount = enrolledStudentIds.size;
@@ -133,6 +176,12 @@ export const getCourseMaterialEngagementSummary = async (
   const rows: MaterialEngagementSummaryRow[] = materials.map((m) => {
     const b = buckets.get(m.id);
     const avg = b && b.progressCount > 0 ? b.progressSum / b.progressCount : 0;
+    const totalTime = b?.totalTimeSpentSeconds ?? 0;
+    // Average across students who actually engaged ("of the students who
+    // opened this, they spent X on average"). Falls back to 0 when no one
+    // has emitted view_end yet.
+    const avgTimePerStudent =
+      b && b.studentsWithTime > 0 ? totalTime / b.studentsWithTime : 0;
     return {
       material_id: m.id,
       material_title: m.title,
@@ -144,6 +193,8 @@ export const getCourseMaterialEngagementSummary = async (
       total_downloads: b?.downloads ?? 0,
       last_activity_at:
         b && b.lastActivityMs > 0 ? new Date(b.lastActivityMs).toISOString() : null,
+      total_time_spent_seconds: Math.round(totalTime),
+      avg_time_per_student_seconds: Math.round(avgTimePerStudent),
     };
   });
 
@@ -168,6 +219,7 @@ export interface MaterialStudentEngagementRow {
   completed: boolean;
   progress_percent: number;
   download_count: number;
+  total_time_spent_seconds: number;
   last_viewed_at: string | null;
   completed_at: string | null;
 }
@@ -182,6 +234,8 @@ export interface MaterialStudentEngagementSummary {
   students_completed: number;
   avg_progress_percent: number;
   total_downloads: number;
+  total_time_spent_seconds: number;
+  avg_time_per_student_seconds: number;
   last_activity_at: string | null;
   generated_at: string;
   students: MaterialStudentEngagementRow[];
@@ -210,7 +264,7 @@ export const getMaterialStudentEngagement = async (
     supabaseAdmin
       .from('material_progress')
       .select(
-        'user_id, progress_percent, completed, download_count, last_viewed_at, completed_at'
+        'user_id, progress_percent, completed, download_count, last_viewed_at, completed_at, interaction_events'
       )
       .eq('course_id', courseId)
       .eq('material_id', materialId),
@@ -264,6 +318,7 @@ export const getMaterialStudentEngagement = async (
     download_count: number | null;
     last_viewed_at: string | null;
     completed_at: string | null;
+    interaction_events: unknown;
   };
   const progressByStudent = new Map<string, ProgressRow>();
   for (const row of (progressResult.data || []) as ProgressRow[]) {
@@ -278,6 +333,8 @@ export const getMaterialStudentEngagement = async (
   let startedCount = 0;
   let completedCount = 0;
   let downloadsTotal = 0;
+  let timeTotalSeconds = 0;
+  let studentsWithTime = 0;
 
   for (const enrolment of (enrolmentsResult.data || []) as Array<{ student?: unknown }>) {
     const s = Array.isArray(enrolment.student) ? enrolment.student[0] : enrolment.student;
@@ -300,6 +357,7 @@ export const getMaterialStudentEngagement = async (
     const lastViewedMs = progress?.last_viewed_at
       ? new Date(progress.last_viewed_at).getTime()
       : NaN;
+    const studentTimeSpent = extractTotalTimeSpentSeconds(progress?.interaction_events);
 
     if (Number.isFinite(lastViewedMs) && lastViewedMs > lastActivityMs) {
       lastActivityMs = lastViewedMs;
@@ -309,6 +367,10 @@ export const getMaterialStudentEngagement = async (
     if (started) startedCount += 1;
     if (completed) completedCount += 1;
     downloadsTotal += downloadCount;
+    if (studentTimeSpent > 0) {
+      timeTotalSeconds += studentTimeSpent;
+      studentsWithTime += 1;
+    }
 
     rows.push({
       student_id: profile.id,
@@ -320,6 +382,7 @@ export const getMaterialStudentEngagement = async (
       completed,
       progress_percent: round2(progressPercent),
       download_count: downloadCount,
+      total_time_spent_seconds: studentTimeSpent,
       last_viewed_at: progress?.last_viewed_at ?? null,
       completed_at: progress?.completed_at ?? null,
     });
@@ -341,6 +404,9 @@ export const getMaterialStudentEngagement = async (
     students_completed: completedCount,
     avg_progress_percent: progressCount > 0 ? round2(progressSum / progressCount) : 0,
     total_downloads: downloadsTotal,
+    total_time_spent_seconds: timeTotalSeconds,
+    avg_time_per_student_seconds:
+      studentsWithTime > 0 ? Math.round(timeTotalSeconds / studentsWithTime) : 0,
     last_activity_at: lastActivityMs > 0 ? new Date(lastActivityMs).toISOString() : null,
     generated_at: new Date().toISOString(),
     students: rows,

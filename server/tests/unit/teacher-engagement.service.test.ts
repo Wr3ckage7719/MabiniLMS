@@ -17,6 +17,7 @@ interface MockSnapshot {
     completed: boolean
     download_count: number
     last_viewed_at: string | null
+    interaction_events?: unknown
   }>
 }
 
@@ -143,6 +144,50 @@ describe('teacher-engagement: getCourseMaterialEngagementSummary', () => {
     expect(a.total_downloads).toBe(0)
   })
 
+  it('aggregates total and average time-spent from interaction_events', async () => {
+    installMaterialEngagementMock({
+      materials: [{ id: MATERIAL_A, title: 'Chapter 1', type: 'pdf' }],
+      enrolments: [{ student_id: STUDENT_A }, { student_id: STUDENT_B }],
+      progress: [
+        {
+          material_id: MATERIAL_A,
+          user_id: STUDENT_A,
+          progress_percent: 100,
+          completed: true,
+          download_count: 0,
+          last_viewed_at: null,
+          interaction_events: [
+            {
+              type: 'view_end',
+              timestamp: '2026-05-01T00:00:00.000Z',
+              data: { total_time_spent_seconds: 600, session_count: 3 },
+            },
+          ],
+        },
+        {
+          material_id: MATERIAL_A,
+          user_id: STUDENT_B,
+          progress_percent: 50,
+          completed: false,
+          download_count: 0,
+          last_viewed_at: null,
+          interaction_events: [
+            {
+              type: 'view_end',
+              timestamp: '2026-05-01T00:00:00.000Z',
+              data: { total_time_spent_seconds: 200, session_count: 1 },
+            },
+          ],
+        },
+      ],
+    })
+
+    const summary = await engagementService.getCourseMaterialEngagementSummary(COURSE_ID)
+    const a = summary.materials[0]
+    expect(a.total_time_spent_seconds).toBe(800)
+    expect(a.avg_time_per_student_seconds).toBe(400)
+  })
+
   it('returns an empty material list with no error when the course has none', async () => {
     installMaterialEngagementMock({
       materials: [],
@@ -174,6 +219,7 @@ interface MaterialDetailSnapshot {
     download_count: number | null
     last_viewed_at: string | null
     completed_at: string | null
+    interaction_events?: unknown
   }>
 }
 
@@ -253,6 +299,13 @@ describe('teacher-engagement: getMaterialStudentEngagement', () => {
           download_count: 2,
           last_viewed_at: '2026-04-30T12:00:00.000Z',
           completed_at: '2026-04-30T12:30:00.000Z',
+          interaction_events: [
+            {
+              type: 'view_end',
+              timestamp: '2026-04-30T12:00:00.000Z',
+              data: { total_time_spent_seconds: 425 },
+            },
+          ],
         },
       ],
     })
@@ -267,18 +320,22 @@ describe('teacher-engagement: getMaterialStudentEngagement', () => {
     expect(a.completed).toBe(true)
     expect(a.progress_percent).toBe(100)
     expect(a.download_count).toBe(2)
+    expect(a.total_time_spent_seconds).toBe(425)
 
     const b = detail.students.find((s) => s.student_id === STUDENT_B)!
     expect(b.started).toBe(false)
     expect(b.completed).toBe(false)
     expect(b.progress_percent).toBe(0)
     expect(b.download_count).toBe(0)
+    expect(b.total_time_spent_seconds).toBe(0)
     expect(b.last_viewed_at).toBeNull()
 
     expect(detail.students_started).toBe(1)
     expect(detail.students_completed).toBe(1)
     expect(detail.total_downloads).toBe(2)
     expect(detail.avg_progress_percent).toBe(50)
+    expect(detail.total_time_spent_seconds).toBe(425)
+    expect(detail.avg_time_per_student_seconds).toBe(425)
     expect(detail.last_activity_at).toBe('2026-04-30T12:00:00.000Z')
   })
 
