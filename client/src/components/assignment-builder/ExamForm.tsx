@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Plus, Trash2, Image, X as XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { QuizBuilderQuestion, ImportedQuestionDraft, QuizQuestionType } from './lib/quiz-import';
 import {
@@ -52,10 +53,15 @@ interface ExamFormProps {
   updateExamChoice: (id: string, choiceIndex: number, value: string) => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onDownloadTemplate: () => void;
+  onImageUpload?: (questionId: string, file: File) => Promise<void>;
   clearFieldError: (field: string) => void;
   examBuilderCandidateCount: number;
   examBuilderReadyCount: number;
   examImportReadyCount: number;
+  examChapterPoolEnabled: boolean;
+  setExamChapterPoolEnabled: (v: boolean) => void;
+  examChapterPool: Array<{ tag: string; count: number }>;
+  setExamChapterPool: (v: Array<{ tag: string; count: number }>) => void;
 }
 
 export function ExamForm({
@@ -88,11 +94,43 @@ export function ExamForm({
   updateExamChoice,
   onImportFile,
   onDownloadTemplate,
+  onImageUpload,
   clearFieldError,
   examBuilderCandidateCount,
   examBuilderReadyCount,
   examImportReadyCount,
+  examChapterPoolEnabled,
+  setExamChapterPoolEnabled,
+  examChapterPool,
+  setExamChapterPool,
 }: ExamFormProps) {
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const detectedChapters = Array.from(
+    new Set(examQuestions.map((q) => q.chapterTag?.trim()).filter((t): t is string => Boolean(t)))
+  );
+
+  const handleChapterPoolCountChange = (tag: string, count: number) => {
+    setExamChapterPool(
+      examChapterPool.map((entry) =>
+        entry.tag === tag ? { ...entry, count: Math.max(1, count) } : entry
+      )
+    );
+  };
+
+  const syncChapterPool = (chapters: string[]) => {
+    const existing = new Map(examChapterPool.map((e) => [e.tag, e.count]));
+    const next = chapters.map((tag) => ({ tag, count: existing.get(tag) ?? 1 }));
+    setExamChapterPool(next);
+  };
+
+  const handleImageFileSelect = async (questionId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onImageUpload) return;
+    e.target.value = '';
+    await onImageUpload(questionId, file);
+  };
+
   return (
     <Card className="border border-amber-200 bg-amber-50/60">
       <CardContent className="p-4 space-y-4">
@@ -244,6 +282,55 @@ export function ExamForm({
           )}
         </div>
 
+        {detectedChapters.length > 0 && (
+          <div className="rounded-lg border border-amber-300/70 bg-amber-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Chapter Question Pool</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Randomly select a specific number of questions from each chapter when the exam starts.
+                </p>
+              </div>
+              <Switch
+                checked={examChapterPoolEnabled}
+                onCheckedChange={(v) => {
+                  setExamChapterPoolEnabled(v);
+                  if (v) syncChapterPool(detectedChapters);
+                }}
+              />
+            </div>
+
+            {examChapterPoolEnabled && (
+              <div className="space-y-2">
+                {detectedChapters.map((chapter) => {
+                  const entry = examChapterPool.find((e) => e.tag === chapter);
+                  const available = examQuestions.filter((q) => q.chapterTag?.trim() === chapter).length;
+                  return (
+                    <div key={chapter} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background p-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{chapter}</p>
+                        <p className="text-xs text-muted-foreground">{available} question{available === 1 ? '' : 's'} available</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-muted-foreground">Select</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={available}
+                          value={entry?.count ?? 1}
+                          onChange={(e) => handleChapterPoolCountChange(chapter, parseInt(e.target.value, 10) || 1)}
+                          className="w-16 rounded-lg h-8 text-sm"
+                        />
+                        <span className="text-xs text-muted-foreground">/ {available}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3 rounded-lg border border-violet-200/70 bg-background p-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold">Exam Question Builder</p>
@@ -253,8 +340,7 @@ export function ExamForm({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Build exam questions directly in this form. Fill in the Blank and Essay entries are saved as Short Answer
-            when answer keys are provided.
+            Build exam questions directly in this form. Tag questions with a chapter to enable chapter-based pooling above.
           </p>
 
           <div className="space-y-3">
@@ -273,21 +359,94 @@ export function ExamForm({
                     </Button>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium">Question Type</label>
+                      <Select
+                        value={question.type}
+                        onValueChange={(value) => updateExamQuestion(question.id, { type: value as QuizQuestionType })}
+                      >
+                        <SelectTrigger className="mt-2 rounded-lg">
+                          <SelectValue placeholder="Select question type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {QUIZ_QUESTION_TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium">Points</label>
+                      <Input
+                        type="number"
+                        min={0.5}
+                        step={0.5}
+                        value={question.points ?? 1}
+                        onChange={(e) => updateExamQuestion(question.id, { points: parseFloat(e.target.value) || 1 })}
+                        className="mt-2 rounded-lg"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="text-sm font-medium">Question Type</label>
-                    <Select
-                      value={question.type}
-                      onValueChange={(value) => updateExamQuestion(question.id, { type: value as QuizQuestionType })}
-                    >
-                      <SelectTrigger className="mt-2 rounded-lg">
-                        <SelectValue placeholder="Select question type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {QUIZ_QUESTION_TYPE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <label className="text-sm font-medium">Chapter Tag</label>
+                    <Input
+                      value={question.chapterTag ?? ''}
+                      onChange={(e) => updateExamQuestion(question.id, { chapterTag: e.target.value || null })}
+                      placeholder="e.g., Chapter 1, Algebra, Unit 3..."
+                      className="mt-2 rounded-lg"
+                      list={`chapter-suggestions-${question.id}`}
+                    />
+                    <datalist id={`chapter-suggestions-${question.id}`}>
+                      {detectedChapters.map((ch) => (
+                        <option key={ch} value={ch} />
+                      ))}
+                    </datalist>
+                    <p className="text-[11px] text-muted-foreground mt-1">Optional. Used for chapter pooling above.</p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Question Image</label>
+                    {question.imageUrl ? (
+                      <div className="mt-2 relative">
+                        <img
+                          src={question.imageUrl}
+                          alt="Question image"
+                          className="max-h-48 rounded-lg border border-border object-contain bg-muted/30"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateExamQuestion(question.id, { imageUrl: null })}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <input
+                          ref={(el) => { imageInputRefs.current[question.id] = el; }}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          className="hidden"
+                          id={`exam-q-img-${question.id}`}
+                          onChange={(e) => void handleImageFileSelect(question.id, e)}
+                        />
+                        <label
+                          htmlFor={`exam-q-img-${question.id}`}
+                          className={cn(
+                            'flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border',
+                            'text-sm text-muted-foreground cursor-pointer hover:bg-muted/40 transition-colors w-fit'
+                          )}
+                        >
+                          <Image className="h-4 w-4" />
+                          Attach image (optional)
+                        </label>
+                        <p className="text-[11px] text-muted-foreground mt-1">JPEG, PNG, WebP · max 5 MB</p>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -355,6 +514,16 @@ export function ExamForm({
                       />
                     </div>
                   )}
+
+                  <div>
+                    <label className="text-sm font-medium">Explanation (optional)</label>
+                    <Input
+                      value={question.explanation ?? ''}
+                      onChange={(e) => updateExamQuestion(question.id, { explanation: e.target.value || undefined })}
+                      placeholder="Shown after submission to explain the correct answer"
+                      className="mt-2 rounded-lg"
+                    />
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -368,10 +537,6 @@ export function ExamForm({
           <div className="space-y-1 text-xs text-muted-foreground">
             <p>
               Builder readiness: {examBuilderReadyCount} of {examBuilderCandidateCount} drafted questions are ready for save.
-            </p>
-            <p>
-              Supported live attempt item types are currently Multiple Choice and True/False. Short Answer-based items
-              (including Fill in the Blank and Essay mappings) may not be playable in the current student exam player.
             </p>
           </div>
         </div>

@@ -6,15 +6,17 @@ import { Button } from '@/components/ui/button';
 import { useTeacherLesson } from '@/hooks-api/useLessons';
 import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssignmentDialog';
 
-const VALID_TASK_TYPES: TaskType[] = ['activity', 'quiz', 'exam'];
+const VALID_TASK_TYPES: TaskType[] = ['activity', 'quiz', 'exam', 'recitation', 'project', 'reading_material'];
 
 const isValidTaskType = (value: string | undefined): value is TaskType =>
   Boolean(value) && VALID_TASK_TYPES.includes(value as TaskType);
 
 export default function AssignmentBuilderPage() {
-  const { id, lessonId, taskType: taskTypeParam } = useParams();
+  const { id, lessonId, taskType: taskTypeParam, assignmentId } = useParams();
   const classId = id ?? '';
   const navigate = useNavigate();
+
+  const isEditMode = Boolean(assignmentId);
 
   const lessonQuery = useTeacherLesson(classId, lessonId);
   const lesson = lessonQuery.data ?? null;
@@ -23,8 +25,11 @@ export default function AssignmentBuilderPage() {
     if (taskTypeParam && isValidTaskType(taskTypeParam)) {
       return taskTypeParam;
     }
+    // In edit mode with no taskType param, start with 'activity' as placeholder
+    // (the builder will override it from the loaded assignment)
+    if (isEditMode) return 'activity';
     return null;
-  }, [taskTypeParam]);
+  }, [taskTypeParam, isEditMode]);
 
   const goBack = () => {
     if (lessonId) {
@@ -74,6 +79,8 @@ export default function AssignmentBuilderPage() {
           lessonId={lessonId}
           initialTaskType={taskType}
           onCreated={goBack}
+          mode={isEditMode ? 'edit' : 'create'}
+          assignmentId={assignmentId}
         />
       </main>
     </div>

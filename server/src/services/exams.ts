@@ -55,6 +55,7 @@ const EXAM_QUESTION_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'item_type',
   'answer_payload',
   'chapter_tag',
+  'image_url',
 ])
 
 const defaultPolicy: ProctoringPolicy = {
@@ -210,6 +211,7 @@ const parseExamQuestion = (row: Record<string, unknown>): ExamQuestion => {
     item_type: itemType,
     answer_payload: toRecord(row.answer_payload),
     chapter_tag: row.chapter_tag ? String(row.chapter_tag) : null,
+    image_url: row.image_url ? String(row.image_url) : null,
     choices: toChoiceArray(row.choices),
     correct_choice_index: toNumber(row.correct_choice_index, 0),
     points: roundToTwo(toNumber(row.points, 1)),
@@ -664,6 +666,7 @@ export const createExamQuestion = async (
     item_type: normalizedInput.item_type,
     answer_payload: normalizedInput.answer_payload,
     chapter_tag: normalizedInput.chapter_tag,
+    image_url: (input as { image_url?: string | null }).image_url ?? null,
     choices: normalizedInput.choices,
     correct_choice_index: normalizedInput.correct_choice_index,
     points: input.points,
@@ -753,6 +756,8 @@ export const updateExamQuestion = async (
     updatePayload.answer_payload = normalizedInput.answer_payload
   }
   if (input.chapter_tag !== undefined) updatePayload.chapter_tag = normalizedInput.chapter_tag
+  const inputImageUrl = (input as { image_url?: string | null }).image_url
+  if (inputImageUrl !== undefined) updatePayload.image_url = inputImageUrl ?? null
   if (input.points !== undefined) updatePayload.points = input.points
   if (input.explanation !== undefined) updatePayload.explanation = input.explanation || null
   if (input.order_index !== undefined) updatePayload.order_index = input.order_index

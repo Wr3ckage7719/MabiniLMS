@@ -145,6 +145,14 @@ const AppRoutes = () => (
       )}
     />
     <Route
+      path="/class/:id/lessons/:lessonId/assessments/:assignmentId/edit"
+      element={(
+        <ProtectedRoute role="teacher">
+          <AssignmentBuilderPage />
+        </ProtectedRoute>
+      )}
+    />
+    <Route
       path="/class/:id/lessons/:lessonId/materials/:materialId"
       element={(
         <ProtectedRoute>

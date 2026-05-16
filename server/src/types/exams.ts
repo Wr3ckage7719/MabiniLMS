@@ -64,6 +64,7 @@ export const createExamQuestionSchema = z
     explanation: z.string().trim().max(5000).optional(),
     order_index: z.number().int().min(0).optional(),
     chapter_tag: z.string().trim().min(1).max(120).optional().nullable(),
+    image_url: z.string().url().max(2000).optional().nullable(),
   })
   .superRefine((value, ctx) => {
     if (value.item_type === 'short_answer') {
@@ -108,6 +109,7 @@ export const updateExamQuestionSchema = z
     explanation: z.string().trim().max(5000).nullable().optional(),
     order_index: z.number().int().min(0).optional(),
     chapter_tag: z.string().trim().min(1).max(120).nullable().optional(),
+    image_url: z.string().url().max(2000).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.item_type === 'short_answer' && value.answer_payload !== undefined) {
@@ -195,6 +197,7 @@ export interface ExamQuestion {
   item_type: ExamQuestionItemType
   answer_payload: Record<string, unknown>
   chapter_tag: string | null
+  image_url: string | null
   choices: string[]
   correct_choice_index: number
   points: number
