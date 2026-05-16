@@ -475,8 +475,14 @@ export function TeacherClassStream({
         });
         if (cancelled) return;
         setSelectedSubmissionViolations(violations);
-      } catch {
-        if (!cancelled) setSelectedSubmissionViolations([]);
+      } catch (err) {
+        // Soft-fail: the SubmissionsTab falls back to the submission content
+        // snapshot when submissionViolations is empty, so the teacher still
+        // sees accurate violation data even if this endpoint is unavailable.
+        if (!cancelled) {
+          console.warn('[violations] failed to load live violations for submission', selectedSubmission.id, err);
+          setSelectedSubmissionViolations([]);
+        }
       } finally {
         if (!cancelled) setLoadingSelectedSubmissionViolations(false);
       }

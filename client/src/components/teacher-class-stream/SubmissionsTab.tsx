@@ -181,17 +181,57 @@ export function SubmissionsTab({
       <Dialog open={showSubmissionDetail} onOpenChange={setShowSubmissionDetail}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-2xl md:max-w-3xl rounded-xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-0">
           {selectedSubmission && (() => {
-            let quizResult: { raw_score?: number; max_question_score?: number; total_questions?: number; answered_count?: number; scaled_score?: number; violation_count?: number } | null = null;
+            type QuizResultSnapshot = {
+              raw_score?: number;
+              max_question_score?: number;
+              total_questions?: number;
+              answered_count?: number;
+              scaled_score?: number;
+              violation_count?: number;
+              attempt_id?: string;
+              violations_by_type?: Record<string, { count: number; first: string; last: string }>;
+            };
+            let quizResult: QuizResultSnapshot | null = null;
             if (selectedSubmission.submissionContent) {
               try {
                 const parsed = JSON.parse(selectedSubmission.submissionContent);
                 if (parsed && typeof parsed === 'object' && ('raw_score' in parsed || 'scaled_score' in parsed)) {
-                  quizResult = parsed;
+                  quizResult = parsed as QuizResultSnapshot;
                 }
               } catch {
                 // not JSON — plain text submission
               }
             }
+
+            // When the live exam_violations query returned nothing (API error or
+            // race condition), reconstruct one synthetic row per violation type
+            // from the snapshot baked into the submission content at submit time.
+            const snapshotViolations: ExamViolation[] =
+              !submissionViolations.length && quizResult?.violations_by_type
+                ? Object.entries(quizResult.violations_by_type).map(([type, info]) => ({
+                    id: `snapshot-${type}`,
+                    attempt_id: quizResult?.attempt_id ?? '',
+                    assignment_id: selectedSubmission.assignmentId ?? '',
+                    student_id: selectedSubmission.studentId ?? '',
+                    violation_type: type as ExamViolation['violation_type'],
+                    metadata: info.count > 1 ? { occurrences: info.count, last: info.last } : {},
+                    created_at: info.first,
+                  }))
+                : [];
+
+            // Prefer live violations (reflect any late-flushed IndexedDB entries);
+            // fall back to snapshot rows so the timeline is never blank when
+            // violations did occur.
+            const displayViolations =
+              submissionViolations.length > 0 ? submissionViolations : snapshotViolations;
+
+            // Authoritative count: live length → snapshot violation_count → 0.
+            // The snapshot count is more accurate than displayViolations.length
+            // when multiple occurrences of one type collapse to a single row.
+            const effectiveViolationCount =
+              submissionViolations.length > 0
+                ? submissionViolations.length
+                : (quizResult?.violation_count ?? snapshotViolations.length);
 
             const statusConfig: Record<string, { label: string; className: string }> = {
               submitted: { label: 'Submitted', className: 'bg-blue-100 text-blue-700 border-blue-200' },
@@ -303,8 +343,8 @@ export function SubmissionsTab({
                         )}
                         <div className="flex items-center justify-between rounded bg-background px-2 py-1.5">
                           <span className="text-muted-foreground">Violations</span>
-                          <span className={submissionViolations.length > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                            {submissionViolations.length}
+                          <span className={effectiveViolationCount > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                            {effectiveViolationCount}
                           </span>
                         </div>
                       </div>
@@ -326,8 +366,8 @@ export function SubmissionsTab({
                     <p className="text-xs text-muted-foreground italic">No text submission.</p>
                   )}
 
-                  {/* Violation timeline — single source of truth from exam_violations */}
-                  {(quizResult || submissionViolations.length > 0) && (
+                  {/* Violation timeline */}
+                  {(quizResult || effectiveViolationCount > 0) && (
                     <div className="rounded-lg border bg-card p-3">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -335,19 +375,19 @@ export function SubmissionsTab({
                         </span>
                         <Badge
                           className={
-                            submissionViolations.length > 0
+                            effectiveViolationCount > 0
                               ? 'bg-red-100 text-red-700 border-red-200'
                               : 'bg-green-100 text-green-700 border-green-200'
                           }
                         >
-                          {loadingViolations ? 'Loading…' : `${submissionViolations.length} recorded`}
+                          {loadingViolations ? 'Loading…' : `${effectiveViolationCount} recorded`}
                         </Badge>
                       </div>
                       {loadingViolations ? (
                         <p className="text-xs text-muted-foreground italic">Loading violation timeline…</p>
                       ) : (
                         <ViolationList
-                          violations={submissionViolations}
+                          violations={displayViolations}
                           emptyMessage="No proctoring violations recorded for this attempt."
                         />
                       )}
