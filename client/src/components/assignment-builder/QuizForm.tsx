@@ -50,7 +50,7 @@ interface QuizFormProps {
   updateQuizQuestion: (id: string, update: Partial<QuizBuilderQuestion>) => void;
   updateQuizChoice: (id: string, choiceIndex: number, value: string) => void;
   onImportFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onDownloadTemplate: () => void;
+  onDownloadTemplate: () => void | Promise<void>;
   onImageUpload?: (questionId: string, file: File) => Promise<void>;
   quizQuestionsError?: string;
   clearFieldError: (field: string) => void;
@@ -181,8 +181,8 @@ export function QuizForm({
                 className="hidden"
                 onChange={onImportFile}
               />
-              <Button type="button" variant="outline" className="rounded-lg" onClick={onDownloadTemplate}>
-                Download JSON Template
+              <Button type="button" variant="outline" className="rounded-lg" onClick={() => void onDownloadTemplate()}>
+                Download DOCX Template
               </Button>
               <Button type="button" className="rounded-lg" asChild>
                 <label htmlFor="quiz-question-import-input" className="cursor-pointer">Import File</label>
@@ -388,7 +388,7 @@ export function QuizForm({
 
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="rounded-full text-xs bg-background">
-            Supports: MCQ · True/False · Short Answer · Fill in the Blank
+            Supports: MCQ · True/False · Short Answer · Fill in the Blank · Essay
           </Badge>
           <Badge variant="outline" className="rounded-full text-xs bg-background">
             Auto-graded · No proctoring required

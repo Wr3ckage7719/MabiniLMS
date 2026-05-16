@@ -34,6 +34,8 @@ export const examQuestionItemTypeValues = [
   'multiple_choice',
   'true_false',
   'short_answer',
+  'fill_in_blank',
+  'essay',
 ] as const
 
 export const examQuestionItemTypeSchema = z.enum(examQuestionItemTypeValues)
@@ -67,13 +69,18 @@ export const createExamQuestionSchema = z
     image_url: z.string().url().max(2000).optional().nullable(),
   })
   .superRefine((value, ctx) => {
-    if (value.item_type === 'short_answer') {
+    if (value.item_type === 'essay') {
+      // Essay questions are manually graded — no choices or accepted_answers required
+      return
+    }
+
+    if (value.item_type === 'short_answer' || value.item_type === 'fill_in_blank') {
       const shortAnswerPayload = shortAnswerPayloadSchema.safeParse(value.answer_payload || {})
       if (!shortAnswerPayload.success) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['answer_payload'],
-          message: 'Short answer questions must include accepted_answers in answer_payload',
+          message: 'Short answer / fill-in-the-blank questions must include accepted_answers in answer_payload',
         })
       }
 
