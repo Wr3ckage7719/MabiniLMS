@@ -236,6 +236,14 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
     event.stopPropagation();
     if (locked || downloading) return;
     if (cooldownRef.current && Date.now() < cooldownRef.current) return;
+    if (!viewed) {
+      toast({
+        title: 'Read the material first',
+        description: 'Open and read this material completely before downloading.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (!material.url || material.url === '#') {
       toast({
         title: 'Download unavailable',
@@ -324,7 +332,7 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
             onClick={handleDownload}
             disabled={locked || downloading || !material.url || material.url === '#'}
             aria-label={`Download ${material.title}`}
-            title="Download file"
+            title={!viewed ? 'Read the material first to unlock download' : 'Download file'}
           >
             {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             <span>Download</span>
@@ -375,7 +383,7 @@ function MaterialRow({ material, onOpen }: MaterialRowProps) {
           onClick={handleDownload}
           disabled={locked || downloading || !material.url || material.url === '#'}
           aria-label={`Download ${material.title}`}
-          title="Download file"
+          title={!viewed ? 'Read the material first to unlock download' : 'Download file'}
         >
           {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
         </Button>
