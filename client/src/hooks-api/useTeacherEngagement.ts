@@ -3,6 +3,7 @@ import {
   teacherEngagementService,
   type AssessmentReadinessSummary,
   type CourseMaterialEngagementSummary,
+  type MaterialStudentEngagementSummary,
 } from '@/services/teacher-engagement.service';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -17,6 +18,27 @@ export function useCourseMaterialEngagement(
       return teacherEngagementService.getCourseMaterialEngagement(courseId);
     },
     enabled: !authLoading && isLoggedIn && Boolean(courseId),
+    staleTime: 60 * 1000,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403 || status === 404) return false;
+      return failureCount < 1;
+    },
+  });
+}
+
+export function useMaterialStudentEngagement(
+  courseId: string | null | undefined,
+  materialId: string | null | undefined
+): UseQueryResult<MaterialStudentEngagementSummary | null, Error> {
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['material-student-engagement', courseId, materialId],
+    queryFn: async () => {
+      if (!courseId || !materialId) return null;
+      return teacherEngagementService.getMaterialStudentEngagement(courseId, materialId);
+    },
+    enabled: !authLoading && isLoggedIn && Boolean(courseId) && Boolean(materialId),
     staleTime: 60 * 1000,
     retry: (failureCount, error) => {
       const status = (error as { response?: { status?: number } })?.response?.status;

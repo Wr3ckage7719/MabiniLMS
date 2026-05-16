@@ -134,6 +134,11 @@ export const courseMaterialsParamSchema = z.object({
   courseId: z.string().uuid('Invalid course ID'),
 });
 
+export const materialEngagementDetailParamSchema = z.object({
+  courseId: z.string().uuid('Invalid course ID'),
+  materialId: z.string().uuid('Invalid material ID'),
+});
+
 export const updateMaterialProgressSchema = z
   .object({
     progress_percent: z.number().min(0).max(100).optional(),

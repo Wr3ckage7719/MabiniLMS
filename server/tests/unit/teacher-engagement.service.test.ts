@@ -154,3 +154,144 @@ describe('teacher-engagement: getCourseMaterialEngagementSummary', () => {
     expect(summary.materials).toEqual([])
   })
 })
+
+interface MaterialDetailSnapshot {
+  material: { id: string; title: string; type: string | null; course_id: string } | null
+  materialError: { code?: string; message?: string } | null
+  enrolments: Array<{
+    student: {
+      id: string
+      email: string
+      first_name: string | null
+      last_name: string | null
+      avatar_url: string | null
+    }
+  }>
+  progress: Array<{
+    user_id: string
+    progress_percent: number | null
+    completed: boolean
+    download_count: number | null
+    last_viewed_at: string | null
+    completed_at: string | null
+  }>
+}
+
+const installMaterialDetailMock = (snap: MaterialDetailSnapshot): void => {
+  vi.spyOn(supabaseAdmin, 'from').mockImplementation((table: string) => {
+    if (table === 'course_materials') {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: snap.material,
+                  error: snap.materialError ?? null,
+                }),
+            }),
+          }),
+        }),
+      } as any
+    }
+    if (table === 'enrollments') {
+      return {
+        select: () => ({
+          eq: () => ({
+            in: () => Promise.resolve({ data: snap.enrolments, error: null }),
+          }),
+        }),
+      } as any
+    }
+    if (table === 'material_progress') {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ data: snap.progress, error: null }),
+          }),
+        }),
+      } as any
+    }
+    throw new Error(`Unexpected table: ${table}`)
+  })
+}
+
+describe('teacher-engagement: getMaterialStudentEngagement', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('returns one row per enrolled student with their progress', async () => {
+    installMaterialDetailMock({
+      material: { id: MATERIAL_A, title: 'Chapter 1', type: 'pdf', course_id: COURSE_ID },
+      materialError: null,
+      enrolments: [
+        {
+          student: {
+            id: STUDENT_A,
+            email: 'a@example.com',
+            first_name: 'Ana',
+            last_name: 'Alpha',
+            avatar_url: null,
+          },
+        },
+        {
+          student: {
+            id: STUDENT_B,
+            email: 'b@example.com',
+            first_name: 'Ben',
+            last_name: 'Bravo',
+            avatar_url: null,
+          },
+        },
+      ],
+      progress: [
+        {
+          user_id: STUDENT_A,
+          progress_percent: 100,
+          completed: true,
+          download_count: 2,
+          last_viewed_at: '2026-04-30T12:00:00.000Z',
+          completed_at: '2026-04-30T12:30:00.000Z',
+        },
+      ],
+    })
+
+    const detail = await engagementService.getMaterialStudentEngagement(COURSE_ID, MATERIAL_A)
+    expect(detail.material_id).toBe(MATERIAL_A)
+    expect(detail.material_title).toBe('Chapter 1')
+    expect(detail.students).toHaveLength(2)
+
+    const a = detail.students.find((s) => s.student_id === STUDENT_A)!
+    expect(a.started).toBe(true)
+    expect(a.completed).toBe(true)
+    expect(a.progress_percent).toBe(100)
+    expect(a.download_count).toBe(2)
+
+    const b = detail.students.find((s) => s.student_id === STUDENT_B)!
+    expect(b.started).toBe(false)
+    expect(b.completed).toBe(false)
+    expect(b.progress_percent).toBe(0)
+    expect(b.download_count).toBe(0)
+    expect(b.last_viewed_at).toBeNull()
+
+    expect(detail.students_started).toBe(1)
+    expect(detail.students_completed).toBe(1)
+    expect(detail.total_downloads).toBe(2)
+    expect(detail.avg_progress_percent).toBe(50)
+    expect(detail.last_activity_at).toBe('2026-04-30T12:00:00.000Z')
+  })
+
+  it('throws NOT_FOUND when the material does not exist', async () => {
+    installMaterialDetailMock({
+      material: null,
+      materialError: { code: 'PGRST116', message: 'no rows' },
+      enrolments: [],
+      progress: [],
+    })
+
+    await expect(
+      engagementService.getMaterialStudentEngagement(COURSE_ID, MATERIAL_A)
+    ).rejects.toMatchObject({ statusCode: 404 })
+  })
+})

@@ -108,6 +108,21 @@ export const getCourseMaterialEngagementSummary = async (
   }
 };
 
+export const getMaterialStudentEngagement = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { courseId, materialId } = req.params;
+    await assertCanReadCourse(courseId, req.user!.id, req.user!.role);
+    const data = await engagementService.getMaterialStudentEngagement(courseId, materialId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAssessmentReadiness = async (
   req: AuthRequest,
   res: Response,

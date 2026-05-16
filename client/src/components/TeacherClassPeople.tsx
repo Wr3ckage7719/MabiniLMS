@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Users,
   Search,
   MoreVertical,
   Mail,
   MessageSquare,
-  Download,
   ArrowUpDown,
   Clock,
   Check,
@@ -22,7 +21,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -74,10 +72,29 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
   const pendingInvitations = getPendingInvitations(classId);
   const acceptedInvitations = classInvitations.filter((invitation) => invitation.status === 'accepted');
 
-  const getDisplaySubmissions = (studentId: string) => {
-    return submissions
-      .filter((submission) => submission.student_id === studentId)
-      .map((submission) => ({
+  // Group submissions once. Without this, the previous code filtered the full
+  // submissions list per student on every render (O(students × submissions))
+  // and again per pairwise comparison during the "Sort by Submissions" sort,
+  // which was the dominant cost on this tab. The two memos below collapse
+  // both into single passes.
+  const submissionCountByStudent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const submission of submissions) {
+      counts.set(submission.student_id, (counts.get(submission.student_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [submissions]);
+
+  const displaySubmissionsByStudent = useMemo(() => {
+    const grouped = new Map<string, Array<{
+      id: string;
+      assignmentTitle: string;
+      submittedDate: string;
+      grade?: string;
+      status: 'submitted' | 'graded';
+    }>>();
+    for (const submission of submissions) {
+      const row = {
         id: submission.id,
         assignmentTitle: submission.assignment?.title || 'Assignment',
         submittedDate: new Date(submission.submitted_at).toLocaleString(),
@@ -85,9 +102,20 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
           typeof submission.grade?.points_earned === 'number'
             ? String(submission.grade.points_earned)
             : undefined,
-        status: submission.grade ? 'graded' : 'submitted',
-      }));
-  };
+        status: (submission.grade ? 'graded' : 'submitted') as 'graded' | 'submitted',
+      };
+      const list = grouped.get(submission.student_id);
+      if (list) {
+        list.push(row);
+      } else {
+        grouped.set(submission.student_id, [row]);
+      }
+    }
+    return grouped;
+  }, [submissions]);
+
+  const getStudentSubmissions = (studentId: string) =>
+    displaySubmissionsByStudent.get(studentId) ?? [];
 
   if (studentsLoading || submissionsLoading) {
     return (
@@ -99,15 +127,6 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
     );
   }
 
-  // Count submissions per student
-  const getStudentSubmissionCount = (studentId: string) => {
-    return submissions.filter((submission) => submission.student_id === studentId).length;
-  };
-
-  const getStudentSubmissions = (studentId: string) => {
-    return getDisplaySubmissions(studentId);
-  };
-
   // Filter and sort students
   const filteredStudents = students.filter((student) =>
     student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -117,7 +136,8 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
   if (sortBy === 'submissions') {
     filteredStudents.sort(
       (a, b) =>
-        getStudentSubmissionCount(b.id) - getStudentSubmissionCount(a.id)
+        (submissionCountByStudent.get(b.id) ?? 0) -
+        (submissionCountByStudent.get(a.id) ?? 0)
     );
   } else if (sortBy === 'name') {
     filteredStudents.sort((a, b) => a.name.localeCompare(b.name));
@@ -232,8 +252,7 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
           <h3 className="font-semibold text-sm">Students ({filteredStudents.length})</h3>
           <div className="space-y-2 animate-stagger">
           {filteredStudents.map((student, idx) => {
-            const submissionCount = getStudentSubmissionCount(student.id);
-            const submissions = getStudentSubmissions(student.id);
+            const submissionCount = submissionCountByStudent.get(student.id) ?? 0;
 
             return (
               <Card
@@ -249,7 +268,11 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <Avatar className="h-10 w-10 flex-shrink-0">
                         {student.avatarUrl ? (
-                          <AvatarImage src={student.avatarUrl} alt={`${student.name} avatar`} />
+                          <AvatarImage
+                            src={student.avatarUrl}
+                            alt={`${student.name} avatar`}
+                            loading="lazy"
+                          />
                         ) : null}
                         <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {student.avatar}
@@ -295,10 +318,6 @@ export function TeacherClassPeople({ classId }: TeacherClassPeopleProps) {
                         >
                           <MessageSquare className="h-4 w-4 mr-2" />
                           View Submissions
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="cursor-pointer">
-                          <Download className="h-4 w-4 mr-2" />
-                          Download Work
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

@@ -14,6 +14,7 @@ import {
   listCoursesQuerySchema,
   createMaterialSchema,
   courseMaterialsParamSchema,
+  materialEngagementDetailParamSchema,
 } from '../types/courses.js';
 import { enrollmentQuerySchema } from '../types/enrollments.js';
 
@@ -184,6 +185,17 @@ router.get(
   authorize(UserRole.ADMIN, UserRole.TEACHER),
   validate({ params: courseMaterialsParamSchema }),
   engagementController.getCourseMaterialEngagementSummary
+);
+
+// Per-student engagement detail for a single material. Same data shape as
+// the class-level rollup but broken down per enrolled student — powers the
+// "View students" drill-in from the Insights tab.
+router.get(
+  '/:courseId/materials/:materialId/student-engagement',
+  authenticate,
+  authorize(UserRole.ADMIN, UserRole.TEACHER),
+  validate({ params: materialEngagementDetailParamSchema }),
+  engagementController.getMaterialStudentEngagement
 );
 
 export default router;

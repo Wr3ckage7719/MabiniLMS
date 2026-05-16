@@ -14,7 +14,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatProviderFileSize } from '@/lib/submission-storage';
 import { formatDateTime } from '@/lib/datetime';
 import { ViolationList } from '@/components/ViolationList';
-import { SubmissionFilters, type SubmissionFiltersState } from './SubmissionFilters';
+import {
+  SubmissionFilters,
+  type SubmissionFiltersState,
+  type SubmissionLessonOption,
+} from './SubmissionFilters';
 import type { ExamViolation } from '@/services/exams.service';
 
 export interface RecentSubmissionItem {
@@ -49,6 +53,7 @@ interface SubmissionsTabProps {
   totalSubmissions: number;
   filters: SubmissionFiltersState;
   onFiltersChange: (next: SubmissionFiltersState) => void;
+  lessonOptions: SubmissionLessonOption[];
   exportingRegistrar: boolean;
   handleExportRegistrar: () => void;
   showSubmissionDetail: boolean;
@@ -70,6 +75,7 @@ export function SubmissionsTab({
   totalSubmissions,
   filters,
   onFiltersChange,
+  lessonOptions,
   exportingRegistrar,
   handleExportRegistrar,
   showSubmissionDetail,
@@ -105,6 +111,7 @@ export function SubmissionsTab({
         onChange={onFiltersChange}
         totalCount={totalSubmissions}
         filteredCount={recentSubmissions.length}
+        lessons={lessonOptions}
       />
       {recentSubmissions.length > 0 ? (
         <div className="space-y-3">

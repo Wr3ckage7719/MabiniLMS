@@ -3,14 +3,12 @@ import {
   Copy,
   Image as ImageIcon,
   Palette,
-  Clock,
-  BookOpen,
   Upload,
+  Check,
 } from 'lucide-react';
 import { Z } from '@/lib/z-index';
 import { LessonListBoard } from '@/components/lessons/LessonListBoard';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -215,6 +213,7 @@ export function TeacherClassStream({
     search: '',
     status: 'all',
     sort: 'newest',
+    lessonId: 'all',
   });
   // Map of `${assignment_id}|${student_id}` -> violation count, populated by
   // the bulk fetch below. Used to render the "N violations" badge on each
@@ -363,6 +362,9 @@ export function TeacherClassStream({
         const haystack = `${s.student} ${s.assignment}`.toLowerCase();
         if (!haystack.includes(search)) return false;
       }
+      if (submissionFilters.lessonId !== 'all' && s.assignmentId !== submissionFilters.lessonId) {
+        return false;
+      }
       switch (submissionFilters.status) {
         case 'on_time':
           return s.onTime === true;
@@ -488,6 +490,27 @@ export function TeacherClassStream({
   const discussionPosts: TeacherDiscussionPost[] = useMemo(() => {
     return apiDiscussionPosts.map(toTeacherDiscussionPost);
   }, [apiDiscussionPosts]);
+
+  // Lesson/assignment options powering the "Lesson" filter on the Recent
+  // Submissions tab. We use assignments rather than raw lessons because
+  // submissions are tied to assignments — one assignment is what students
+  // actually submit against.
+  const submissionLessonOptions = useMemo(
+    () => apiAssignments.map((assignment) => ({ id: assignment.id, title: assignment.title })),
+    [apiAssignments]
+  );
+
+  // Count of assignments due within the next 7 days — powers the compact
+  // "Upcoming" strip on the Lessons tab. Hidden entirely when zero.
+  const dueSoonCount = useMemo(() => {
+    const now = Date.now();
+    const horizon = now + 7 * 24 * 60 * 60 * 1000;
+    return assignments.filter((a) => {
+      if (!a.dueDate) return false;
+      const due = new Date(a.dueDate).getTime();
+      return Number.isFinite(due) && due >= now && due <= horizon && a.status === 'active';
+    }).length;
+  }, [assignments]);
 
   const handleSaveSubmissionGrade = async () => {
     if (!selectedSubmission) return;
@@ -998,24 +1021,36 @@ export function TeacherClassStream({
         )}
 
         <div className="relative p-6 md:p-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
+          <div className="flex items-start justify-between mb-4 gap-4">
+            <div className="min-w-0">
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">{className}</h2>
               {block && level && (
                 <p className="text-white/80 text-sm">Block {block} • {level}</p>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowThemeSettings(!showThemeSettings)}
-              className="text-white hover:bg-white/20 rounded-lg h-10 w-10"
-            >
-              <Palette className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={copyClassCode}
+                className="flex items-center gap-2 rounded-lg bg-white/15 backdrop-blur-sm px-3 py-1.5 text-xs text-white hover:bg-white/25 transition-colors"
+                title="Click to copy class code"
+              >
+                <span className="text-white/70 font-medium uppercase tracking-wide">Code</span>
+                <span className="font-mono font-bold tracking-wider">{classCode}</span>
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5 opacity-80" />}
+              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowThemeSettings(!showThemeSettings)}
+                className="text-white hover:bg-white/20 rounded-lg h-9 w-9"
+              >
+                <Palette className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-white/90">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-white/90">
             {room && (
               <div>
                 <p className="text-xs text-white/70 mb-1">Room</p>
@@ -1028,6 +1063,16 @@ export function TeacherClassStream({
                 <p className="font-semibold text-sm">{schedule}</p>
               </div>
             )}
+            <div>
+              <p className="text-xs text-white/70 mb-1">Students</p>
+              <p className="font-semibold text-sm">{enrolledStudents.length}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/70 mb-1">Active Work</p>
+              <p className="font-semibold text-sm">
+                {assignments.filter((item) => item.status === 'active').length}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -1088,80 +1133,9 @@ export function TeacherClassStream({
         </div>
       </div>
 
-      {/* Main Content Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Sidebar */}
-        <div className="lg:col-span-1 space-y-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          {/* Class Code Card */}
-          <Card className="border-0 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Class Code</span>
-                <Copy className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                  onClick={copyClassCode} />
-              </div>
-              <div className="bg-muted rounded-lg p-4 text-center group">
-                <p className="font-mono text-xl font-bold tracking-wider group-hover:scale-105 transition-transform">{classCode}</p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full mt-3 rounded-lg text-xs"
-                onClick={copyClassCode}
-              >
-                <Copy className="h-3 w-3 mr-1.5" />
-                {copied ? 'Copied!' : 'Copy'}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Upcoming Card */}
-          <Card className="border-0 shadow-sm hover:shadow-md transition-all duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                Upcoming
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-center py-6">
-                <BookOpen className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
-                <p className="text-xs text-muted-foreground">No work due soon</p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs text-primary hover:bg-blue-50 rounded-lg"
-                onClick={() => handleTabChange('lessons')}
-              >
-                View lessons
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Quick Statistics */}
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="text-center p-2 rounded-lg bg-blue-50">
-                  <p className="text-lg font-bold text-blue-600">
-                    {enrolledStudents.length}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Students</p>
-                </div>
-                <div className="text-center p-2 rounded-lg bg-green-50">
-                  <p className="text-lg font-bold text-green-600">
-                    {assignments.filter((item) => item.status === 'active').length}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Active Work</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Content */}
-        <div className="lg:col-span-3 space-y-4 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      {/* Main Content Layout — full width since Class Code, Students,
+          Active Work, and Upcoming all moved into the banner / Lessons tab. */}
+      <div className="space-y-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
           {/* Theme Customization Dialog */}
           <Dialog
             open={showThemeSettings}
@@ -1359,7 +1333,17 @@ export function TeacherClassStream({
 
           {/* Lessons Tab — LM-centric primary view */}
           {activeTab === 'lessons' && (
-            <LessonListBoard classId={classId} />
+            <>
+              {dueSoonCount > 0 && (
+                <div className="rounded-lg border bg-amber-50/60 px-3 py-2 flex items-center gap-2 text-xs text-amber-900">
+                  <span className="font-semibold">Upcoming:</span>
+                  <span>
+                    {dueSoonCount} {dueSoonCount === 1 ? 'assignment' : 'assignments'} due in the next 7 days
+                  </span>
+                </div>
+              )}
+              <LessonListBoard classId={classId} />
+            </>
           )}
 
           {/* Stream Tab Content */}
@@ -1399,6 +1383,7 @@ export function TeacherClassStream({
               totalSubmissions={allRecentSubmissions.length}
               filters={submissionFilters}
               onFiltersChange={setSubmissionFilters}
+              lessonOptions={submissionLessonOptions}
               exportingRegistrar={exportingRegistrar}
               handleExportRegistrar={handleExportRegistrar}
               showSubmissionDetail={showSubmissionDetail}
@@ -1420,7 +1405,6 @@ export function TeacherClassStream({
           {activeTab === 'insights' && (
             <TeacherClassInsights classId={classId} />
           )}
-        </div>
       </div>
 
       <style>{`
