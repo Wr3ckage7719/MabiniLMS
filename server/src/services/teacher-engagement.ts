@@ -155,6 +155,199 @@ export const getCourseMaterialEngagementSummary = async (
 };
 
 // ============================================
+// Per-material engagement detail (per-student breakdown for one material)
+// ============================================
+
+export interface MaterialStudentEngagementRow {
+  student_id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  started: boolean;
+  completed: boolean;
+  progress_percent: number;
+  download_count: number;
+  last_viewed_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MaterialStudentEngagementSummary {
+  course_id: string;
+  material_id: string;
+  material_title: string;
+  material_type: string | null;
+  enrolled_students: number;
+  students_started: number;
+  students_completed: number;
+  avg_progress_percent: number;
+  total_downloads: number;
+  last_activity_at: string | null;
+  generated_at: string;
+  students: MaterialStudentEngagementRow[];
+}
+
+export const getMaterialStudentEngagement = async (
+  courseId: string,
+  materialId: string
+): Promise<MaterialStudentEngagementSummary> => {
+  const [materialResult, enrolmentsResult, progressResult] = await Promise.all([
+    supabaseAdmin
+      .from('course_materials')
+      .select('id, title, type, course_id')
+      .eq('id', materialId)
+      .eq('course_id', courseId)
+      .single(),
+    supabaseAdmin
+      .from('enrollments')
+      .select(
+        `student:profiles!enrollments_student_id_fkey(
+          id, email, first_name, last_name, avatar_url
+        )`
+      )
+      .eq('course_id', courseId)
+      .in('status', ACTIVE_ENROLLMENT_STATUSES),
+    supabaseAdmin
+      .from('material_progress')
+      .select(
+        'user_id, progress_percent, completed, download_count, last_viewed_at, completed_at'
+      )
+      .eq('course_id', courseId)
+      .eq('material_id', materialId),
+  ]);
+
+  if (materialResult.error) {
+    if ((materialResult.error as { code?: string }).code === 'PGRST116') {
+      throw new ApiError(ErrorCode.NOT_FOUND, 'Material not found', 404);
+    }
+    logger.error('Failed to load material for engagement detail', {
+      courseId,
+      materialId,
+      error: materialResult.error.message,
+    });
+    throw new ApiError(
+      ErrorCode.INTERNAL_ERROR,
+      'Failed to load material engagement detail',
+      500
+    );
+  }
+
+  for (const [label, result] of [
+    ['enrolments', enrolmentsResult],
+    ['progress', progressResult],
+  ] as const) {
+    if (result.error) {
+      logger.error('Failed to load material engagement detail', {
+        courseId,
+        materialId,
+        label,
+        error: result.error.message,
+      });
+      throw new ApiError(
+        ErrorCode.INTERNAL_ERROR,
+        'Failed to load material engagement detail',
+        500
+      );
+    }
+  }
+
+  const material = materialResult.data as {
+    id: string;
+    title: string;
+    type: string | null;
+  };
+
+  type ProgressRow = {
+    user_id: string;
+    progress_percent: number | null;
+    completed: boolean;
+    download_count: number | null;
+    last_viewed_at: string | null;
+    completed_at: string | null;
+  };
+  const progressByStudent = new Map<string, ProgressRow>();
+  for (const row of (progressResult.data || []) as ProgressRow[]) {
+    if (row.user_id) progressByStudent.set(row.user_id, row);
+  }
+
+  const seen = new Set<string>();
+  const rows: MaterialStudentEngagementRow[] = [];
+  let lastActivityMs = 0;
+  let progressSum = 0;
+  let progressCount = 0;
+  let startedCount = 0;
+  let completedCount = 0;
+  let downloadsTotal = 0;
+
+  for (const enrolment of (enrolmentsResult.data || []) as Array<{ student?: unknown }>) {
+    const s = Array.isArray(enrolment.student) ? enrolment.student[0] : enrolment.student;
+    const sid = (s as { id?: string } | null | undefined)?.id;
+    if (!sid || seen.has(sid)) continue;
+    seen.add(sid);
+
+    const profile = s as {
+      id: string;
+      email: string;
+      first_name: string | null;
+      last_name: string | null;
+      avatar_url: string | null;
+    };
+    const progress = progressByStudent.get(sid);
+    const progressPercent = Number(progress?.progress_percent ?? 0);
+    const started = progressPercent > 0 || Boolean(progress?.completed);
+    const completed = Boolean(progress?.completed);
+    const downloadCount = Number(progress?.download_count ?? 0);
+    const lastViewedMs = progress?.last_viewed_at
+      ? new Date(progress.last_viewed_at).getTime()
+      : NaN;
+
+    if (Number.isFinite(lastViewedMs) && lastViewedMs > lastActivityMs) {
+      lastActivityMs = lastViewedMs;
+    }
+    progressSum += progressPercent;
+    progressCount += 1;
+    if (started) startedCount += 1;
+    if (completed) completedCount += 1;
+    downloadsTotal += downloadCount;
+
+    rows.push({
+      student_id: profile.id,
+      email: profile.email,
+      first_name: profile.first_name ?? null,
+      last_name: profile.last_name ?? null,
+      avatar_url: profile.avatar_url ?? null,
+      started,
+      completed,
+      progress_percent: round2(progressPercent),
+      download_count: downloadCount,
+      last_viewed_at: progress?.last_viewed_at ?? null,
+      completed_at: progress?.completed_at ?? null,
+    });
+  }
+
+  rows.sort((a, b) => {
+    const an = `${a.last_name ?? ''} ${a.first_name ?? ''}`.trim();
+    const bn = `${b.last_name ?? ''} ${b.first_name ?? ''}`.trim();
+    return an.localeCompare(bn);
+  });
+
+  return {
+    course_id: courseId,
+    material_id: material.id,
+    material_title: material.title,
+    material_type: material.type ?? null,
+    enrolled_students: rows.length,
+    students_started: startedCount,
+    students_completed: completedCount,
+    avg_progress_percent: progressCount > 0 ? round2(progressSum / progressCount) : 0,
+    total_downloads: downloadsTotal,
+    last_activity_at: lastActivityMs > 0 ? new Date(lastActivityMs).toISOString() : null,
+    generated_at: new Date().toISOString(),
+    students: rows,
+  };
+};
+
+// ============================================
 // Per-assessment readiness (which students can take it now)
 // ============================================
 

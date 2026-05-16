@@ -28,28 +28,39 @@ export interface SubmissionFiltersState {
   search: string;
   status: SubmissionStatusFilter;
   sort: SubmissionSortKey;
+  lessonId: string;
 }
 
 export const DEFAULT_SUBMISSION_FILTERS: SubmissionFiltersState = {
   search: '',
   status: 'all',
   sort: 'newest',
+  lessonId: 'all',
 };
+
+export interface SubmissionLessonOption {
+  id: string;
+  title: string;
+}
 
 interface SubmissionFiltersProps {
   value: SubmissionFiltersState;
   onChange: (next: SubmissionFiltersState) => void;
   totalCount: number;
   filteredCount: number;
+  lessons: SubmissionLessonOption[];
 }
 
-export function SubmissionFilters({ value, onChange, totalCount, filteredCount }: SubmissionFiltersProps) {
+export function SubmissionFilters({ value, onChange, totalCount, filteredCount, lessons }: SubmissionFiltersProps) {
   const filterActive =
-    value.search.trim() !== '' || value.status !== 'all' || value.sort !== 'newest';
+    value.search.trim() !== '' ||
+    value.status !== 'all' ||
+    value.sort !== 'newest' ||
+    value.lessonId !== 'all';
 
   return (
     <div className="space-y-2 mb-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <Input
@@ -73,6 +84,23 @@ export function SubmissionFilters({ value, onChange, totalCount, filteredCount }
             <SelectItem value="graded">Graded</SelectItem>
             <SelectItem value="pending">Pending grade</SelectItem>
             <SelectItem value="with_violations">With violations</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={value.lessonId}
+          onValueChange={(v) => onChange({ ...value, lessonId: v })}
+          disabled={lessons.length === 0}
+        >
+          <SelectTrigger className="h-8 text-xs rounded-lg sm:w-52">
+            <SelectValue placeholder="Lesson" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All lessons</SelectItem>
+            {lessons.map((lesson) => (
+              <SelectItem key={lesson.id} value={lesson.id}>
+                {lesson.title}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Select

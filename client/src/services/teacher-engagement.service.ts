@@ -18,6 +18,35 @@ export interface CourseMaterialEngagementSummary {
   materials: MaterialEngagementSummaryRow[];
 }
 
+export interface MaterialStudentEngagementRow {
+  student_id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  started: boolean;
+  completed: boolean;
+  progress_percent: number;
+  download_count: number;
+  last_viewed_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MaterialStudentEngagementSummary {
+  course_id: string;
+  material_id: string;
+  material_title: string;
+  material_type: string | null;
+  enrolled_students: number;
+  students_started: number;
+  students_completed: number;
+  avg_progress_percent: number;
+  total_downloads: number;
+  last_activity_at: string | null;
+  generated_at: string;
+  students: MaterialStudentEngagementRow[];
+}
+
 export interface ReadinessStudent {
   id: string;
   email: string;
@@ -57,6 +86,16 @@ export const teacherEngagementService = {
   ): Promise<CourseMaterialEngagementSummary | null> {
     const response = await apiClient.get(`/courses/${courseId}/material-engagement`);
     return unwrap<CourseMaterialEngagementSummary>(response);
+  },
+
+  async getMaterialStudentEngagement(
+    courseId: string,
+    materialId: string
+  ): Promise<MaterialStudentEngagementSummary | null> {
+    const response = await apiClient.get(
+      `/courses/${courseId}/materials/${materialId}/student-engagement`
+    );
+    return unwrap<MaterialStudentEngagementSummary>(response);
   },
 
   async getAssessmentReadiness(

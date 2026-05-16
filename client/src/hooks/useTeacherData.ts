@@ -215,35 +215,41 @@ export function useCourseSubmissions(courseId: string | null): UseCourseSubmissi
       // First get all assignments for this course
       const assignmentsRes = await teacherService.getCourseAssignments(courseId);
       const assignments = assignmentsRes.data || [];
-      
-      // Then fetch submissions for each assignment
-      const allSubmissions: Submission[] = [];
-      for (const assignment of assignments) {
-        try {
-          const subRes = await teacherService.getAssignmentSubmissions(assignment.id);
-          const subs = (subRes.data || []).map(s => ({
-            ...s,
-            assignment: {
-              id: assignment.id,
-              title: assignment.title,
-              due_date: assignment.due_date,
-              max_points: assignment.max_points,
-              course_id: assignment.course_id,
-              assignment_type: (assignment as any).assignment_type,
-            },
-          }));
-          allSubmissions.push(...subs);
-        } catch (e) {
-          // Continue if one assignment fails
-          console.warn(`Failed to fetch submissions for assignment ${assignment.id}`);
-        }
-      }
-      
+
+      // Fan out the per-assignment submission fetches in parallel. The
+      // previous sequential for-loop made this O(assignments) round-trips,
+      // which was the dominant latency on tabs like People that wait for
+      // submissions before rendering.
+      const submissionResults = await Promise.all(
+        assignments.map((assignment) =>
+          teacherService
+            .getAssignmentSubmissions(assignment.id)
+            .then((subRes) =>
+              (subRes.data || []).map((s) => ({
+                ...s,
+                assignment: {
+                  id: assignment.id,
+                  title: assignment.title,
+                  due_date: assignment.due_date,
+                  max_points: assignment.max_points,
+                  course_id: assignment.course_id,
+                  assignment_type: (assignment as any).assignment_type,
+                },
+              }))
+            )
+            .catch((e) => {
+              console.warn(`Failed to fetch submissions for assignment ${assignment.id}`, e);
+              return [] as Submission[];
+            })
+        )
+      );
+      const allSubmissions: Submission[] = submissionResults.flat();
+
       // Sort by submission date (most recent first)
-      allSubmissions.sort((a, b) => 
+      allSubmissions.sort((a, b) =>
         new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
       );
-      
+
       setSubmissions(allSubmissions);
     } catch (err: any) {
       console.error('Error fetching course submissions:', err);

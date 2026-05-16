@@ -1,4 +1,5 @@
-import { Loader2, BookOpen, Download, Eye, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Loader2, BookOpen, Download, Eye, CheckCircle2, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useCourseMaterialEngagement } from '@/hooks-api/useTeacherEngagement';
@@ -29,6 +30,7 @@ const formatRelative = (iso: string | null): string => {
  */
 export function MaterialEngagementPanel({ classId }: MaterialEngagementPanelProps) {
   const { data, isLoading, error } = useCourseMaterialEngagement(classId);
+  const navigate = useNavigate();
 
   return (
     <Card className="border-0 shadow-sm">
@@ -66,14 +68,22 @@ export function MaterialEngagementPanel({ classId }: MaterialEngagementPanelProp
                   : 0;
 
               return (
-                <li
-                  key={m.material_id}
-                  className="rounded-lg border bg-secondary/20 p-3 space-y-2"
-                >
+                <li key={m.material_id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/teacher/classes/${classId}/materials/${m.material_id}/engagement`
+                      )
+                    }
+                    className="w-full text-left rounded-lg border bg-secondary/20 p-3 space-y-2 hover:bg-secondary/40 hover:border-primary/30 transition-colors group"
+                    aria-label={`View per-student engagement for ${m.material_title}`}
+                  >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate flex items-center gap-1">
                         {m.material_title}
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
                       </p>
                       <p className="text-[11px] text-muted-foreground">
                         Last activity: {formatRelative(m.last_activity_at)}
@@ -111,6 +121,7 @@ export function MaterialEngagementPanel({ classId }: MaterialEngagementPanelProp
                       <span>{Math.round(m.avg_progress_percent)}%</span>
                     </div>
                   </div>
+                  </button>
                 </li>
               );
             })}

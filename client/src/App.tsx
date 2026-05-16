@@ -36,6 +36,7 @@ const TeacherLayout = React.lazy(() => import('./layouts/TeacherLayout'));
 const TeacherDashboardPage = React.lazy(() => import('./pages/teacher/TeacherDashboardPage'));
 const TeacherClassesPage = React.lazy(() => import('./pages/teacher/TeacherClassesPage'));
 const TeacherClassDetailPage = React.lazy(() => import('./pages/teacher/TeacherClassDetailPage'));
+const MaterialEngagementDetailPage = React.lazy(() => import('./pages/teacher/MaterialEngagementDetailPage'));
 const TeacherCalendarPage = React.lazy(() => import('./pages/teacher/TeacherCalendarPage'));
 const TeacherArchivedPage = React.lazy(() => import('./pages/teacher/TeacherArchivedPage'));
 const TeacherSettingsPageLazy = React.lazy(() => import('./pages/TeacherSettingsPage'));
@@ -89,6 +90,10 @@ const AppRoutes = () => (
       <Route path="/teacher/dashboard" element={<TeacherDashboardPage />} />
       <Route path="/teacher/classes" element={<TeacherClassesPage />} />
       <Route path="/teacher/classes/:classId" element={<TeacherClassDetailPage />} />
+      <Route
+        path="/teacher/classes/:classId/materials/:materialId/engagement"
+        element={<MaterialEngagementDetailPage />}
+      />
       <Route path="/teacher/calendar" element={<TeacherCalendarPage />} />
       <Route path="/teacher/archived" element={<TeacherArchivedPage />} />
       <Route path="/teacher/settings" element={<TeacherSettingsPageLazy />} />
