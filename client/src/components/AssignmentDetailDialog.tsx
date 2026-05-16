@@ -599,7 +599,7 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
     icon: 'lock' | 'send';
   } | null = null;
 
-  if (!loadingSubmission && !hasFinalState) {
+  if (!loadingSubmission && !hasFinalState && effectiveStatus !== 'missed') {
     if (isQuizAssignment) {
       primaryAction = {
         label: lockedByGate ? 'Locked' : 'Start Quiz',
@@ -777,7 +777,19 @@ export function AssignmentDetailDialog({ assignment, open, onOpenChange, teacher
                 </div>
               ) : null}
 
-              {(isQuizAssignment || isExamAssignment) && (loadingSubmission || submission || terminalAttempt) ? (
+              {(isQuizAssignment || isExamAssignment) && effectiveStatus === 'missed' ? (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 sm:p-4 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
+                    <p className="text-xs sm:text-sm font-semibold text-destructive">
+                      Assessment Missed
+                    </p>
+                  </div>
+                  <p className="text-xs text-destructive/80">
+                    The submission window for this {isQuizAssignment ? 'quiz' : 'exam'} has closed. You were unable to complete it in time.
+                  </p>
+                </div>
+              ) : (isQuizAssignment || isExamAssignment) && (loadingSubmission || submission || terminalAttempt) ? (
                 loadingSubmission ? (
                   <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Checking submission status…
