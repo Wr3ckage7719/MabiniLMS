@@ -174,9 +174,6 @@ const toExamQuestionPayload = (
   };
 };
 
-const toExamImportPayload = (question: ImportedQuestionDraft, orderIndex: number): CreateExamQuestionPayload | null =>
-  toExamQuestionPayload(question, orderIndex);
-
 const toExamBuilderPayload = (question: QuizBuilderQuestion, orderIndex: number): CreateExamQuestionPayload | null =>
   toExamQuestionPayload({ ...question, points: question.points && question.points > 0 ? question.points : 1 }, orderIndex);
 
@@ -528,6 +525,16 @@ export function CreateAssignmentDialog({
         setQuizImportFileName(file.name);
         clearFieldError('quizQuestions');
       } else {
+        setExamQuestions(result.questions.map((q) => ({
+          id: q.id,
+          type: q.type,
+          prompt: q.prompt,
+          choices: q.choices,
+          answerKey: q.answerKey,
+          points: q.points,
+          chapterTag: q.chapterTag,
+          explanation: q.explanation || undefined,
+        })));
         setExamImportedQuestions(result.questions);
         setExamImportFileName(file.name);
       }
@@ -725,7 +732,7 @@ export function CreateAssignmentDialog({
           assignment_type: assignmentType,
           grading_period: gradingPeriod || null,
           due_date: dueDateISO || new Date().toISOString(),
-          max_points: taskType === 'quiz' ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : taskType === 'exam' ? Math.max(1, examQuestions.reduce((s, q) => s + (q.points ?? 1), 0) + examImportedQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : (Number(points) || 100),
+          max_points: taskType === 'quiz' ? Math.max(1, quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : taskType === 'exam' ? Math.max(1, examQuestions.reduce((s, q) => s + (q.points ?? 1), 0)) : (Number(points) || 100),
           submissions_open: submissionsOpen,
           submission_open_at: submissionOpenAt,
           submission_close_at: submissionCloseAt,
@@ -745,12 +752,11 @@ export function CreateAssignmentDialog({
           const sourceBuilderQuestions = taskType === 'quiz' ? quizQuestions : examQuestions;
           const candidateBuilderQuestions = sourceBuilderQuestions.filter(hasQuestionDraftContent);
           const builderPayloads = candidateBuilderQuestions.map((q, index) => toExamBuilderPayload(q, index)).filter((payload): payload is CreateExamQuestionPayload => Boolean(payload));
-          const importedPayloads = taskType === 'exam' ? examImportedQuestions.map((q, index) => toExamImportPayload(q, builderPayloads.length + index)).filter((payload): payload is CreateExamQuestionPayload => Boolean(payload)) : [];
-          const mappedPayloads = [...builderPayloads, ...importedPayloads];
+          const mappedPayloads = builderPayloads;
           if (mappedPayloads.length > 0) {
             await Promise.all(mappedPayloads.map((payload) => examsService.createExamQuestion(createdAssignmentId, payload)));
           }
-          const sourceQuestionCount = candidateBuilderQuestions.length + (taskType === 'exam' ? examImportedQuestions.length : 0);
+          const sourceQuestionCount = candidateBuilderQuestions.length;
           const skippedOnSave = sourceQuestionCount - mappedPayloads.length;
           if (skippedOnSave > 0) {
             toast({ title: `${TASK_LABELS[taskType]} questions partially applied`, description: `${mappedPayloads.length} questions saved. ${skippedOnSave} skipped due to missing prompt, answer key, or choices.` });
@@ -826,7 +832,6 @@ export function CreateAssignmentDialog({
     if (!hasQuestionDraftContent(question)) return count;
     return count + (toExamBuilderPayload(question, index) ? 1 : 0);
   }, 0);
-  const examImportReadyCount = examImportedQuestions.reduce((count, question, index) => count + (toExamImportPayload(question, index) ? 1 : 0), 0);
 
   const actionButtons = (
     <>
@@ -949,7 +954,7 @@ export function CreateAssignmentDialog({
               <div className="mt-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm flex items-center justify-between">
                 <span className="text-muted-foreground">Auto-sum from question points</span>
                 <span className="font-semibold tabular-nums">
-                  {taskType === 'quiz' ? quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0) : examQuestions.reduce((s, q) => s + (q.points ?? 1), 0) + examImportedQuestions.reduce((s, q) => s + (q.points ?? 1), 0)}
+                  {taskType === 'quiz' ? quizQuestions.reduce((s, q) => s + (q.points ?? 1), 0) : examQuestions.reduce((s, q) => s + (q.points ?? 1), 0)}
                 </span>
               </div>
             ) : (
@@ -1047,7 +1052,6 @@ export function CreateAssignmentDialog({
           clearFieldError={clearFieldError}
           examBuilderCandidateCount={examBuilderCandidateCount}
           examBuilderReadyCount={examBuilderReadyCount}
-          examImportReadyCount={examImportReadyCount}
           examChapterPoolEnabled={examChapterPoolEnabled}
           setExamChapterPoolEnabled={setExamChapterPoolEnabled}
           examChapterPool={examChapterPool}
