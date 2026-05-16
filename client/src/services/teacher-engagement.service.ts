@@ -10,6 +10,8 @@ export interface MaterialEngagementSummaryRow {
   avg_progress_percent: number;
   total_downloads: number;
   last_activity_at: string | null;
+  total_time_spent_seconds: number;
+  avg_time_per_student_seconds: number;
 }
 
 export interface CourseMaterialEngagementSummary {
@@ -28,6 +30,7 @@ export interface MaterialStudentEngagementRow {
   completed: boolean;
   progress_percent: number;
   download_count: number;
+  total_time_spent_seconds: number;
   last_viewed_at: string | null;
   completed_at: string | null;
 }
@@ -42,6 +45,8 @@ export interface MaterialStudentEngagementSummary {
   students_completed: number;
   avg_progress_percent: number;
   total_downloads: number;
+  total_time_spent_seconds: number;
+  avg_time_per_student_seconds: number;
   last_activity_at: string | null;
   generated_at: string;
   students: MaterialStudentEngagementRow[];
