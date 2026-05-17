@@ -7,7 +7,7 @@ MabiniLMS/
 ├── server/          # Backend (Node.js/Express/TypeScript) ✅ Complete
 ├── client/          # Frontend (empty or minimal)
 ├── docs/
-└── database-schema-complete.sql
+└── docs/sql/database-schema-complete.sql
 ```
 
 ## Integration Options

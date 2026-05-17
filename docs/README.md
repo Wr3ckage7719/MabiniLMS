@@ -16,4 +16,4 @@ For the main project documentation, see: **../DOCUMENTATION.md**
 
 ## Database Schema
 
-For the complete database schema, see: **../database-schema-complete.sql**
+For the complete database schema, see: **sql/database-schema-complete.sql**

@@ -40,3 +40,10 @@ client/.env
 client/.env.local
 client/coverage
 client/dist-ssr
+
+# Server-specific
+server/tmp/
+
+# Supabase local dev artifacts
+supabase/.branches/
+supabase/config.toml
