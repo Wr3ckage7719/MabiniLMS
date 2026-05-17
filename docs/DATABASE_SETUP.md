@@ -39,11 +39,11 @@ Your database should have these **11 tables**:
 2. **Run Database Schema**
    - Open Supabase Dashboard
    - Navigate to SQL Editor
-   - Copy content from `database-schema-complete.sql`
+   - Copy content from `docs/sql/database-schema-complete.sql`
    - Paste and run
 
 3. **Add Missing Features**
-   - In SQL Editor, run `ADD_MISSING_FEATURES.sql`
+   - In SQL Editor, run `docs/sql/ADD_MISSING_FEATURES.sql`
    - This adds email verification and notifications tables
 
 4. **Verify Setup**
@@ -216,7 +216,7 @@ LIMIT 20;
 
 ### Foreign key errors
 **Cause:** Running scripts out of order  
-**Solution:** Run `database-schema-complete.sql` first, then `ADD_MISSING_FEATURES.sql`
+**Solution:** Run `docs/sql/database-schema-complete.sql` first, then `docs/sql/ADD_MISSING_FEATURES.sql`
 
 ### No profiles created on signup
 **Cause:** Trigger not working  
