@@ -36,6 +36,14 @@ export type GradingPeriod = z.infer<typeof gradingPeriodSchema>;
 export const questionOrderModeSchema = z.enum(['sequence', 'random']);
 export type QuestionOrderMode = z.infer<typeof questionOrderModeSchema>;
 
+const examChapterPoolSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  chapters: z.array(z.object({
+    tag: z.string().trim().min(1).max(120),
+    count: z.number().int().min(1).max(500),
+  })).max(50).optional().default([]),
+});
+
 const proctoringPolicySchema = z.object({
   max_violations: z.number().int().min(1).max(20).optional(),
   terminate_on_fullscreen_exit: z.boolean().optional(),
@@ -96,6 +104,7 @@ export const createAssignmentSchema = z.object({
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).optional(),
   proctoring_policy: proctoringPolicySchema.optional(),
+  exam_chapter_pool: examChapterPoolSchema.optional(),
   topics: topicsArraySchema.optional(),
   // When provided, the new assignment is attached to this lesson via
   // lesson_assessments instead of being parked in the course's General lesson.
@@ -134,6 +143,7 @@ export const updateAssignmentSchema = z.object({
   is_proctored: z.boolean().optional(),
   exam_duration_minutes: z.number().int().min(5).max(300).nullable().optional(),
   proctoring_policy: proctoringPolicySchema.nullable().optional(),
+  exam_chapter_pool: examChapterPoolSchema.nullable().optional(),
   topics: topicsArraySchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.submission_open_at && value.submission_close_at) {

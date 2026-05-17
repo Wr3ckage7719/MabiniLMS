@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   CheckCircle2,
   FileText,
@@ -43,7 +44,7 @@ import {
 } from 'lucide-react';
 import { formatDate, cn } from '@/lib/utils';
 import { assignmentsService } from '@/services/assignments.service';
-import { examsService, type CreateExamQuestionPayload } from '@/services/exams.service';
+import { examsService, type CreateExamQuestionPayload, type ExamQuestion } from '@/services/exams.service';
 import { materialsService } from '@/services/materials.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -184,6 +185,36 @@ const hasQuestionDraftContent = (question: QuizBuilderQuestion): boolean => {
   return false;
 };
 
+export function BuilderSkeleton({ variant = 'page' }: { variant?: 'page' | 'dialog' }) {
+  return (
+    <div className="space-y-6 animate-in fade-in-0 duration-300">
+      {variant === 'page' && (
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      )}
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-10 w-full rounded-lg" />
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-20 w-full rounded-lg" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-16 w-full rounded-lg" />
+      </div>
+      <Skeleton className="h-44 w-full rounded-lg" />
+      <Skeleton className="h-44 w-full rounded-lg" />
+      <Skeleton className="h-44 w-full rounded-lg" />
+    </div>
+  );
+}
+
 export function CreateAssignmentDialog({
   open,
   onOpenChange,
@@ -265,16 +296,15 @@ export function CreateAssignmentDialog({
 
   useEffect(() => {
     if (mode !== 'edit' || !assignmentId || !classId || !open) return;
+    let cancelled = false;
     setIsLoadingEdit(true);
     Promise.all([
       assignmentsService.getAssignmentById(classId, assignmentId),
-      assignmentsService.getAssignmentById(classId, assignmentId).then(() =>
-        examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[])
-      ),
-    ]).then(async ([asgResp]) => {
+      examsService.listExamQuestions(assignmentId).catch(() => [] as ExamQuestion[]),
+    ]).then(([asgResp, questionsResp]) => {
+      if (cancelled) return;
       const rawAssignment = (asgResp as any)?.data?.assignment ?? (asgResp as any)?.data;
       if (!rawAssignment) return;
-      const questionsResp = await examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[]);
 
       setTitle(rawAssignment.title ?? '');
       setDescription(rawAssignment.description ?? '');
@@ -297,7 +327,7 @@ export function CreateAssignmentDialog({
             const accepted = (q.answer_payload as any)?.accepted_answers;
             answerKey = Array.isArray(accepted) ? accepted.join('|') : '';
           }
-          const mappedType: QuizQuestionType =
+          const questionType: QuizQuestionType =
             q.item_type === 'true_false' ? 'true_false'
             : q.item_type === 'short_answer' ? 'short_answer'
             : q.item_type === 'fill_in_blank' ? 'fill_in_blank'
@@ -306,7 +336,7 @@ export function CreateAssignmentDialog({
           return {
             id: `edit-${q.id}`,
             serverId: q.id,
-            type: mappedType,
+            type: questionType,
             prompt: q.prompt,
             choices: q.choices ?? [],
             answerKey,
@@ -321,22 +351,47 @@ export function CreateAssignmentDialog({
         else setExamQuestions(builderQuestions);
       }
 
-      if (rawAssignment.exam_duration_minutes) {
-        setExamTimerEnabled(true);
-        setExamDurationMinutes(String(rawAssignment.exam_duration_minutes));
+      if (mappedType === 'exam') {
+        if (rawAssignment.exam_duration_minutes) {
+          setExamTimerEnabled(true);
+          setExamDurationMinutes(String(rawAssignment.exam_duration_minutes));
+        }
+        if (rawAssignment.question_order_mode) setExamQuestionOrder(rawAssignment.question_order_mode);
+        if (rawAssignment.exam_question_selection_mode) setExamQuestionSelection(rawAssignment.exam_question_selection_mode);
+        const pool = rawAssignment.exam_chapter_pool;
+        if (pool?.enabled) {
+          setExamChapterPoolEnabled(true);
+          setExamChapterPool(Array.isArray(pool.chapters) ? pool.chapters : []);
+        }
+        const examPolicy = (rawAssignment.proctoring_policy ?? {}) as Record<string, unknown>;
+        setExamOneQuestionAtATime(Boolean(examPolicy.one_question_at_a_time));
       }
-      if (rawAssignment.question_order_mode) setExamQuestionOrder(rawAssignment.question_order_mode);
-      if (rawAssignment.exam_question_selection_mode) setExamQuestionSelection(rawAssignment.exam_question_selection_mode);
-      const pool = rawAssignment.exam_chapter_pool;
-      if (pool?.enabled) {
-        setExamChapterPoolEnabled(true);
-        setExamChapterPool(Array.isArray(pool.chapters) ? pool.chapters : []);
+
+      if (mappedType === 'quiz') {
+        if (rawAssignment.exam_duration_minutes) {
+          setQuizTimerEnabled(true);
+          setQuizDurationMinutes(String(rawAssignment.exam_duration_minutes));
+        }
+        if (rawAssignment.question_order_mode) setQuizQuestionOrder(rawAssignment.question_order_mode);
+        const quizPolicy = (rawAssignment.proctoring_policy ?? {}) as Record<string, unknown>;
+        setQuizOneQuestionAtATime(Boolean(quizPolicy.one_question_at_a_time));
+        const requireFullscreen = Boolean(quizPolicy.require_fullscreen) || Boolean(quizPolicy.auto_submit_on_fullscreen_exit);
+        const autoSubmitTab = Boolean(quizPolicy.auto_submit_on_tab_switch);
+        const hasRestrictions = requireFullscreen || autoSubmitTab;
+        setQuizExamRestrictionsEnabled(hasRestrictions);
+        setQuizRequireFullscreen(requireFullscreen);
+        setQuizAutoSubmitOnTabSwitch(autoSubmitTab);
+        const maxV = typeof quizPolicy.max_violations === 'number' ? quizPolicy.max_violations : undefined;
+        if (maxV !== undefined && maxV < 999) setQuizMaxViolations(String(maxV));
       }
     }).catch((err) => {
+      if (cancelled) return;
       toast({ title: 'Failed to load assessment', description: err?.message || 'Unable to load assessment data for editing.', variant: 'destructive' });
     }).finally(() => {
+      if (cancelled) return;
       setIsLoadingEdit(false);
     });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, assignmentId, classId, open]);
 
@@ -636,6 +691,11 @@ export function CreateAssignmentDialog({
           exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : null,
           question_order_mode: taskType === 'quiz' ? quizQuestionOrder : taskType === 'exam' ? examQuestionOrder : undefined,
           exam_question_selection_mode: taskType === 'exam' ? examQuestionSelection : undefined,
+          exam_chapter_pool: taskType === 'exam'
+            ? (examChapterPoolEnabled
+                ? { enabled: true, chapters: examChapterPool }
+                : { enabled: false, chapters: [] })
+            : undefined,
         };
 
         await assignmentsService.updateAssignment(classId, assignmentId, patchPayload);
@@ -648,10 +708,11 @@ export function CreateAssignmentDialog({
 
           // DELETE removed questions
           const deleteIds = [...serverIds].filter((id) => !keepServerIds.has(id));
-          await Promise.allSettled(deleteIds.map((id) => examsService.deleteExamQuestion(assignmentId, id)));
+          const deleteResults = await Promise.allSettled(deleteIds.map((id) => examsService.deleteExamQuestion(assignmentId, id)));
+          const deleteFailures = deleteResults.filter((r) => r.status === 'rejected').length;
 
           // PATCH updated + POST new
-          await Promise.allSettled(toSave.map((q, index) => {
+          const saveResults = await Promise.allSettled(toSave.map((q, index) => {
             const payload = toExamBuilderPayload(q, index);
             if (!payload) return Promise.resolve();
             if (q.serverId && serverIds.has(q.serverId)) {
@@ -659,6 +720,15 @@ export function CreateAssignmentDialog({
             }
             return examsService.createExamQuestion(assignmentId, payload);
           }));
+          const saveFailures = saveResults.filter((r) => r.status === 'rejected').length;
+
+          if (deleteFailures > 0 || saveFailures > 0) {
+            const parts = [
+              saveFailures > 0 ? `${saveFailures} question${saveFailures === 1 ? '' : 's'} failed to save` : '',
+              deleteFailures > 0 ? `${deleteFailures} delete${deleteFailures === 1 ? '' : 's'} failed` : '',
+            ].filter(Boolean).join(' · ');
+            toast({ title: 'Partial save', description: `${parts}. Try again to retry the failed items.`, variant: 'destructive' });
+          }
         }
 
         await Promise.all([
@@ -743,6 +813,9 @@ export function CreateAssignmentDialog({
           exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : taskType === 'quiz' && quizTimerEnabled ? Math.max(1, parseInt(quizDurationMinutes, 10) || 30) : null,
           is_proctored: taskType === 'exam' ? true : taskType === 'quiz' && quizExamRestrictionsEnabled ? true : undefined,
           proctoring_policy: taskType === 'exam' ? { max_violations: effectiveExamMaxViolations, require_agreement_before_start: examRequireAgreementBeforeStart, auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, terminate_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, block_clipboard: strictProctoring, block_context_menu: strictProctoring, block_print_shortcut: strictProctoring, one_question_at_a_time: examOneQuestionAtATime } : taskType === 'quiz' ? ({ one_question_at_a_time: quizOneQuestionAtATime, max_violations: quizExamRestrictionsEnabled ? Math.max(1, parseInt(quizMaxViolations, 10) || 3) : 999, require_agreement_before_start: false, auto_submit_on_tab_switch: quizExamRestrictionsEnabled && quizAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, terminate_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, require_fullscreen: quizExamRestrictionsEnabled && quizRequireFullscreen, block_clipboard: false, block_context_menu: false, block_print_shortcut: false } as any) : undefined,
+          exam_chapter_pool: taskType === 'exam' && examChapterPoolEnabled
+            ? { enabled: true, chapters: examChapterPool }
+            : undefined,
           lesson_id: lessonId,
         });
 
@@ -848,7 +921,7 @@ export function CreateAssignmentDialog({
       {!isTaskTypeLocked && (
         <div>
           <label className="text-sm font-semibold mb-3 block">Task Type</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-stagger">
             {taskOptions.map((option) => {
               const Icon = option.icon;
               const selected = taskType === option.id;
@@ -902,13 +975,15 @@ export function CreateAssignmentDialog({
       </div>
 
       {taskType === 'reading_material' && (
-        <ReadingMaterialForm
-          readingProgressTracking={readingProgressTracking}
-          setReadingProgressTracking={setReadingProgressTracking}
-          readingSingleResourceMode={readingSingleResourceMode}
-          setReadingSingleResourceMode={setReadingSingleResourceMode}
-          readingMaterialFileError={errors.readingMaterialFile}
-        />
+        <div key="panel-reading_material" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
+          <ReadingMaterialForm
+            readingProgressTracking={readingProgressTracking}
+            setReadingProgressTracking={setReadingProgressTracking}
+            readingSingleResourceMode={readingSingleResourceMode}
+            setReadingSingleResourceMode={setReadingSingleResourceMode}
+            readingMaterialFileError={errors.readingMaterialFile}
+          />
+        </div>
       )}
 
       {taskType !== 'reading_material' && (
@@ -968,24 +1043,27 @@ export function CreateAssignmentDialog({
       )}
 
       {taskType === 'activity' && (
-        <ActivityForm
-          activityMode={activityMode}
-          setActivityMode={setActivityMode}
-          activityAllowedFileTypes={activityAllowedFileTypes}
-          toggleActivityFileType={toggleActivityFileType}
-          submissionsOpen={submissionsOpen}
-          setSubmissionsOpen={setSubmissionsOpen}
-          autoCloseSubmissionsOnDueDate={autoCloseSubmissionsOnDueDate}
-          setAutoCloseSubmissionsOnDueDate={setAutoCloseSubmissionsOnDueDate}
-          customSubmissionCloseDate={customSubmissionCloseDate}
-          setCustomSubmissionCloseDate={setCustomSubmissionCloseDate}
-          activityFileTypesError={errors.activityFileTypes}
-          customSubmissionCloseDateError={errors.customSubmissionCloseDate}
-          clearFieldError={clearFieldError}
-        />
+        <div key="panel-activity" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
+          <ActivityForm
+            activityMode={activityMode}
+            setActivityMode={setActivityMode}
+            activityAllowedFileTypes={activityAllowedFileTypes}
+            toggleActivityFileType={toggleActivityFileType}
+            submissionsOpen={submissionsOpen}
+            setSubmissionsOpen={setSubmissionsOpen}
+            autoCloseSubmissionsOnDueDate={autoCloseSubmissionsOnDueDate}
+            setAutoCloseSubmissionsOnDueDate={setAutoCloseSubmissionsOnDueDate}
+            customSubmissionCloseDate={customSubmissionCloseDate}
+            setCustomSubmissionCloseDate={setCustomSubmissionCloseDate}
+            activityFileTypesError={errors.activityFileTypes}
+            customSubmissionCloseDateError={errors.customSubmissionCloseDate}
+            clearFieldError={clearFieldError}
+          />
+        </div>
       )}
 
       {taskType === 'quiz' && (
+        <div key="panel-quiz" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
         <QuizForm
           quizQuestions={quizQuestions}
           quizQuestionOrder={quizQuestionOrder}
@@ -1015,9 +1093,11 @@ export function CreateAssignmentDialog({
           quizQuestionsError={errors.quizQuestions}
           clearFieldError={clearFieldError}
         />
+        </div>
       )}
 
       {taskType === 'exam' && (
+        <div key="panel-exam" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
         <ExamForm
           examQuestions={examQuestions}
           examImportedQuestions={examImportedQuestions}
@@ -1057,20 +1137,24 @@ export function CreateAssignmentDialog({
           examChapterPool={examChapterPool}
           setExamChapterPool={setExamChapterPool}
         />
+        </div>
       )}
 
       {taskType === 'recitation' && (
-        <RecitationForm
-          recitationMode={recitationMode}
-          setRecitationMode={setRecitationMode}
-          recitationCriteria={recitationCriteria}
-          setRecitationCriteria={setRecitationCriteria}
-          submissionsOpen={submissionsOpen}
-          setSubmissionsOpen={setSubmissionsOpen}
-        />
+        <div key="panel-recitation" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
+          <RecitationForm
+            recitationMode={recitationMode}
+            setRecitationMode={setRecitationMode}
+            recitationCriteria={recitationCriteria}
+            setRecitationCriteria={setRecitationCriteria}
+            submissionsOpen={submissionsOpen}
+            setSubmissionsOpen={setSubmissionsOpen}
+          />
+        </div>
       )}
 
       {taskType === 'project' && (
+        <div key="panel-project" className="animate-in fade-in-0 slide-in-from-top-1 duration-200">
         <ProjectForm
           projectGroupMode={projectGroupMode}
           setProjectGroupMode={setProjectGroupMode}
@@ -1088,6 +1172,7 @@ export function CreateAssignmentDialog({
           customSubmissionCloseDateError={errors.customSubmissionCloseDate}
           clearFieldError={clearFieldError}
         />
+        </div>
       )}
     </div>
   );
@@ -1172,14 +1257,14 @@ export function CreateAssignmentDialog({
       )}
 
       {taskType === 'reading_material' && !isUploadingMaterial && completedMaterialId ? (
-        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 animate-in fade-in-0 slide-in-from-top-1 duration-300">
           <CheckCircle2 className="h-3.5 w-3.5" />
           <span>Upload complete. File is ready to publish.</span>
         </div>
       ) : null}
 
       {taskType === 'reading_material' && isUploadingMaterial ? (
-        <Card className="border border-primary/25 bg-primary/5 mt-4">
+        <Card className="border border-primary/25 bg-primary/5 mt-4 animate-in fade-in-0 slide-in-from-top-1 duration-300">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center justify-between gap-3 text-sm">
               <p className="font-medium text-foreground flex items-center gap-2 min-w-0">
@@ -1230,18 +1315,19 @@ export function CreateAssignmentDialog({
 
   if (isPage) {
     return (
-      <div className="w-full min-h-[calc(100vh-14rem)] rounded-2xl border border-border bg-card p-4 md:p-6 lg:p-8">
-        {isLoadingEdit && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading assessment data...
-          </div>
+      <div className="w-full min-h-[calc(100vh-14rem)] rounded-2xl border border-border bg-card p-4 md:p-6 lg:p-8 animate-in fade-in-0 duration-300">
+        {isLoadingEdit ? (
+          <BuilderSkeleton variant="page" />
+        ) : (
+          <>
+            <div className="mb-6 animate-in fade-in-0 slide-in-from-top-1 duration-300">
+              <h2 className="text-2xl font-semibold">{isEditMode ? `Edit ${TASK_LABELS[taskType]}` : `Create ${TASK_LABELS[taskType]}`}</h2>
+              <p className="text-sm text-muted-foreground mt-1">{TASK_PAGE_INTRO[taskType]}</p>
+            </div>
+            {formSections}
+            <div className="sticky bottom-0 mt-8 -mx-4 md:-mx-6 lg:-mx-8 border-t border-border bg-card/95 backdrop-blur px-4 md:px-6 lg:px-8 py-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end animate-in fade-in-0 duration-300">{actionButtons}</div>
+          </>
         )}
-        <div className="mb-6">
-          <h2 className="text-2xl font-semibold">{isEditMode ? `Edit ${TASK_LABELS[taskType]}` : `Create ${TASK_LABELS[taskType]}`}</h2>
-          <p className="text-sm text-muted-foreground mt-1">{TASK_PAGE_INTRO[taskType]}</p>
-        </div>
-        {formSections}
-        <div className="mt-8 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">{actionButtons}</div>
       </div>
     );
   }
@@ -1253,13 +1339,14 @@ export function CreateAssignmentDialog({
           <DialogTitle className="text-xl">{isEditMode ? `Edit ${TASK_LABELS[taskType]}` : 'Create Task'}</DialogTitle>
           <DialogDescription>{isEditMode ? `Update the details for this ${TASK_LABELS[taskType].toLowerCase()}.` : 'Create a reading material, activity, quiz, exam, recitation, or project for your class.'}</DialogDescription>
         </DialogHeader>
-        {isLoadingEdit && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading assessment data...
-          </div>
+        {isLoadingEdit ? (
+          <BuilderSkeleton variant="dialog" />
+        ) : (
+          <>
+            {formSections}
+            <DialogFooter className="mt-6">{actionButtons}</DialogFooter>
+          </>
         )}
-        {formSections}
-        <DialogFooter className="mt-6">{actionButtons}</DialogFooter>
       </DialogContent>
     </Dialog>
   );

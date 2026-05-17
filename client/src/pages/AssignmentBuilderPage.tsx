@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTeacherLesson } from '@/hooks-api/useLessons';
 import { CreateAssignmentDialog, type TaskType } from '@/components/CreateAssignmentDialog';
+import { BuilderSkeleton } from '@/components/assignment-builder';
 
 const VALID_TASK_TYPES: TaskType[] = ['activity', 'quiz', 'exam', 'recitation', 'project', 'reading_material'];
 
@@ -47,7 +48,18 @@ export default function AssignmentBuilderPage() {
   }, [taskType]);
 
   if (!taskType) {
-    return null;
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+          <div className="max-w-5xl mx-auto px-4 md:px-6 py-3" />
+        </header>
+        <main className="flex-1 max-w-5xl w-full mx-auto px-4 md:px-6 py-6">
+          <div className="w-full rounded-2xl border border-border bg-card p-4 md:p-6 lg:p-8">
+            <BuilderSkeleton variant="page" />
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -68,7 +80,7 @@ export default function AssignmentBuilderPage() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 md:px-6 py-6">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 md:px-6 py-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
         <CreateAssignmentDialog
           open
           isPage
