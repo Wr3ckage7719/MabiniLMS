@@ -340,7 +340,7 @@ export function ExamForm({
 
           <div className="space-y-3">
             {examQuestions.map((question, index) => (
-              <Card key={question.id} className="border border-border/70 bg-card">
+              <Card key={question.id} className="border border-border/70 bg-card animate-in fade-in-0 slide-in-from-top-1 duration-200">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold">Question {index + 1}</p>
@@ -455,7 +455,7 @@ export function ExamForm({
                   </div>
 
                   {question.type === 'multiple_choice' && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 animate-in fade-in-0 zoom-in-95 duration-200">
                       <div className="space-y-2">
                         <label className="text-sm font-medium">Choices</label>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -492,7 +492,7 @@ export function ExamForm({
                   )}
 
                   {question.type === 'true_false' && (
-                    <div>
+                    <div className="animate-in fade-in-0 zoom-in-95 duration-200">
                       <label className="text-sm font-medium">Correct Answer</label>
                       <Select
                         value={question.answerKey || 'True'}
@@ -510,7 +510,7 @@ export function ExamForm({
                   )}
 
                   {question.type !== 'multiple_choice' && question.type !== 'true_false' && (
-                    <div>
+                    <div className="animate-in fade-in-0 zoom-in-95 duration-200">
                       <label className="text-sm font-medium">Answer Key</label>
                       <Input
                         value={question.answerKey}
