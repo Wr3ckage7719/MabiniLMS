@@ -409,6 +409,17 @@ export function CreateAssignmentDialog({
     setExamMaxViolations('5');
   }, [examIntegrityProfile]);
 
+  useEffect(() => {
+    if (!isPage) return;
+    if (!isSubmitting && !isUploadingMaterial) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isPage, isSubmitting, isUploadingMaterial]);
+
   const isTaskTypeLocked = isPage && Boolean(initialTaskType);
 
   const clearFieldError = (field: string) => {
