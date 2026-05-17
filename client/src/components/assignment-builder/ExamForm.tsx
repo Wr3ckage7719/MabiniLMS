@@ -419,7 +419,7 @@ export function ExamForm({
                           <XIcon className="h-3 w-3" />
                         </button>
                       </div>
-                    ) : (
+                    ) : onImageUpload ? (
                       <div className="mt-2">
                         <input
                           ref={(el) => { imageInputRefs.current[question.id] = el; }}
@@ -441,6 +441,8 @@ export function ExamForm({
                         </label>
                         <p className="text-[11px] text-muted-foreground mt-1">JPEG, PNG, WebP · max 5 MB</p>
                       </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-muted-foreground italic">Save the exam first to attach question images.</p>
                     )}
                   </div>
 

@@ -61,6 +61,7 @@ const ASSIGNMENT_COMPAT_OPTIONAL_COLUMNS = new Set<string>([
   'is_proctored',
   'exam_duration_minutes',
   'proctoring_policy',
+  'exam_chapter_pool',
   'topics',
 ]);
 
@@ -971,6 +972,10 @@ export const createAssignment = async (
     };
   }
 
+  if (isExamAssignment && input.exam_chapter_pool !== undefined) {
+    insertPayload.exam_chapter_pool = input.exam_chapter_pool ?? { enabled: false, chapters: [] };
+  }
+
   const { data: insertedAssignment, error } = await insertAssignmentWithCompatibility(
     insertPayload,
     {
@@ -1311,6 +1316,11 @@ export const updateAssignment = async (
     if (updatePayload.proctoring_policy === undefined) {
       delete updatePayload.proctoring_policy;
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalizedInput, 'exam_chapter_pool')) {
+    const pool = normalizedInput.exam_chapter_pool;
+    updatePayload.exam_chapter_pool = pool ?? { enabled: false, chapters: [] };
   }
 
   if (Object.prototype.hasOwnProperty.call(normalizedInput, 'topics')) {

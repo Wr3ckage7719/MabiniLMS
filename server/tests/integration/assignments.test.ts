@@ -217,10 +217,9 @@ describe('Assignment Schemas', () => {
           exam_chapter_pool: {
             enabled: true,
             chapters: [
-              { tag: 'Chapter 1', take: 3 },
-              { tag: 'Chapter 2', take: 2 },
+              { tag: 'Chapter 1', count: 3 },
+              { tag: 'Chapter 2', count: 2 },
             ],
-            total_questions: 5,
           },
         })
 

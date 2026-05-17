@@ -28,6 +28,10 @@ export interface AssignmentData {
   };
   is_proctored?: boolean;
   exam_duration_minutes?: number | null;
+  exam_chapter_pool?: {
+    enabled: boolean;
+    chapters: Array<{ tag: string; count: number }>;
+  } | null;
   submissions_open?: boolean;
   submission_open_at?: string | null;
   submission_close_at?: string | null;

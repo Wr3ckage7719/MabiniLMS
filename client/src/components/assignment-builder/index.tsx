@@ -44,7 +44,7 @@ import {
 } from 'lucide-react';
 import { formatDate, cn } from '@/lib/utils';
 import { assignmentsService } from '@/services/assignments.service';
-import { examsService, type CreateExamQuestionPayload } from '@/services/exams.service';
+import { examsService, type CreateExamQuestionPayload, type ExamQuestion } from '@/services/exams.service';
 import { materialsService } from '@/services/materials.service';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -296,16 +296,15 @@ export function CreateAssignmentDialog({
 
   useEffect(() => {
     if (mode !== 'edit' || !assignmentId || !classId || !open) return;
+    let cancelled = false;
     setIsLoadingEdit(true);
     Promise.all([
       assignmentsService.getAssignmentById(classId, assignmentId),
-      assignmentsService.getAssignmentById(classId, assignmentId).then(() =>
-        examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[])
-      ),
-    ]).then(async ([asgResp]) => {
+      examsService.listExamQuestions(assignmentId).catch(() => [] as ExamQuestion[]),
+    ]).then(([asgResp, questionsResp]) => {
+      if (cancelled) return;
       const rawAssignment = (asgResp as any)?.data?.assignment ?? (asgResp as any)?.data;
       if (!rawAssignment) return;
-      const questionsResp = await examsService.listExamQuestions(assignmentId).catch(() => [] as import('@/services/exams.service').ExamQuestion[]);
 
       setTitle(rawAssignment.title ?? '');
       setDescription(rawAssignment.description ?? '');
@@ -328,7 +327,7 @@ export function CreateAssignmentDialog({
             const accepted = (q.answer_payload as any)?.accepted_answers;
             answerKey = Array.isArray(accepted) ? accepted.join('|') : '';
           }
-          const mappedType: QuizQuestionType =
+          const questionType: QuizQuestionType =
             q.item_type === 'true_false' ? 'true_false'
             : q.item_type === 'short_answer' ? 'short_answer'
             : q.item_type === 'fill_in_blank' ? 'fill_in_blank'
@@ -337,7 +336,7 @@ export function CreateAssignmentDialog({
           return {
             id: `edit-${q.id}`,
             serverId: q.id,
-            type: mappedType,
+            type: questionType,
             prompt: q.prompt,
             choices: q.choices ?? [],
             answerKey,
@@ -352,22 +351,47 @@ export function CreateAssignmentDialog({
         else setExamQuestions(builderQuestions);
       }
 
-      if (rawAssignment.exam_duration_minutes) {
-        setExamTimerEnabled(true);
-        setExamDurationMinutes(String(rawAssignment.exam_duration_minutes));
+      if (mappedType === 'exam') {
+        if (rawAssignment.exam_duration_minutes) {
+          setExamTimerEnabled(true);
+          setExamDurationMinutes(String(rawAssignment.exam_duration_minutes));
+        }
+        if (rawAssignment.question_order_mode) setExamQuestionOrder(rawAssignment.question_order_mode);
+        if (rawAssignment.exam_question_selection_mode) setExamQuestionSelection(rawAssignment.exam_question_selection_mode);
+        const pool = rawAssignment.exam_chapter_pool;
+        if (pool?.enabled) {
+          setExamChapterPoolEnabled(true);
+          setExamChapterPool(Array.isArray(pool.chapters) ? pool.chapters : []);
+        }
+        const examPolicy = (rawAssignment.proctoring_policy ?? {}) as Record<string, unknown>;
+        setExamOneQuestionAtATime(Boolean(examPolicy.one_question_at_a_time));
       }
-      if (rawAssignment.question_order_mode) setExamQuestionOrder(rawAssignment.question_order_mode);
-      if (rawAssignment.exam_question_selection_mode) setExamQuestionSelection(rawAssignment.exam_question_selection_mode);
-      const pool = rawAssignment.exam_chapter_pool;
-      if (pool?.enabled) {
-        setExamChapterPoolEnabled(true);
-        setExamChapterPool(Array.isArray(pool.chapters) ? pool.chapters : []);
+
+      if (mappedType === 'quiz') {
+        if (rawAssignment.exam_duration_minutes) {
+          setQuizTimerEnabled(true);
+          setQuizDurationMinutes(String(rawAssignment.exam_duration_minutes));
+        }
+        if (rawAssignment.question_order_mode) setQuizQuestionOrder(rawAssignment.question_order_mode);
+        const quizPolicy = (rawAssignment.proctoring_policy ?? {}) as Record<string, unknown>;
+        setQuizOneQuestionAtATime(Boolean(quizPolicy.one_question_at_a_time));
+        const requireFullscreen = Boolean(quizPolicy.require_fullscreen) || Boolean(quizPolicy.auto_submit_on_fullscreen_exit);
+        const autoSubmitTab = Boolean(quizPolicy.auto_submit_on_tab_switch);
+        const hasRestrictions = requireFullscreen || autoSubmitTab;
+        setQuizExamRestrictionsEnabled(hasRestrictions);
+        setQuizRequireFullscreen(requireFullscreen);
+        setQuizAutoSubmitOnTabSwitch(autoSubmitTab);
+        const maxV = typeof quizPolicy.max_violations === 'number' ? quizPolicy.max_violations : undefined;
+        if (maxV !== undefined && maxV < 999) setQuizMaxViolations(String(maxV));
       }
     }).catch((err) => {
+      if (cancelled) return;
       toast({ title: 'Failed to load assessment', description: err?.message || 'Unable to load assessment data for editing.', variant: 'destructive' });
     }).finally(() => {
+      if (cancelled) return;
       setIsLoadingEdit(false);
     });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, assignmentId, classId, open]);
 
@@ -667,6 +691,11 @@ export function CreateAssignmentDialog({
           exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : null,
           question_order_mode: taskType === 'quiz' ? quizQuestionOrder : taskType === 'exam' ? examQuestionOrder : undefined,
           exam_question_selection_mode: taskType === 'exam' ? examQuestionSelection : undefined,
+          exam_chapter_pool: taskType === 'exam'
+            ? (examChapterPoolEnabled
+                ? { enabled: true, chapters: examChapterPool }
+                : { enabled: false, chapters: [] })
+            : undefined,
         };
 
         await assignmentsService.updateAssignment(classId, assignmentId, patchPayload);
@@ -679,10 +708,11 @@ export function CreateAssignmentDialog({
 
           // DELETE removed questions
           const deleteIds = [...serverIds].filter((id) => !keepServerIds.has(id));
-          await Promise.allSettled(deleteIds.map((id) => examsService.deleteExamQuestion(assignmentId, id)));
+          const deleteResults = await Promise.allSettled(deleteIds.map((id) => examsService.deleteExamQuestion(assignmentId, id)));
+          const deleteFailures = deleteResults.filter((r) => r.status === 'rejected').length;
 
           // PATCH updated + POST new
-          await Promise.allSettled(toSave.map((q, index) => {
+          const saveResults = await Promise.allSettled(toSave.map((q, index) => {
             const payload = toExamBuilderPayload(q, index);
             if (!payload) return Promise.resolve();
             if (q.serverId && serverIds.has(q.serverId)) {
@@ -690,6 +720,15 @@ export function CreateAssignmentDialog({
             }
             return examsService.createExamQuestion(assignmentId, payload);
           }));
+          const saveFailures = saveResults.filter((r) => r.status === 'rejected').length;
+
+          if (deleteFailures > 0 || saveFailures > 0) {
+            const parts = [
+              saveFailures > 0 ? `${saveFailures} question${saveFailures === 1 ? '' : 's'} failed to save` : '',
+              deleteFailures > 0 ? `${deleteFailures} delete${deleteFailures === 1 ? '' : 's'} failed` : '',
+            ].filter(Boolean).join(' · ');
+            toast({ title: 'Partial save', description: `${parts}. Try again to retry the failed items.`, variant: 'destructive' });
+          }
         }
 
         await Promise.all([
@@ -774,6 +813,9 @@ export function CreateAssignmentDialog({
           exam_duration_minutes: taskType === 'exam' && examTimerEnabled ? Math.max(1, parseInt(examDurationMinutes, 10) || 60) : taskType === 'quiz' && quizTimerEnabled ? Math.max(1, parseInt(quizDurationMinutes, 10) || 30) : null,
           is_proctored: taskType === 'exam' ? true : taskType === 'quiz' && quizExamRestrictionsEnabled ? true : undefined,
           proctoring_policy: taskType === 'exam' ? { max_violations: effectiveExamMaxViolations, require_agreement_before_start: examRequireAgreementBeforeStart, auto_submit_on_tab_switch: examAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, terminate_on_fullscreen_exit: examAutoSubmitOnFullscreenExit, block_clipboard: strictProctoring, block_context_menu: strictProctoring, block_print_shortcut: strictProctoring, one_question_at_a_time: examOneQuestionAtATime } : taskType === 'quiz' ? ({ one_question_at_a_time: quizOneQuestionAtATime, max_violations: quizExamRestrictionsEnabled ? Math.max(1, parseInt(quizMaxViolations, 10) || 3) : 999, require_agreement_before_start: false, auto_submit_on_tab_switch: quizExamRestrictionsEnabled && quizAutoSubmitOnTabSwitch, auto_submit_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, terminate_on_fullscreen_exit: quizExamRestrictionsEnabled && quizRequireFullscreen, require_fullscreen: quizExamRestrictionsEnabled && quizRequireFullscreen, block_clipboard: false, block_context_menu: false, block_print_shortcut: false } as any) : undefined,
+          exam_chapter_pool: taskType === 'exam' && examChapterPoolEnabled
+            ? { enabled: true, chapters: examChapterPool }
+            : undefined,
           lesson_id: lessonId,
         });
 
